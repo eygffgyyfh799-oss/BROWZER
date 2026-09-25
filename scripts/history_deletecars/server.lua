@@ -5,6 +5,53 @@ end
 
 local cleanupRunning = false
 
+local function normalizePlate(plate)
+    return plate and plate:gsub('%s+', ''):upper() or ''
+end
+
+local function getOwnedTable()
+    local fw = Config.Framework
+    if fw == 'auto' then
+        if GetResourceState('es_extended') == 'started' then
+            fw = 'esx'
+        elseif GetResourceState('qb-core') == 'started' then
+            fw = 'qb'
+        end
+    end
+    if fw == 'esx' then return 'owned_vehicles' end
+    if fw == 'qb' then return 'player_vehicles' end
+    return nil
+end
+
+-- يرجع جدول فيه كل اللوحات المحمية (المملوكة + اللي في الكونفق)
+local function getProtectedPlates()
+    local plates = {}
+    for _, plate in ipairs(Config.ProtectedPlates) do
+        plates[normalizePlate(plate)] = true
+    end
+    if not Config.ProtectOwned then return plates end
+
+    local tbl = getOwnedTable()
+    if not tbl or GetResourceState('oxmysql') ~= 'started' then
+        print('^1[history_deletecars] ما قدرت أقرأ السيارات المملوكة (تأكد من oxmysql و Config.Framework)^0')
+        return nil
+    end
+
+    local p = promise.new()
+    exports.oxmysql:query(('SELECT plate FROM %s'):format(tbl), {}, function(rows)
+        p:resolve(rows or {})
+    end)
+    for _, row in ipairs(Citizen.Await(p)) do
+        plates[normalizePlate(row.plate)] = true
+    end
+    return plates
+end
+
+local function isProtected(veh, protectedPlates)
+    return ignored[GetEntityModel(veh)]
+        or protectedPlates[normalizePlate(GetVehicleNumberPlateText(veh))]
+end
+
 local function notify(target, msg)
     TriggerClientEvent('chat:addMessage', target, { args = { Config.Prefix .. msg } })
 end
@@ -34,10 +81,14 @@ end
 
 -- يحذف كل السيارات الفاضية ويرجع عدد المحذوف
 local function deleteEmptyVehicles()
+    local protectedPlates = getProtectedPlates()
+    -- إذا ما قدرنا نعرف المملوكة، نوقف الحذف عشان ما ننحذف سيارات لاعبين بالغلط
+    if not protectedPlates then return 0 end
+
     local count = 0
     for _, veh in ipairs(GetAllVehicles()) do
         if DoesEntityExist(veh)
-            and not ignored[GetEntityModel(veh)]
+            and not isProtected(veh, protectedPlates)
             and not isOccupied(veh)
             and not (Config.SafeRadius > 0 and isNearPlayer(GetEntityCoords(veh), Config.SafeRadius)) then
             DeleteEntity(veh)
@@ -104,9 +155,17 @@ RegisterCommand('dv', function(src, args)
         return notify(src, '^1ما عندك صلاحية.')
     end
 
+    local protectedPlates = getProtectedPlates()
+    if not protectedPlates then
+        return notify(src, '^1ما قدرت أتحقق من السيارات المملوكة، تم إلغاء الحذف.')
+    end
+
     local ped = GetPlayerPed(src)
     local current = GetVehiclePedIsIn(ped, false)
     if current ~= 0 then
+        if isProtected(current, protectedPlates) then
+            return notify(src, '^1هذي السيارة مملوكة لاعب وما تنحذف.')
+        end
         DeleteEntity(current)
         return notify(src, '^2تم حذف السيارة.')
     end
@@ -115,7 +174,9 @@ RegisterCommand('dv', function(src, args)
     local coords = GetEntityCoords(ped)
     local count = 0
     for _, veh in ipairs(GetAllVehicles()) do
-        if #(GetEntityCoords(veh) - coords) <= radius and not isOccupied(veh) then
+        if #(GetEntityCoords(veh) - coords) <= radius
+            and not isOccupied(veh)
+            and not isProtected(veh, protectedPlates) then
             DeleteEntity(veh)
             count = count + 1
         end

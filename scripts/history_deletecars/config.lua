@@ -14,6 +14,18 @@ Config.IgnoredModels = {
     'police', 'police2', 'police3', 'ambulance', 'firetruk',
 }
 
+-- لا تحذف السيارات المملوكة للاعبين (المسجلة في قاعدة البيانات)
+Config.ProtectOwned = true
+
+-- نوع الفريم ورك: 'auto' (يكتشف لحاله) أو 'esx' أو 'qb'
+-- ESX: جدول owned_vehicles  |  QBCore: جدول player_vehicles  (يحتاج oxmysql)
+Config.Framework = 'auto'
+
+-- لوحات ما تنحذف أبداً (غير المملوكة من قاعدة البيانات)
+Config.ProtectedPlates = {
+    -- 'ABC 123',
+}
+
 -- الصلاحية المطلوبة لأوامر الإدارة (ضيفها في server.cfg)
 -- add_ace group.admin history.deletecars allow
 Config.AdminAce = 'history.deletecars'
