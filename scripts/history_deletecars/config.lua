@@ -17,9 +17,15 @@ Config.IgnoredModels = {
 -- لا تحذف السيارات المملوكة للاعبين (المسجلة في قاعدة البيانات)
 Config.ProtectOwned = true
 
--- نوع الفريم ورك: 'auto' (يكتشف لحاله) أو 'esx' أو 'qb'
--- ESX: جدول owned_vehicles  |  QBCore: جدول player_vehicles  (يحتاج oxmysql)
-Config.Framework = 'auto'
+-- نوع الفريم ورك: 'custom' أو 'esx' أو 'qb' أو 'auto'
+-- RespectCore: خله 'custom' وحط اسم جدول السيارات تحت
+-- يحتاج oxmysql أو mysql-async
+Config.Framework = 'custom'
+
+-- اسم جدول السيارات المملوكة واسم عمود اللوحة (يُستخدم مع 'custom')
+-- افتح قاعدة البيانات وتأكد من اسم الجدول اللي فيه سيارات اللاعبين
+Config.OwnedTable = 'owned_vehicles'
+Config.PlateColumn = 'plate'
 
 -- لوحات ما تنحذف أبداً (غير المملوكة من قاعدة البيانات)
 Config.ProtectedPlates = {

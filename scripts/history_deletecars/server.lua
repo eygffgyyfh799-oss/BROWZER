@@ -16,14 +16,37 @@ local function getOwnedTable()
             fw = 'esx'
         elseif GetResourceState('qb-core') == 'started' then
             fw = 'qb'
+        else
+            fw = 'custom'
         end
     end
-    if fw == 'esx' then return 'owned_vehicles' end
-    if fw == 'qb' then return 'player_vehicles' end
-    return nil
+    if fw == 'esx' then return 'owned_vehicles', 'plate' end
+    if fw == 'qb' then return 'player_vehicles', 'plate' end
+    return Config.OwnedTable, Config.PlateColumn
+end
+
+-- يشغل استعلام على قاعدة البيانات (oxmysql أو mysql-async)
+-- يرجع nil إذا صار خطأ أو ما رد خلال 10 ثواني
+local function fetchAll(sql)
+    local p = promise.new()
+    local function done(rows)
+        if p.state == 0 then p:resolve(rows) end
+    end
+
+    if GetResourceState('oxmysql') == 'started' then
+        exports.oxmysql:query(sql, {}, done)
+    elseif GetResourceState('mysql-async') == 'started' then
+        exports['mysql-async']:mysql_fetch_all(sql, {}, done)
+    else
+        return nil
+    end
+
+    SetTimeout(10000, function() done(nil) end)
+    return Citizen.Await(p)
 end
 
 -- يرجع جدول فيه كل اللوحات المحمية (المملوكة + اللي في الكونفق)
+-- يرجع nil إذا ما قدر يقرأ قاعدة البيانات
 local function getProtectedPlates()
     local plates = {}
     for _, plate in ipairs(Config.ProtectedPlates) do
@@ -31,17 +54,14 @@ local function getProtectedPlates()
     end
     if not Config.ProtectOwned then return plates end
 
-    local tbl = getOwnedTable()
-    if not tbl or GetResourceState('oxmysql') ~= 'started' then
-        print('^1[history_deletecars] ما قدرت أقرأ السيارات المملوكة (تأكد من oxmysql و Config.Framework)^0')
+    local tbl, column = getOwnedTable()
+    local rows = tbl and fetchAll(('SELECT `%s` AS plate FROM `%s`'):format(column, tbl))
+    if type(rows) ~= 'table' then
+        print(('^1[history_deletecars] ما قدرت أقرأ السيارات المملوكة من جدول %s - تم إلغاء الحذف^0'):format(tostring(tbl)))
         return nil
     end
 
-    local p = promise.new()
-    exports.oxmysql:query(('SELECT plate FROM %s'):format(tbl), {}, function(rows)
-        p:resolve(rows or {})
-    end)
-    for _, row in ipairs(Citizen.Await(p)) do
+    for _, row in ipairs(rows) do
         plates[normalizePlate(row.plate)] = true
     end
     return plates
