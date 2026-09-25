@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HISTORY</title>
+    <style>
+        :root {
+            --main-purple: #caa27c;
+            --light-purple: #caa27c;
+            --dark-bg: #141313;
+            --card-bg: #1b1919;
+            --text-white: #eeeeee;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-white);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            line-height: 1.6;
+            overflow-x: hidden; /* لمنع شريط التمرير الأفقي غير المرغوب فيه */
+        }
+
+        /* القائمة العلوية الثابتة */
+        nav {
+            background: rgba(20, 20, 20, 0.95);
+            display: flex;
+            justify-content: center;
+            padding: 15px;
+            position: sticky;
+            top: 0;
+            border-bottom: 3px solid var(--main-purple);
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(106, 13, 173, 0.3);
+        }
+
+        nav button {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin: 0 15px;
+            cursor: pointer;
+            transition: 0.3s;
+            padding: 8px 15px;
+            border-radius: 8px;
+        }
+
+        nav button:hover, nav button.active {
+            background: var(--main-purple);
+            color: #fff;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 20px;
+            background: linear-gradient(to bottom, #2c003e, var(--dark-bg));
+        }
+
+        /* حاوية عريضة لملء الصفحة */
+        .wide-container { 
+            width: 100%; 
+            margin: auto; 
+            padding: 20px 0; /* مسافة عمودية */
+        }
+
+        /* الحاوية القياسية للمحتوى النصي */
+        .container { 
+            max-width: 1100px; 
+            margin: auto; 
+            padding: 20px; 
+        }
+
+        /* التحكم في إظهار وإخفاء الأقسام */
+        .page-content { display: none; animation: fadeIn 0.5s; }
+        .page-content.active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* تنسيق القوانين (في الحاوية القياسية) */
+        .rules-list {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 15px;
+            border-right: 4px solid var(--main-purple);
+            list-style: none;
+            margin-top: 20px;
+        }
+
+        .rules-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a2a;
+            font-size: 0.95rem;
+        }
+
+        .rules-list li:last-child { border-bottom: none; }
+        .rules-list li::before { content: "• "; color: var(--main-purple); font-weight: bold; }
+
+        /* تنسيق كروت السيارات والبيوت العريضة */
+        .wide-grid {
+            display: flex;
+            flex-direction: column; /* الكروت تحت بعض */
+            gap: 30px;
+            width: 100%;
+        }
+
+        .wide-card {
+            display: flex; /* ترتيب أفقي */
+            background: var(--card-bg);
+            border-radius: 15px;
+            overflow: hidden;
+            border: 1px solid #333;
+            transition: 0.3s;
+            width: 90%; /* عرض الكرت بالنسبة للحاوية */
+            margin: auto; /* لتوسيط الكرت */
+        }
+
+        .wide-card:hover { 
+            border-color: var(--main-purple); 
+            transform: scale(1.01); /* حركة بسيطة */
+            box-shadow: 0 10px 30px rgba(106, 13, 173, 0.2);
+        }
+
+        .wide-card .image-container { 
+            width: 50%; /* نصف عرض الكرت للصورة */
+            height: 350px; /* ارتفاع ثابت للصورة */
+            overflow: hidden;
+        }
+
+        .wide-card img { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; /* لملء الصورة مساحتها دون تشويه */
+            background: #222; 
+        }
+
+        .wide-card .card-info { 
+            width: 50%; /* النصف الآخر للمعلومات */
+            padding: 30px; 
+            display: flex;
+            flex-direction: column;
+            justify-content: center; /* توسيط المحتوى عمودياً */
+            align-items: flex-start; /* محاذاة لليمين */
+            text-align: right; 
+        }
+
+        .buy-btn {
+            background: var(--main-purple);
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            display: inline-block;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-weight: bold;
+            transition: 0.3s;
+            align-self: flex-start;
+        }
+
+        .buy-btn:hover {
+            background: var(--light-purple);
+            box-shadow: 0 5px 15px rgba(106, 13, 173, 0.4);
+        }
+
+        .discord-section {
+            text-align: center;
+            padding: 100px 20px;
+        }
+
+        /* العناوين في الحاوية العريضة */
+        .wide-container h2 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <button onclick="showPage('vehicles')" id="btn-vehicles" class="active">المركبات</button>
+    <button onclick="showPage('houses')" id="btn-houses">البيوت</button>
+    <button onclick="showPage('rules')" id="btn-rules">القوانين</button>
+    <button onclick="showPage('discord')" id="btn-discord">الدسكورد</button>
+</nav>
+
+<header>
+    <h1 style="font-size: 3.5rem; margin: 0; font-family: 'RefinedFont', sans-serif;">HISTORY</h1>
+    <p style="color: var(--light-purple); font-size: 1.2rem;"> HISTORY  </p>
+</header>
+
+<div class="wide-container">
+
+    <div id="vehicles" class="page-content active">
+        <h2 style="color: var(--light-purple);">🏎️ معرض المركبات المميزة</h2>
+        <div class="wide-grid">
+            <div class="wide-card">
+                <div class="image-container">
+                    <img src="https://cdn.discordapp.com/attachments/1420101257905049690/1494784735812124782/ff3d8fd0-7ada-4e6e-8f9a-babbb195beac-md.jpeg?ex=69eb1e84&is=69e9cd04&hm=db01e77008c355854cb63a9e2e568207dd98bc9b81b6d6d5e8c6e2c8f92fc580&" alt="Vehicle">
+                </div>
+                <div class="card-info">
+                    <h3>   </h3>
+                    <p>      .</p>
+                    <a href="#" class="buy-btn">  </a>
+                </div>
+            </div>
+            </div>
+    </div>
+
+    <div id="houses" class="page-content">
+        <h2 style="color: var(--light-purple);">🏠 قائمة العقارات الفاخرة</h2>
+        <div class="wide-grid">
+            <div class="wide-card">
+                <div class="image-container">
+                    <img src="https://cdn.discordapp.com/attachments/1420101257905049690/1494784735812124782/ff3d8fd0-7ada-4e6e-8f9a-babbb195beac-md.jpeg?ex=69eb1e84&is=69e9cd04&hm=db01e77008c355854cb63a9e2e568207dd98bc9b81b6d6d5e8c6e2c8f92fc580&" alt="House">
+                </div>
+                <div class="card-info">
+                    <h3> </h3>
+                    <p>    .</p>
+                    <a href="#" class="buy-btn"> </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<div class="container">
+
+    <div id="rules" class="page-content">
+        <h2 style="color: var(--light-purple); border-bottom: 2px solid var(--main-purple); padding-bottom: 10px;">📜 قوانين وشروط هيستوري</h2>
+        <ul class="rules-list">
+                <li>ممنوع يكون اسم شخصيه مشهور مثال: (كافح ) . ( ماثيو ) الخ….</li>
+                <li>ممنوع منعاً باتاً الستريم سنايب أو متابعة البثوث أثناء اللعب وعقوبتها باند اسبوع.</li>
+                <li>ممنوع منعاً باتاً التواصل الغير شرعي على جميع اللاعبين.</li>
+                <li>ممنوع الاعتداء على المدنين ( البوتات ) لأي سبب كان ويجب ان تعتبره مواطن ويتم تطبيق القوانين عليه.</li>
+                <li>يمنع طلب تعويض في حال راحت فلوسك او أسلحتك او أغراضك بسبب التحلل أو نقلك إلى المستشفى.</li>
+                <li>يسمح طلب تعويض في حالة القلتش و المشاكل البرمجية.</li>
+                <li>ممنوع الكتابة خارج “الرول بلاي” في جميع تطبيقات الجوال + ME/.</li>
+                <li>ممنوع الدخول فى أى سناريو الا إذا كانت بينكم معرفه داخل الرول بلاي .</li>
+                <li style="border-right-color: #ff4444;">ممنوع القذف بالأعراض والشتم والكلام البذيء والكلام الطائفي أو السياسي أو الديني أو القبلي ويعتبر مخالف وعقبوتها الباند النهائي المباشر دون تحذير.</li>
+                <li>يمنع طلب الشرطة او منسوبي العدل والصحه بغرض خطفهم او قتلهم او سرقتهم.</li>
+                <li>يمنع منعاً باتاً توزيع الفلوس أو التسليف أو ما شابه بين اللاعبين بمبالغ كبيرة (فوق ال30 الف ).</li>
+                <li>ممنوع منعاً باتاً ‌ ‌قتل‌ ‌الأشخاص‌ ‌في‌ ‌حال‌ ‌كانوا‌ ‌ينفذون‌ ‌الأوامر‌ ‌او‌ ‌بحجة‌ ‌النسيان.</li>
+                <li>مشاركتك لأي من معلوماتك او حساباتك الشخصية ( ستيم – دسكورد الخ ...) مع اي شخص كان وإستخدامها للدخول إلى السيرفر يعرضكم جميعا للباند.</li>
+                <li>يمنع أن تحمل شخصين في نفس الوقت – ( حمل + سحب ) مهما كانت الاسباب.</li>
+                <li>تنبيه على القيادة الغير واقعية في حال تم رصد أي مواطن يقود مركبته بطريقة غير واقعية ( سرعة بدون سبب – قفز من اماكن مرتفعة).</li>
+                <li>إشارات بدون سبب – تهور في القيادة بدون سبب ) وغير ذلك … سيكون عليها ورن.</li>
+                <li>يحق للرقابة المحاسبة على جميع الأخطاء حتى لو لم تكن مدرجة ضمن القوانين.</li>
+                <li>يمنع تكوين عداوة على اسباب تافه مثال ( الضرب بالايدي بسبب مشادة كلاميه - أو شخص صدمك بالمركبة و هرب الخ...).</li>
+                <li>العداوة لاتكون إلا بثلاث مواقف واقعية أو اكثر.</li>
+                <li>في حال بينك وبين الشخص عداوة يحق لك اعدامه او تلويته.</li>
+                <li>لا يتم اعتماد العداوة الا من قبل الرقابة ويجب انو يكون معك اثبات على الثلاث مواقف الخاص ب العداوة.</li>
+                <li>يجب ان يكون بين كل موقف و موقف يوم واحد كحد ادنى.</li>
+                <li>يمنع إستخدام الحركات أثناء الفياتات.</li>
+                <li>يمنع منع باتا لبس ملابس المدنيين ولابد من اختيار شخصية وشكل خاص فيك و بشخصيتك.</li>
+                <li>يتم فتح تكت الرقابة للحالات الأتية : (1 شكوى على مواطن - 2 طلب انعاش في حال السقوط بسبب قلتش).</li>
+                <li>يمنع منع باتا الحديث وانت مسقط باي شكل من الاشكال.</li>
+                <li>يمنع منع باتا التلفيت وانت مسقط بوقت السيناريو.</li>
+                <li>يمنع منع باتا الاتصال على تلفون الشرطة أو طلب عساكر عن طريق 911 لأسباب تافهة.</li>
+                <li>يمنع المشاركة ب شخصيتين مختلفتين في سيناريو واحد او البث الواحد.</li>
+                <li>يمنع استعمال الثغرة ومن يكتشف ثغرة يجب ان ترفع عليها تكت برمجة.</li>
+                <li>اي شخص يتم تبنيده ثلاث مرات سوف يتم سحب تفعليه واعادة تفعليه مره اخرى.</li>
+                <li style="border-right-color: #00d2ff;">يجب احترام وزارة الصحة وموظفيها: المواطن (سجن 350 شهر + غرامة 250 ألف)، الوزارات الأخرى (إنزال رتبة + غرامة 280 ألف).</li>
+                <li>يمنع سرقة سيارات العساكر، الإسعاف، شيخ المعارض، وسيارات المتجر.</li>
+                <li>يجب على أصحاب المشاريع الالتزام باللبس الرسمي للمشروع ويمنع لبس ملابس عصابات أثناء العمل.</li>
+                <li>يمنع إعطاء الرتب لأكثر من ثلاث أشخاص كحد أقصى في المشاريع.</li>
+                <li>يمنع التفاعل مع الرقابي والرد عليه.</li>
+                <li>يمنع منعاً باتاً أخذ أغراض من الشقق المستأجرة ويمنع طلب تعويض عليها.</li>
+                <li>يمنع منعاً باتاً طلب مسعف أثناء الفايت.</li>
+                <li>يمنع منعاً باتاً سرقة أغراض المواطنين من مركباتهم داخل المناطق الأمنة.</li>
+                <li>يمنع منعًا باتًا إضافة أي كاميرا مراقبة داخل المناطق الآمنة.</li>
+                <li>يمنع منعاً باتاً حمل مواطن وأنت سائق للمركبة أو دباب.</li>
+                <li>يمنع استعمال سيارات الوظائف للأعمال الإجرامية أو الهروب من العساكر.</li>
+            </ul>
+    </div>
+
+    <div id="discord" class="page-content">
+        <div class="discord-section">
+            <h2 style="font-size: 2.5rem;">انضم إلى مجتمعنا</h2>
+            <p>للحصول على الدعم الفني وتفعيل المشتريات</p>
+            <br>
+            <a href="https://discord.gg/A4M8PWaDy3" class="buy-btn" style="padding: 20px 60px; font-size: 1.5rem; background: #5865F2;">Discord Server</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    function showPage(pageId) {
+        // إخفاء كل الصفحات
+        const pages = document.querySelectorAll('.page-content');
+        pages.forEach(page => page.classList.remove('active'));
+
+        // إزالة حالة النشط من الأزرار
+        const buttons = document.querySelectorAll('nav button');
+        buttons.forEach(btn => btn.classList.remove('active'));
+
+        // إظهار الصفحة المطلوبة
+        const selectedPage = document.getElementById(pageId);
+        selectedPage.classList.add('active');
+        
+        // تفعيل الزر المختار
+        const selectedButton = document.getElementById('btn-' + pageId);
+        selectedButton.classList.add('active');
+
+        // العودة لأعلى الصفحة عند التبديل
+        window.scrollTo(0, 0);
+    }
+</script>
+
+</body>
+</html>
