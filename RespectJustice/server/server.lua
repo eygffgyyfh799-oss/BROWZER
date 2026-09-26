@@ -140,6 +140,122 @@ local function InitDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_suspects` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `reason` varchar(255) NOT NULL,
+            `danger` varchar(20) NOT NULL DEFAULT 'medium',
+            `added_by` varchar(100) NOT NULL,
+            `added_by_cid` varchar(50) NOT NULL,
+            `active` tinyint(1) NOT NULL DEFAULT 1,
+            `removed_by` varchar(100) NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `citizenid` (`citizenid`),
+            KEY `active` (`active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_warrants` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `type` varchar(20) NOT NULL,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `reason` varchar(255) NOT NULL,
+            `place` varchar(150) NOT NULL DEFAULT '',
+            `issued_by` varchar(100) NOT NULL,
+            `issued_by_cid` varchar(50) NOT NULL,
+            `requested_by` varchar(150) NOT NULL DEFAULT '',
+            `status` varchar(20) NOT NULL DEFAULT 'active',
+            `executed_by` varchar(150) NULL,
+            `expires_at` timestamp NULL DEFAULT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `citizenid` (`citizenid`),
+            KEY `status` (`status`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_police_requests` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `type` varchar(30) NOT NULL,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `reason` varchar(255) NOT NULL,
+            `details` varchar(255) NOT NULL DEFAULT '',
+            `officer_cid` varchar(50) NOT NULL,
+            `officer_name` varchar(100) NOT NULL,
+            `officer_job` varchar(100) NOT NULL DEFAULT '',
+            `officer_grade` varchar(100) NOT NULL DEFAULT '',
+            `officer_callsign` varchar(50) NOT NULL DEFAULT '',
+            `status` varchar(20) NOT NULL DEFAULT 'pending',
+            `answered_by` varchar(100) NULL,
+            `answer_note` varchar(255) NOT NULL DEFAULT '',
+            `answered_at` timestamp NULL DEFAULT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `status` (`status`),
+            KEY `officer_cid` (`officer_cid`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_case_lawyers` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `report_id` int(11) NOT NULL,
+            `lawyer_cid` varchar(50) NOT NULL,
+            `lawyer_name` varchar(100) NOT NULL,
+            `side` varchar(20) NOT NULL DEFAULT 'plaintiff',
+            `assigned_by` varchar(100) NOT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `report_lawyer` (`report_id`, `lawyer_cid`),
+            KEY `lawyer_cid` (`lawyer_cid`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_case_documents` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `report_id` int(11) NOT NULL,
+            `author_cid` varchar(50) NOT NULL,
+            `author_name` varchar(100) NOT NULL,
+            `author_role` varchar(20) NOT NULL DEFAULT 'justice',
+            `title` varchar(120) NOT NULL,
+            `content` text NOT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `report_id` (`report_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_verdicts` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `report_id` int(11) NULL,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `type` varchar(20) NOT NULL,
+            `amount` bigint(20) NOT NULL DEFAULT 0,
+            `target_citizenid` varchar(50) NOT NULL DEFAULT '',
+            `plate` varchar(15) NOT NULL DEFAULT '',
+            `months` int(11) NOT NULL DEFAULT 0,
+            `text` varchar(500) NOT NULL DEFAULT '',
+            `dest` varchar(100) NOT NULL DEFAULT '',
+            `judge_cid` varchar(50) NOT NULL,
+            `judge_name` varchar(100) NOT NULL,
+            `status` varchar(20) NOT NULL DEFAULT 'active',
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `citizenid` (`citizenid`),
+            KEY `report_id` (`report_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
     -- سجل البصمة
     local history = MySQL.query.await('SELECT * FROM justice_duty_history ORDER BY timestamp DESC, id DESC LIMIT ?', {
         Settings.DutyHistoryLimit

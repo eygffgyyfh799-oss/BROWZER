@@ -168,6 +168,7 @@ local function BuildProfile(citizen, Viewer)
         reports = reports,
         suspension = JS.Suspended[cid],
         summons = JS.GetSummons and JS.GetSummons(cid) or {},
+        court = JS.GetCourtInfo and JS.GetCourtInfo(cid) or nil,
         licenseTypes = Settings.Licenses,
         isSelf = Viewer.PlayerData.citizenid == cid,
     }
@@ -196,9 +197,17 @@ JS.RegisterCallback('RespectJustice:server:panelInfo', 'view', function(src, Pla
         totalCitizens = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s`'):format(Settings.Database.Players))) or 0
     end
 
+    local warrants = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM justice_warrants WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW())")) or 0
+    local suspects = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM justice_suspects WHERE active = 1')) or 0
+    local policeRequests = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM justice_police_requests WHERE status = 'pending'")) or 0
+
     return {
         ok = true,
+        role = 'justice',
         perms = JS.GetPermissions(Player),
+        warrants = warrants,
+        suspects = suspects,
+        policeRequests = policeRequests,
         online = #players,
         totalCitizens = totalCitizens,
         justiceOnDuty = justiceOnDuty,
@@ -482,12 +491,12 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
         newBalance = math.floor(money.bank)
     end
 
-    JS.AddSocietyMoney(amount, 'justice-withdraw')
+    local dest = JS.DepositWithdrawn(Player, amount, 'justice-withdraw')
 
     MySQL.insert('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         Player.PlayerData.citizenid, JS.PlayerName(Player), citizenid, targetName, amount, reason, JS.Now(), 'withdraw'
     })
-    JS.Log(Player, 'withdraw', citizenid, targetName, { ['المبلغ'] = amount, ['السبب'] = reason, ['الرصيد الجديد'] = newBalance }, { amount = amount })
+    JS.Log(Player, 'withdraw', citizenid, targetName, { ['المبلغ'] = amount, ['السبب'] = reason, ['الرصيد الجديد'] = newBalance }, { amount = amount, dest = dest })
 
     return { ok = true, newBalance = newBalance, name = targetName }
 end)

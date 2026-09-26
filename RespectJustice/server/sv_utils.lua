@@ -195,6 +195,7 @@ function JS.Can(Player, action)
 
     local required = Settings.Panel.Permissions[action]
     if required == nil then return false, 'صلاحية غير معروفة' end
+    if required == false then return false, 'هذه الصلاحية مقفلة' end
     if JS.IsBoss(Player) then return true end
     if required == 'boss' then return false, 'هذه الصلاحية للمدير فقط' end
     if JS.GetGrade(Player) < (tonumber(required) or 0) then
@@ -209,6 +210,172 @@ function JS.GetPermissions(Player)
         perms[action] = JS.Can(Player, action) == true
     end
     return perms
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- الأدوار: العدل / الشرطة / المحامي
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+local function InList(list, value)
+    for _, v in ipairs(list or {}) do
+        if v == value then return true end
+    end
+    return false
+end
+
+function JS.IsPolice(Player)
+    local job = Player and Player.PlayerData.job
+    return job ~= nil and InList(Settings.Police.Jobs, job.name)
+end
+
+function JS.CanPolice(Player, action)
+    if not JS.IsPolice(Player) then return false, 'هذا القسم للشرطة فقط' end
+    local job = Player.PlayerData.job
+    if Settings.Police.RequireDuty and not job.onduty then return false, 'يجب أن تكون في الدوام' end
+    local required = Settings.Police.Permissions[action]
+    if required == nil or required == false then return false, 'هذه الصلاحية غير متاحة للشرطة' end
+    if job.isboss then return true end
+    if required == 'boss' then return false, 'هذه الصلاحية لمدير الشرطة فقط' end
+    if JS.GetGrade(Player) < (tonumber(required) or 0) then return false, 'رتبتك لا تسمح بهذا الإجراء' end
+    return true
+end
+
+function JS.GetPolicePermissions(Player)
+    local perms = {}
+    for action in pairs(Settings.Police.Permissions) do
+        perms[action] = JS.CanPolice(Player, action) == true
+    end
+    return perms
+end
+
+-- يرجع دالة تحقق تُستخدم مع JS.RegisterCallback
+function JS.PoliceOnly(action)
+    return function(Player) return JS.CanPolice(Player, action) end
+end
+
+-- المحامي: عنده رخصة محاماة أو وظيفته من وظائف المحامين
+function JS.HasLawyerLicense(metadata, job)
+    local licenses = metadata and (metadata.licences or metadata.licenses) or {}
+    if licenses[Settings.Lawyers.License] == true then return true end
+    return job ~= nil and InList(Settings.Lawyers.Jobs, job.name)
+end
+
+function JS.IsLawyer(Player)
+    return Player ~= nil and JS.HasLawyerLicense(Player.PlayerData.metadata, Player.PlayerData.job)
+end
+
+function JS.GetRole(Player)
+    if JS.IsJustice(Player) then return 'justice' end
+    if JS.IsPolice(Player) then return 'police' end
+    if JS.IsLawyer(Player) then return 'lawyer' end
+    return nil
+end
+
+function JS.PoliceInfo(Player)
+    local job, md = Player.PlayerData.job or {}, Player.PlayerData.metadata or {}
+    return {
+        citizenid = Player.PlayerData.citizenid,
+        name = JS.PlayerName(Player),
+        job = JS.Safe(job.label or job.name or '-'),
+        grade = JS.Safe(type(job.grade) == 'table' and job.grade.name or tostring(job.grade or '-')),
+        callsign = md.callsign and JS.Safe(tostring(md.callsign)) or nil,
+    }
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- إشعارات مباشرة للتابلت (مع صوت إذا التابلت مفتوح، وإشعار عادي إذا مقفل)
+-- event = { type, title, text, coords? }
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+function JS.TabletEvent(src, event)
+    TriggerClientEvent('RespectJustice:client:tabletEvent', src, event)
+end
+
+function JS.BroadcastTablet(filter, event)
+    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
+        local target = RTCore.Functions.GetPlayer(playerId)
+        if target and filter(target) then JS.TabletEvent(playerId, event) end
+    end
+end
+
+function JS.JusticeOnDuty(target)
+    return JS.IsJustice(target) and target.PlayerData.job.onduty == true
+end
+
+function JS.PoliceOnDuty(target)
+    return JS.IsPolice(target) and target.PlayerData.job.onduty == true
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- تحريك الفلوس (بنك) للمتصل وغير المتصل
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+function JS.GetBank(citizenid)
+    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    if target then return math.floor(tonumber(target.PlayerData.money.bank) or 0) end
+    local row = JS.GetPlayerRow(citizenid)
+    return row and math.floor(tonumber(JS.Decode(row.money).bank) or 0) or nil
+end
+
+-- يسحب من بنك المواطن (يرفض إذا الرصيد ما يكفي)
+function JS.TakeMoney(citizenid, amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount <= 0 then return false, 'مبلغ غير صحيح' end
+    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    if target then
+        if (tonumber(target.PlayerData.money.bank) or 0) < amount then return false, 'الرصيد غير كافٍ' end
+        if not target.Functions.RemoveMoney('bank', amount, reason) then return false, 'تعذر السحب' end
+        return true
+    end
+    local row = JS.GetPlayerRow(citizenid)
+    if not row then return false, 'المواطن غير موجود' end
+    local money = JS.Decode(row.money)
+    local bank = tonumber(money.bank) or 0
+    if bank < amount then return false, 'الرصيد غير كافٍ' end
+    money.bank = bank - amount
+    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'تغيرت بيانات المواطن، حاول مرة أخرى' end
+    return true
+end
+
+-- يضيف لبنك المواطن
+function JS.GiveMoney(citizenid, amount, reason)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount <= 0 then return false, 'مبلغ غير صحيح' end
+    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    if target then
+        if not target.Functions.AddMoney('bank', amount, reason) then return false, 'تعذر الإيداع' end
+        return true
+    end
+    local row = JS.GetPlayerRow(citizenid)
+    if not row then return false, 'المواطن غير موجود' end
+    local money = JS.Decode(row.money)
+    money.bank = (tonumber(money.bank) or 0) + amount
+    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'تغيرت بيانات المواطن، حاول مرة أخرى' end
+    return true
+end
+
+-- وين تروح الفلوس المسحوبة (WithdrawTo) - يرجع وجهة التحويل عشان التراجع
+function JS.DepositWithdrawn(Player, amount, reason)
+    local to = Settings.Panel.WithdrawTo
+    if to == 'officer' and Player then
+        local ok = JS.GiveMoney(Player.PlayerData.citizenid, amount, reason)
+        if ok then
+            JS.Notify(Player.PlayerData.source, ('تم إيداع $%d في حسابك'):format(amount), 'success')
+            return { to = 'officer', cid = Player.PlayerData.citizenid }
+        end
+    elseif to == 'society' then
+        JS.AddSocietyMoney(amount, reason)
+        return { to = 'society' }
+    end
+    return { to = 'none' }
+end
+
+-- عكس DepositWithdrawn (للتراجع): يسحب المبلغ من الموظف اللي استلمه
+function JS.ReverseDeposit(dest, amount)
+    if type(dest) ~= 'table' or dest.to ~= 'officer' or not dest.cid then return true end
+    local ok, err = JS.TakeMoney(dest.cid, amount, 'justice-undo')
+    if not ok then return false, 'الموظف اللي استلم المبلغ رصيده ما يكفي لإرجاعه (' .. tostring(err) .. ')' end
+    return true
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -285,8 +452,13 @@ function JS.RegisterCallback(name, action, handler)
         end
 
         if action then
-            local allowed, err = JS.Can(Player, action)
-            if not allowed then return cb({ ok = false, err = err }) end
+            local allowed, err
+            if type(action) == 'function' then
+                allowed, err = action(Player)
+            else
+                allowed, err = JS.Can(Player, action)
+            end
+            if not allowed then return cb({ ok = false, err = err or 'غير مسموح' }) end
         end
 
         local success, result = pcall(handler, src, Player, ...)
@@ -456,6 +628,16 @@ JS.ActionLabels = {
     announce = 'إعلان للمدينة',
     log_delete = 'حذف سجل',
     undo = 'تراجع عن إجراء',
+    verdict = 'إصدار حكم',
+    suspect_add = 'إضافة مشبوه',
+    suspect_remove = 'إزالة مشبوه',
+    warrant_issue = 'إصدار أمر',
+    warrant_cancel = 'إلغاء أمر',
+    warrant_execute = 'تنفيذ أمر (شرطة)',
+    lawyer_assign = 'تعيين محامي',
+    lawyer_remove = 'إزالة محامي',
+    police_request = 'طلب تصريح (شرطة)',
+    police_answer = 'الرد على طلب شرطة',
     summon_delete = 'حذف استدعاء',
 }
 

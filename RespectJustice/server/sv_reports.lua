@@ -201,6 +201,10 @@ JS.RegisterCallback('RespectJustice:server:getReport', 'reports', function(src, 
 
     local report = MapReport(row, true)
     report.notes = notes
+    if JS.GetCaseExtras then
+        local extras = JS.GetCaseExtras(reportId)
+        report.lawyers, report.documents, report.verdicts = extras.lawyers, extras.documents, extras.verdicts
+    end
 
     return { ok = true, report = report, perms = JS.GetPermissions(Player) }
 end)

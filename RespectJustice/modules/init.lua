@@ -67,12 +67,21 @@ local Defaults = {
 				deleteReport = 'boss', locate = 'boss', withdraw = 'boss', suspend = 'boss', edit = 'boss',
 				logs = 'boss', compensation = 'boss', jobs = 'boss', vehicles = 'boss', properties = 'boss',
 				licenses = 'boss', gangs = 'boss', announce = 'boss', economy = 'boss', undo = 'boss', delete = 'boss',
+				verdicts = 'boss', warrants = 'boss', suspects = 0, lawyers = 0, policeRequests = 'boss', stats = 'boss',
 			},
 			UnemployedJob = 'unemployed', JobsBlacklist = {},
 			WithdrawMax = 5000000, WithdrawCooldown = 5, LocateBlipTime = 60, LogViews = true,
 			Society = { enabled = false, resource = 'qb-management', func = 'AddMoney' },
 			WebhookSkip = { view = true },
+			WithdrawTo = 'officer',
 		},
+		Police = {
+			Jobs = { 'police' }, RequireDuty = true, GrantMinutes = 30, RequestCooldown = 60,
+			Permissions = { search = 0, profile = 0, vehicles = 0, warrants = 0, executeWarrant = 0, suspects = 0, requests = 0 },
+		},
+		Lawyers = { License = 'lawyer', Jobs = {}, DocumentMax = 2000 },
+		Verdicts = { MaxFine = 10000000, MaxJail = 120, JailEvent = '', WarrantHours = 72 },
+		Banking = { Resource = 'RespectBanking', FreezeSuspended = true },
 		City = {
 			ImpoundFee = 500, ImpoundGarage = 'impoundlot', AnnounceCooldown = 60,
 			AnnounceMaxLength = 250, SummonMaxLength = 200, NoGang = 'none',
@@ -109,6 +118,8 @@ local function FillDefaults(target, defaults, path)
 		local current = target[key]
 		if NoMerge[key] and type(current) == 'table' then
 			-- موجود: نتركه مثل ما هو
+		elseif current == false and type(value) ~= 'table' then
+			-- false = مقفلة عمداً (مثل صلاحية مقفلة)
 		elseif current == nil then
 			target[key] = value
 			if path ~= '' and not quiet then Warn(('الإعداد %s%s ناقص في config.lua، تم استخدام القيمة الافتراضية'):format(path, key)) end
@@ -143,7 +154,7 @@ function LoadConfig()
 
 	-- الصلاحيات: القيمة لازم تكون رقم أو 'boss'
 	for action, value in pairs(cfg.Settings.Panel.Permissions) do
-		if value ~= 'boss' and not tonumber(value) then
+		if value ~= 'boss' and value ~= false and not tonumber(value) then
 			Warn(("الصلاحية %s قيمتها غلط (%s)، لازم رقم أو 'boss'، تم تحويلها إلى 'boss'"):format(action, tostring(value)))
 			cfg.Settings.Panel.Permissions[action] = 'boss'
 		end

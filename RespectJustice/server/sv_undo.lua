@@ -57,7 +57,12 @@ end
 
 -- لكل إجراء: الصلاحية المطلوبة + طريقة التراجع
 local UndoActions = {
-    withdraw = { perm = 'withdraw', run = function(src, P, log, u) return Refund(log.target_citizenid, u.amount) end },
+    withdraw = { perm = 'withdraw', run = function(src, P, log, u)
+        -- يرجع المبلغ من المكان اللي راح له (حساب الموظف) أولاً
+        local ok, err = JS.ReverseDeposit(u.dest, u.amount)
+        if not ok then return { ok = false, err = err } end
+        return Refund(log.target_citizenid, u.amount)
+    end },
     compensation = { perm = 'withdraw', run = function(src, P, log, u)
         JS.ClearCooldown('withdraw', P.PlayerData.citizenid)
         return H('withdrawBank')(src, P, log.target_citizenid, u.amount, ('تراجع عن تعويض #%d'):format(log.id))
@@ -79,6 +84,19 @@ local UndoActions = {
     gang = { perm = 'gangs', run = function(src, P, log, u) return H('setGang')(src, P, log.target_citizenid, u.gang, u.level) end },
     summon = { perm = 'summon', run = function(src, P, log, u) return H('setSummonStatus')(src, P, u.id, 'cancelled') end },
     report_status = { perm = 'reports', run = function(src, P, log, u) return H('setReportStatus')(src, P, u.id, u.status) end },
+    verdict = { perm = 'verdicts', run = function(src, P, log, u) return JS.ReverseVerdict(src, P, u.id) end },
+    suspect_add = { perm = 'suspects', run = function(src, P, log, u) return H('removeSuspect')(src, P, u.id) end },
+    suspect_remove = { perm = 'suspects', run = function(src, P, log, u)
+        if JS.GetSuspect(log.target_citizenid) then return { ok = false, err = 'المواطن موجود في القائمة حالياً' } end
+        MySQL.update.await('UPDATE justice_suspects SET active = 1, removed_by = NULL WHERE id = ?', { u.id })
+        return { ok = true }
+    end },
+    warrant_issue = { perm = 'warrants', run = function(src, P, log, u) return H('cancelWarrant')(src, P, u.id) end },
+    warrant_cancel = { perm = 'warrants', run = function(src, P, log, u)
+        local affected = MySQL.update.await("UPDATE justice_warrants SET status = 'active' WHERE id = ? AND status = 'cancelled' AND (expires_at IS NULL OR expires_at > NOW())", { u.id })
+        if not affected or affected == 0 then return { ok = false, err = 'الأمر منتهي الصلاحية، أصدر أمر جديد' } end
+        return { ok = true }
+    end },
 }
 
 JS.UndoActions = UndoActions
