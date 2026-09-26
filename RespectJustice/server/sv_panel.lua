@@ -487,7 +487,7 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
     MySQL.insert('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         Player.PlayerData.citizenid, JS.PlayerName(Player), citizenid, targetName, amount, reason, JS.Now(), 'withdraw'
     })
-    JS.Log(Player, 'withdraw', citizenid, targetName, { ['المبلغ'] = amount, ['السبب'] = reason, ['الرصيد الجديد'] = newBalance })
+    JS.Log(Player, 'withdraw', citizenid, targetName, { ['المبلغ'] = amount, ['السبب'] = reason, ['الرصيد الجديد'] = newBalance }, { amount = amount })
 
     return { ok = true, newBalance = newBalance, name = targetName }
 end)
@@ -522,7 +522,7 @@ JS.RegisterCallback('RespectJustice:server:suspendCitizen', 'suspend', function(
     end
 
     TriggerEvent('RespectJustice:server:suspensionChanged', citizenid, true, reason)
-    JS.Log(Player, 'suspend', citizenid, name, { ['السبب'] = reason })
+    JS.Log(Player, 'suspend', citizenid, name, { ['السبب'] = reason }, { reason = reason })
 
     return { ok = true }
 end)
@@ -544,7 +544,7 @@ JS.RegisterCallback('RespectJustice:server:unsuspendCitizen', 'suspend', functio
     end
 
     TriggerEvent('RespectJustice:server:suspensionChanged', citizenid, false)
-    JS.Log(Player, 'unsuspend', citizenid, suspension.name)
+    JS.Log(Player, 'unsuspend', citizenid, suspension.name, { ['السبب السابق'] = suspension.reason }, { reason = suspension.reason })
 
     return { ok = true }
 end)
@@ -608,6 +608,8 @@ JS.RegisterCallback('RespectJustice:server:editCitizen', 'edit', function(src, P
     if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
 
     local charinfo = citizen.charinfo
+    local old = {}
+    for key in pairs(EditLabels) do old[key] = charinfo[key] end
     local changes = {}
     for key, label in pairs(EditLabels) do
         if tostring(charinfo[key]) ~= tostring(new[key]) then
@@ -627,7 +629,7 @@ JS.RegisterCallback('RespectJustice:server:editCitizen', 'edit', function(src, P
         end
     end
 
-    JS.Log(Player, 'edit', citizenid, JS.FullName(charinfo), changes)
+    JS.Log(Player, 'edit', citizenid, JS.FullName(charinfo), changes, { old = old })
     return { ok = true }
 end)
 
@@ -635,30 +637,40 @@ end)
 -- سجل العمليات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getLogs', 'logs', function(src, Player, citizenid)
-    local rows
+JS.RegisterCallback('RespectJustice:server:getLogs', 'logs', function(src, Player, citizenid, page)
     citizenid = citizenid and JS.ValidCitizenId(citizenid)
+    page = math.max(0, math.floor(tonumber(page) or 0))
+    local pageSize = 50
+
+    local where, params = '', {}
     if citizenid then
-        rows = MySQL.query.await('SELECT * FROM justice_logs WHERE target_citizenid = ? OR officer_citizenid = ? ORDER BY id DESC LIMIT 100', { citizenid, citizenid })
-    else
-        rows = MySQL.query.await('SELECT * FROM justice_logs ORDER BY id DESC LIMIT 100')
+        where = 'WHERE target_citizenid = ? OR officer_citizenid = ?'
+        params = { citizenid, citizenid }
     end
+    local total = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM justice_logs %s'):format(where), params)) or 0
+    local rows = MySQL.query.await(('SELECT * FROM justice_logs %s ORDER BY id DESC LIMIT %d OFFSET %d'):format(where, pageSize, page * pageSize), params)
 
     local logs = {}
     for i, row in ipairs(rows or {}) do
         local details = JS.Decode(row.details)
         local parts = {}
         for key, value in pairs(details) do
-            parts[#parts + 1] = ('%s: %s'):format(key, tostring(value))
+            parts[#parts + 1] = ('%s: %s'):format(key, JS.Safe(tostring(value)))
         end
         logs[i] = {
+            id = row.id,
+            key = row.action,
             action = JS.ActionLabels[row.action] or row.action,
-            officer = row.officer_name,
-            target = row.target_name and ('%s (%s)'):format(row.target_name, row.target_citizenid) or nil,
+            officer = JS.Safe(row.officer_name),
+            officerCitizenid = row.officer_citizenid,
+            targetCitizenid = row.target_citizenid,
+            target = row.target_name and ('%s (%s)'):format(JS.Safe(row.target_name), row.target_citizenid) or nil,
             details = #parts > 0 and table.concat(parts, ' | ') or nil,
             date = JS.FormatDbDate(row.created_at),
+            undoable = row.undo_data ~= nil and row.undone_by == nil and JS.UndoActions ~= nil and JS.UndoActions[row.action] ~= nil,
+            undoneBy = row.undone_by and JS.Safe(row.undone_by) or nil,
         }
     end
 
-    return { ok = true, logs = logs }
+    return { ok = true, logs = logs, page = page, pages = math.max(1, math.ceil(total / pageSize)), total = total, perms = JS.GetPermissions(Player) }
 end)

@@ -194,6 +194,8 @@ JS.RegisterCallback('RespectJustice:server:setCitizenJob', 'jobs', function(src,
     end
 
     local oldJob = JobLabel(citizen.job)
+    local oldName = citizen.job and citizen.job.name
+    local oldLevel = citizen.job and (type(citizen.job.grade) == 'table' and tonumber(citizen.job.grade.level) or tonumber(citizen.job.grade)) or 0
     local name = JS.FullName(citizen.charinfo)
 
     if citizen.online then
@@ -209,7 +211,7 @@ JS.RegisterCallback('RespectJustice:server:setCitizenJob', 'jobs', function(src,
     end
 
     local newJob = ('%s - %s'):format(job.label or jobName, grade.name or level)
-    JS.Log(Player, 'job', citizenid, name, { ['من'] = oldJob, ['إلى'] = newJob })
+    JS.Log(Player, 'job', citizenid, name, { ['من'] = oldJob, ['إلى'] = newJob }, oldName and { job = oldName, level = oldLevel } or nil)
 
     return { ok = true, newJob = newJob }
 end)
@@ -227,6 +229,7 @@ JS.RegisterCallback('RespectJustice:server:setCitizenDuty', 'jobs', function(src
     if IsBlacklisted(target.PlayerData.job.name) then return { ok = false, err = 'القطاع غير مسموح' } end
 
     local targetSrc = target.PlayerData.source
+    local previousDuty = target.PlayerData.job.onduty == true
     target.Functions.SetJobDuty(state)
     TriggerEvent('QBCore:Server:SetDuty', targetSrc, state)
     TriggerClientEvent('QBCore:Client:SetDuty', targetSrc, state)
@@ -235,7 +238,7 @@ JS.RegisterCallback('RespectJustice:server:setCitizenDuty', 'jobs', function(src
     JS.Log(Player, 'duty', citizenid, JS.PlayerName(target), {
         ['القطاع'] = target.PlayerData.job.label or target.PlayerData.job.name,
         ['الحالة'] = state and 'في الدوام' or 'خارج الدوام',
-    })
+    }, { state = previousDuty })
 
     return { ok = true }
 end)

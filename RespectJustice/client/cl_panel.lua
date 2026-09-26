@@ -40,6 +40,9 @@ function JC.Panel.Open()
     if not JC.IsJustice() then
         return JC.Notify('يجب أن تكون من موظفي العدل', 'error')
     end
+    if Panel.UseTablet ~= false and JC.Tablet then
+        return JC.Tablet.Open()
+    end
 
     local info = JC.Call('RespectJustice:server:panelInfo')
     if not info then return end

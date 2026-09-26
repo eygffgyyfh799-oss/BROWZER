@@ -118,6 +118,9 @@ local function InitDatabase()
             KEY `action` (`action`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
+    JS.EnsureColumn('justice_logs', 'undo_data', 'longtext NULL')
+    JS.EnsureColumn('justice_logs', 'undone_by', 'varchar(100) NULL')
+    JS.EnsureColumn('justice_logs', 'undone_at', 'timestamp NULL DEFAULT NULL')
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_summons` (
@@ -295,7 +298,7 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
     MySQL.insert.await('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'تعويض', JS.Now(), 'compensation'
     })
-    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount })
+    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount }, { amount = moneyAmount })
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════

@@ -264,7 +264,11 @@ end)
 -- كل callback يرجع { ok = true, ... } أو { ok = false, err = '...' }
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
+-- كل الإجراءات مسجلة هنا عشان نظام التراجع يستخدم نفس الكود بنفس التحققات
+JS.Handlers = {}
+
 function JS.RegisterCallback(name, action, handler)
+    JS.Handlers[name] = handler
     RTCore.Functions.CreateCallback(name, function(source, cb, ...)
         local src = source
 
@@ -450,17 +454,21 @@ JS.ActionLabels = {
     gang = 'تغيير عصابة',
     summon = 'استدعاء للمحكمة',
     announce = 'إعلان للمدينة',
+    log_delete = 'حذف سجل',
+    undo = 'تراجع عن إجراء',
+    summon_delete = 'حذف استدعاء',
 }
 
 local webhook = GetConvar('justice_webhook', '')
 
-function JS.Log(Player, action, targetCitizenid, targetName, details)
+-- undo: بيانات التراجع عن الإجراء (nil = ما يمكن التراجع عنه)
+function JS.Log(Player, action, targetCitizenid, targetName, details, undo)
     local officerCid = Player and Player.PlayerData.citizenid or 'system'
     local officerName = Player and JS.PlayerName(Player) or 'system'
     local encoded = details and json.encode(details) or nil
 
-    MySQL.insert('INSERT INTO justice_logs (officer_citizenid, officer_name, action, target_citizenid, target_name, details) VALUES (?, ?, ?, ?, ?, ?)', {
-        officerCid, officerName, action, targetCitizenid, targetName, encoded
+    MySQL.insert('INSERT INTO justice_logs (officer_citizenid, officer_name, action, target_citizenid, target_name, details, undo_data) VALUES (?, ?, ?, ?, ?, ?, ?)', {
+        officerCid, officerName, action, targetCitizenid, targetName, encoded, undo and json.encode(undo) or nil
     })
 
     if webhook == '' or (Settings.Panel.WebhookSkip or {})[action] then return end

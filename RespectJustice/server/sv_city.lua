@@ -269,7 +269,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
 
         local owner = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
         if owner then Notify(owner.PlayerData.source, ('تم حجز مركبتك %s بقرار من وزارة العدل'):format(plate), 'error', 10000) end
-        JS.Log(Player, 'vehicle_impound', row.citizenid, ownerName, details)
+        JS.Log(Player, 'vehicle_impound', row.citizenid, ownerName, details, { plate = plate })
         return { ok = true, message = 'تم حجز المركبة' .. (vehicle and ' وسحبها من الشارع' or '') }
 
     elseif action == 'release' then
@@ -280,7 +280,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
 
         local owner = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
         if owner then Notify(owner.PlayerData.source, ('تم فك حجز مركبتك %s من وزارة العدل'):format(plate), 'success', 10000) end
-        JS.Log(Player, 'vehicle_release', row.citizenid, ownerName, details)
+        JS.Log(Player, 'vehicle_release', row.citizenid, ownerName, details, { plate = plate })
         return { ok = true, message = 'تم فك حجز المركبة' }
 
     elseif action == 'transfer' then
@@ -303,7 +303,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
         local newName = JS.FullName(JS.Decode(newRow.charinfo))
         details['المالك السابق'] = ('%s (%s)'):format(ownerName or '-', row.citizenid)
         details['المالك الجديد'] = ('%s (%s)'):format(newName, newOwner)
-        JS.Log(Player, 'vehicle_transfer', newOwner, newName, details)
+        JS.Log(Player, 'vehicle_transfer', newOwner, newName, details, { plate = plate, from = row.citizenid })
 
         for _, cid in ipairs({ row.citizenid, newOwner }) do
             local target = RTCore.Functions.GetPlayerByCitizenId(cid)
@@ -372,7 +372,7 @@ JS.RegisterCallback('RespectJustice:server:transferProperty', 'properties', func
     JS.Log(Player, 'property_transfer', newOwner, newName, {
         ['العقار'] = label,
         ['المالك السابق'] = tostring(row[h.owner] or '-'),
-    })
+    }, row[h.owner] and { id = propertyId, from = row[h.owner] } or nil)
     return { ok = true, message = ('تم نقل ملكية %s إلى %s'):format(label, newName) }
 end)
 
@@ -397,6 +397,7 @@ JS.RegisterCallback('RespectJustice:server:setLicense', 'licenses', function(src
     if Settings.Licenses[key] == nil and licenses[key] == nil then
         return { ok = false, err = 'نوع الترخيص غير معروف' }
     end
+    local previous = licenses[key] == true
     licenses[key] = state
 
     if citizen.online then
@@ -407,7 +408,7 @@ JS.RegisterCallback('RespectJustice:server:setLicense', 'licenses', function(src
         if not JS.UpdatePlayerJson(citizenid, 'metadata', metadata, citizen.raw.metadata) then return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' } end
     end
 
-    JS.Log(Player, state and 'license_grant' or 'license_revoke', citizenid, JS.FullName(citizen.charinfo), { ['الترخيص'] = Settings.Licenses[key] or key })
+    JS.Log(Player, state and 'license_grant' or 'license_revoke', citizenid, JS.FullName(citizen.charinfo), { ['الترخيص'] = Settings.Licenses[key] or key }, { key = key, state = previous })
     return { ok = true }
 end)
 
@@ -454,6 +455,8 @@ JS.RegisterCallback('RespectJustice:server:setGang', 'gangs', function(src, Play
     if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
 
     local oldGang = citizen.gang and (citizen.gang.label or citizen.gang.name) or '-'
+    local oldGangName = citizen.gang and citizen.gang.name or City.NoGang
+    local oldGangLevel = citizen.gang and type(citizen.gang.grade) == 'table' and tonumber(citizen.gang.grade.level) or 0
     if citizen.online then
         if not citizen.online.Functions.SetGang(gangName, level) then return { ok = false, err = 'تعذر تغيير العصابة' } end
     else
@@ -464,7 +467,7 @@ JS.RegisterCallback('RespectJustice:server:setGang', 'gangs', function(src, Play
         if not JS.UpdatePlayerJson(citizenid, 'gang', data, citizen.raw.gang) then return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' } end
     end
 
-    JS.Log(Player, 'gang', citizenid, JS.FullName(citizen.charinfo), { ['من'] = oldGang, ['إلى'] = ('%s - %s'):format(gang.label or gangName, grade.name or level) })
+    JS.Log(Player, 'gang', citizenid, JS.FullName(citizen.charinfo), { ['من'] = oldGang, ['إلى'] = ('%s - %s'):format(gang.label or gangName, grade.name or level) }, { gang = oldGangName, level = oldGangLevel })
     return { ok = true }
 end)
 
@@ -536,7 +539,7 @@ JS.RegisterCallback('RespectJustice:server:sendSummon', 'summon', function(src, 
     table.insert(pendingSummons[citizenid], summon)
     if citizen.online then DeliverSummons(citizen.online) end
 
-    JS.Log(Player, 'summon', citizenid, name, { ['السبب'] = reason, ['الموعد'] = appointment, ['المكان'] = location })
+    JS.Log(Player, 'summon', citizenid, name, { ['السبب'] = reason, ['الموعد'] = appointment, ['المكان'] = location }, { id = summon.id })
     return { ok = true, delivered = citizen.online ~= nil }
 end)
 

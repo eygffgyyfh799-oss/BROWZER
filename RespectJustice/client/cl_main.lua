@@ -204,7 +204,10 @@ local PointOptions = {
             icon = 'fas fa-scale-balanced',
             label = 'رؤية القضايا المقدمة',
             job = JOB,
-            action = function() JC.Reports.OpenList() end,
+            action = function()
+                if Settings.Panel.UseTablet ~= false and JC.Tablet then return JC.Tablet.Open('reports') end
+                JC.Reports.OpenList()
+            end,
         },
     },
 

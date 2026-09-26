@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>نظام معلومات المواطنين</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="hidden">
+        <div class="tablet">
+            <aside class="sidebar">
+                <div class="brand">
+                    <div class="brand-icon">⚖️</div>
+                    <div>
+                        <div class="brand-title">وزارة العدل</div>
+                        <div class="brand-sub">نظام معلومات المواطنين</div>
+                    </div>
+                </div>
+                <div class="me" id="me"></div>
+                <nav id="nav"></nav>
+                <div class="sidebar-foot">اضغط <kbd>ESC</kbd> للإغلاق</div>
+            </aside>
+
+            <main class="main">
+                <header class="topbar">
+                    <button class="icon-btn" id="btn-back" title="رجوع">→</button>
+                    <h1 id="page-title">الرئيسية</h1>
+                    <div class="topbar-actions">
+                        <div class="loader" id="loader"></div>
+                        <button class="icon-btn" id="btn-refresh" title="تحديث">⟳</button>
+                        <button class="icon-btn danger" id="btn-close" title="إغلاق">✕</button>
+                    </div>
+                </header>
+                <section id="content" class="content"></section>
+            </main>
+        </div>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toasts"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -216,6 +216,7 @@ JS.RegisterCallback('RespectJustice:server:setReportStatus', 'reports', function
     end
 
     local officerName = JS.PlayerName(Player)
+    local previousStatus = MySQL.scalar.await('SELECT status FROM justice_reports WHERE id = ? AND job = ?', { reportId, JS.Job })
     local affected = MySQL.update.await('UPDATE justice_reports SET status = ?, handled_by = ? WHERE id = ? AND job = ?', {
         status, officerName, reportId, JS.Job
     })
@@ -226,7 +227,7 @@ JS.RegisterCallback('RespectJustice:server:setReportStatus', 'reports', function
     MySQL.insert('INSERT INTO justice_report_notes (report_id, author_citizenid, author_name, note) VALUES (?, ?, ?, ?)', {
         reportId, Player.PlayerData.citizenid, officerName, ('تم تغيير الحالة إلى: %s'):format(JS.StatusLabels[status])
     })
-    JS.Log(Player, 'report_status', nil, nil, { ['القضية'] = reportId, ['الحالة'] = JS.StatusLabels[status] })
+    JS.Log(Player, 'report_status', nil, nil, { ['القضية'] = reportId, ['الحالة'] = JS.StatusLabels[status] }, previousStatus and { id = reportId, status = previousStatus } or nil)
 
     -- إشعار مقدم الدعوى إذا كان متصلاً
     local row = MySQL.single.await('SELECT citizenid FROM justice_reports WHERE id = ?', { reportId })

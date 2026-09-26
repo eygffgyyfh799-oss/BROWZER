@@ -61,12 +61,12 @@ local Defaults = {
 		CaseTypes = { 'مدنية', 'جنائية', 'مرورية', 'عقارية', 'تجارية', 'أسرية', 'عمالية', 'أخرى' },
 		ReportTitleMax = 80, ReportWitnessesMax = 200, ReportEvidenceMax = 500, ReportNoteMax = 500,
 		Panel = {
-			Command = 'justice', RequireDuty = true, FullAccessGrade = 10,
+			Command = 'justice', RequireDuty = true, FullAccessGrade = 10, UseTablet = true, Key = '9', TabletAnimation = true,
 			Permissions = {
 				view = 0, reports = 0, city = 0, summon = 0,
 				deleteReport = 'boss', locate = 'boss', withdraw = 'boss', suspend = 'boss', edit = 'boss',
 				logs = 'boss', compensation = 'boss', jobs = 'boss', vehicles = 'boss', properties = 'boss',
-				licenses = 'boss', gangs = 'boss', announce = 'boss', economy = 'boss',
+				licenses = 'boss', gangs = 'boss', announce = 'boss', economy = 'boss', undo = 'boss', delete = 'boss',
 			},
 			UnemployedJob = 'unemployed', JobsBlacklist = {},
 			WithdrawMax = 5000000, WithdrawCooldown = 5, LocateBlipTime = 60, LogViews = true,
