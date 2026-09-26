@@ -52,6 +52,13 @@ function JC.GuessRole()
     for _, name in ipairs(JC.Settings.Lawyers.Jobs or {}) do
         if job.name == name then return 'lawyer' end
     end
+    local sector = (JC.Settings.Finance.Sectors or {})[job.name]
+    if sector then
+        local grade = tonumber(type(job.grade) == 'table' and job.grade.level or job.grade) or -1
+        for _, level in ipairs(sector.managers or {}) do
+            if tonumber(level) == grade then return 'sector' end
+        end
+    end
     return nil
 end
 

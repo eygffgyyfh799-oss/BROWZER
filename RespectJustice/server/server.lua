@@ -256,6 +256,31 @@ local function InitDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_sector_funds` (
+            `job` varchar(50) NOT NULL,
+            `balance` bigint(20) NOT NULL DEFAULT 0,
+            PRIMARY KEY (`job`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_sector_transactions` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `job` varchar(50) NOT NULL,
+            `type` varchar(20) NOT NULL,
+            `amount` bigint(20) NOT NULL,
+            `reason` varchar(150) NOT NULL,
+            `officer_cid` varchar(50) NOT NULL,
+            `officer_name` varchar(100) NOT NULL,
+            `officer_grade` varchar(100) NOT NULL DEFAULT '',
+            `balance_after` bigint(20) NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `job` (`job`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
     -- سجل البصمة
     local history = MySQL.query.await('SELECT * FROM justice_duty_history ORDER BY timestamp DESC, id DESC LIMIT ?', {
         Settings.DutyHistoryLimit

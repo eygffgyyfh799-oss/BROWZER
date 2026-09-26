@@ -32,6 +32,8 @@ local function RunDiagnostics()
     else
         line('warn', ('%s غير شغال: تجميد الحسابات ما يشتغل'):format(bankRes))
     end
+    line('ok', ('القسم المالي للقطاعات: %s'):format(JS.FinanceProvider == 'internal'
+        and 'خزينة داخلية (ما لقيت دوال حسابات القطاعات في RespectBanking)' or ('مربوط مع ' .. JS.FinanceProvider)))
     local police = {}
     for _, name in ipairs(Settings.Police.Jobs or {}) do
         if not (RTCore.Shared.Jobs or {})[name] then police[#police + 1] = name end

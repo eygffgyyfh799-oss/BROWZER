@@ -25,6 +25,7 @@ for _, name in ipairs({
     'assignLawyer', 'removeLawyer', 'addDocument', 'lawyerCases', 'lawyerCase', 'lawyerNote',
     'issueVerdict', 'getStats', 'getPoliceRequests', 'answerPoliceRequest',
     'policeSearch', 'policeProfile', 'policeWarrants', 'executeWarrant', 'policeSuspects', 'policeRequest', 'policeMyRequests',
+    'financeInfo', 'financeDeposit', 'financeWithdraw',
 }) do Allowed[name] = true end
 
 -- ═════ أنيميشن التابلت ═════

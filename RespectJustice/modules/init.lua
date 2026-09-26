@@ -63,11 +63,10 @@ local Defaults = {
 		Panel = {
 			Command = 'justice', RequireDuty = true, FullAccessGrade = 10, UseTablet = true, Key = '9', TabletAnimation = true,
 			Permissions = {
-				view = 0, reports = 0, city = 0, summon = 0,
-				deleteReport = 'boss', locate = 'boss', withdraw = 'boss', suspend = 'boss', edit = 'boss',
-				logs = 'boss', compensation = 'boss', jobs = 'boss', vehicles = 'boss', properties = 'boss',
-				licenses = 'boss', gangs = 'boss', announce = 'boss', economy = 'boss', undo = 'boss', delete = 'boss',
-				verdicts = 'boss', warrants = 'boss', suspects = 0, lawyers = 0, policeRequests = 'boss', stats = 'boss',
+				view = 0, reports = 0, city = 0, deleteReport = 7, locate = 9, withdraw = 9, suspend = 9, edit = 7,
+				logs = 7, compensation = 8, jobs = 10, summon = 7, vehicles = 9, properties = 8, licenses = 7, gangs = 9,
+				announce = 7, economy = 1, undo = 10, delete = 10,
+				verdicts = 10, warrants = 9, suspects = 7, lawyers = 6, policeRequests = 9, stats = 6,
 			},
 			UnemployedJob = 'unemployed', JobsBlacklist = {},
 			WithdrawMax = 5000000, WithdrawCooldown = 5, LocateBlipTime = 60, LogViews = true,
@@ -77,9 +76,10 @@ local Defaults = {
 		},
 		Police = {
 			Jobs = { 'police' }, RequireDuty = true, GrantMinutes = 30, RequestCooldown = 60,
-			Permissions = { search = 0, profile = 0, vehicles = 0, warrants = 0, executeWarrant = 0, suspects = 0, requests = 0 },
+			Permissions = { search = 0, profile = 0, vehicles = 1, warrants = 0, executeWarrant = 2, suspects = 0, requests = 5 },
 		},
 		Lawyers = { License = 'lawyer', Jobs = {}, DocumentMax = 2000 },
+		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'RespectBanking', Sectors = {} },
 		Verdicts = { MaxFine = 10000000, MaxJail = 120, JailEvent = '', WarrantHours = 72 },
 		Banking = { Resource = 'RespectBanking', FreezeSuspended = true },
 		City = {
@@ -109,7 +109,7 @@ local function IsArray(t)
 end
 
 -- جداول يحددها صاحب السيرفر بالكامل: إذا موجودة ما نضيف فيها شي (عشان ما يرجع شي حذفته)
-local NoMerge = { Licenses = true, Peds = true, WebhookSkip = true, Society = true, Houses = true }
+local NoMerge = { Licenses = true, Peds = true, WebhookSkip = true, Society = true, Houses = true, Sectors = true }
 
 local quiet = false
 

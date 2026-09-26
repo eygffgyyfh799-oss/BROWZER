@@ -231,3 +231,25 @@ CREATE TABLE IF NOT EXISTS `justice_verdicts` (
     KEY `citizenid` (`citizenid`),
     KEY `report_id` (`report_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ═══ القسم المالي للقطاعات (الخزينة الداخلية + سجل العمليات) ═══
+CREATE TABLE IF NOT EXISTS `justice_sector_funds` (
+    `job` varchar(50) NOT NULL,
+    `balance` bigint(20) NOT NULL DEFAULT 0,
+    PRIMARY KEY (`job`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `justice_sector_transactions` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `job` varchar(50) NOT NULL,
+    `type` varchar(20) NOT NULL,
+    `amount` bigint(20) NOT NULL,
+    `reason` varchar(150) NOT NULL,
+    `officer_cid` varchar(50) NOT NULL,
+    `officer_name` varchar(100) NOT NULL,
+    `officer_grade` varchar(100) NOT NULL DEFAULT '',
+    `balance_after` bigint(20) NULL,
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `job` (`job`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

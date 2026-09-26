@@ -237,18 +237,22 @@ NAV_BY_ROLE.police = [
     { page: 'pwarrants', icon: '🚨', label: 'الأوامر السارية', perm: 'warrants', badge: () => S.info.warrants },
     { page: 'psuspects', icon: '🕵️', label: 'المشبوهين', perm: 'suspects' },
     { page: 'prequests', icon: '📨', label: 'طلباتي للعدل', perm: 'requests', badge: () => S.info.myPending },
+    { page: 'finance', icon: '💰', label: 'القسم المالي', show: () => !!S.info.finance },
+];
+NAV_BY_ROLE.sector = [
+    { page: 'finance', icon: '💰', label: 'القسم المالي' },
 ];
 NAV_BY_ROLE.lawyer = [
     { page: 'lcases', icon: '💼', label: 'قضاياي' },
 ];
 const currentNav = () => NAV_BY_ROLE[S.role] || [];
-const homePage = () => ({ justice: 'home', police: 'phome', lawyer: 'lcases' })[S.role] || 'home';
+const homePage = () => ({ justice: 'home', police: 'phome', lawyer: 'lcases', sector: 'finance' })[S.role] || 'home';
 
 function renderNav() {
     const NAV = currentNav();
     const root = S.stack.length ? S.stack[0].page : homePage();
     const active = S.current ? S.current.page : homePage();
-    $('nav').replaceChildren(...NAV.filter((n) => !n.perm || S.perms[n.perm]).map((n) => {
+    $('nav').replaceChildren(...NAV.filter((n) => (!n.perm || S.perms[n.perm]) && (!n.show || n.show())).map((n) => {
         const count = n.badge ? Number(n.badge()) || 0 : 0;
         return h('button', {
             class: active === n.page || (root === n.page && !NAV.some((x) => x.page === active)) ? 'active' : '',
@@ -825,6 +829,7 @@ PAGES.city = {
                 arr(o.vehicles) ? card('🚗 سجل المركبات', h('div', { class: 'searchbar', style: 'margin:0' }, vInput, btn('بحث', vSearch, 'primary'))) : null,
                 arr(o.houses) != null ? card('🏠 سجل العقارات', h('div', { class: 'searchbar', style: 'margin:0' }, pInput, btn('بحث', pSearch, 'primary'))) : null,
             ),
+            e && arr(e.sectors).length ? card('🏛️ أرصدة القطاعات', h('div', { class: 'grid stats' }, arr(e.sectors).map((x) => stat(x.label, x.balance != null ? money(x.balance) : '-', 'blue')))) : null,
             e ? card(`💰 اقتصاد المدينة: ${money(e.total)}`,
                 h('div', { class: 'grid stats', style: 'margin-bottom:12px' }, stat('البنوك', money(e.bank), 'green'), stat('الكاش', money(e.cash), 'gold')),
                 h('div', { class: 'list' }, arr(e.richest).map((x, n) => item({
@@ -1430,6 +1435,50 @@ PAGES.lcase = {
     },
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// 💰 القسم المالي للقطاع
+// ════════════════════════════════════════════════════════════════════════════
+PAGES.finance = {
+    title: 'القسم المالي',
+    async render() {
+        const res = await call('financeInfo');
+        if (!res) return null;
+        $('page-title').textContent = `القسم المالي: ${res.label}`;
+        const reload = () => render();
+        const act = async (type) => {
+            const deposit = type === 'deposit';
+            const v = await modal({
+                title: deposit ? `إيداع في حساب ${res.label}` : `سحب من حساب ${res.label}`,
+                text: deposit ? `من حسابك البنكي (رصيدك: ${money(res.myBank)})` : `إلى حسابك البنكي (رصيد القطاع: ${money(res.balance)})`,
+                okText: 'متابعة',
+                fields: [
+                    { name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue: Math.min(res.maxPerTransaction, deposit ? res.myBank : res.balance) },
+                    { name: 'reason', label: 'السبب', required: true, max: 150 },
+                ],
+            });
+            if (!v || !await confirmBox('تأكيد', `${deposit ? 'إيداع' : 'سحب'} ${money(v.amount)}\nالسبب: ${v.reason}`, !deposit)) return;
+            const r = await call(deposit ? 'financeDeposit' : 'financeWithdraw', v.amount, v.reason);
+            if (r) { toast(`تمت العملية، رصيد القطاع: ${money(r.balance)}`, 'success'); reload(); }
+        };
+        const history = arr(res.history);
+        return h('div', null,
+            h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
+                stat(`رصيد ${res.label}`, money(res.balance), 'green'),
+                stat('رصيدك البنكي', money(res.myBank), 'gold'),
+                stat('الحد بالعملية', money(res.maxPerTransaction), 'blue')),
+            h('div', { class: 'actions', style: 'margin-bottom:14px' },
+                h('button', { class: 'btn primary', disabled: res.myBank <= 0 || null, onclick: () => act('deposit') }, '⬆️ إيداع في حساب القطاع'),
+                h('button', { class: 'btn red', disabled: res.balance <= 0 || null, onclick: () => act('withdraw') }, '⬇️ سحب من حساب القطاع')),
+            card(`🧾 سجل العمليات (${history.length})`, history.length ? h('div', { class: 'list' }, history.map((t) => item({
+                icon: t.type === 'deposit' ? '⬆️' : '⬇️',
+                title: `${t.typeLabel} ${money(t.amount)} | ${t.officer}${t.grade ? ' - ' + t.grade : ''}`,
+                sub: `${t.reason}\n${val(t.date)}${t.balance != null ? ' | الرصيد بعدها: ' + money(t.balance) : ''}`,
+            }))) : empty('لا توجد عمليات', '🧾')),
+            h('div', { class: 'item-sub' }, `مصدر الرصيد: ${res.provider}`),
+        );
+    },
+};
+
 // ═════ الإشعارات المباشرة (صوت + تنبيه) ═════
 function chime() {
     try {
@@ -1459,13 +1508,13 @@ function onLiveEvent(ev) {
     if (ev.type === 'request_answered' && S.role === 'police') S.info.myPending = Math.max(0, (Number(S.info.myPending) || 0) - 1);
     renderNav();
     const page = S.current && S.current.page;
-    const refreshOn = { new_case: ['reports', 'home'], police_request: ['policeRequests'], warrant: ['pwarrants', 'phome'], request_answered: ['prequests'], document: ['report'] };
+    const refreshOn = { new_case: ['reports', 'home'], police_request: ['policeRequests'], warrant: ['pwarrants', 'phome'], request_answered: ['prequests'], document: ['report'], finance: ['finance'] };
     if ((refreshOn[ev.type] || []).includes(page) && !$('modal-root').children.length) render();
 }
 
 // ═════ الفتح والإغلاق ═════
 function renderMe() {
-    const roleLabel = { justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي' }[S.role] || '';
+    const roleLabel = { justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي', sector: '💰 مسؤول القطاع' }[S.role] || '';
     $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 

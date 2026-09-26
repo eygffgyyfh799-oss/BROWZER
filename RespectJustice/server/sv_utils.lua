@@ -196,9 +196,18 @@ function JS.Can(Player, action)
     local required = Settings.Panel.Permissions[action]
     if required == nil then return false, 'صلاحية غير معروفة' end
     if required == false then return false, 'هذه الصلاحية مقفلة' end
-    if JS.IsBoss(Player) then return true end
-    if required == 'boss' then return false, 'هذه الصلاحية للمدير فقط' end
-    if JS.GetGrade(Player) < (tonumber(required) or 0) then
+
+    -- رتبة الصلاحية الكاملة (القاضي) = كل شي
+    local fullAccess = tonumber(Settings.Panel.FullAccessGrade)
+    local grade = JS.GetGrade(Player)
+    if fullAccess and grade >= fullAccess then return true end
+
+    -- 'boss' = الرتب اللي عليها isboss | رقم = هذي الرتبة وأعلى فقط
+    if required == 'boss' then
+        if job.isboss then return true end
+        return false, 'هذه الصلاحية للإدارة فقط'
+    end
+    if grade < (tonumber(required) or 0) then
         return false, 'رتبتك لا تسمح بهذا الإجراء'
     end
     return true
@@ -234,8 +243,10 @@ function JS.CanPolice(Player, action)
     if Settings.Police.RequireDuty and not job.onduty then return false, 'يجب أن تكون في الدوام' end
     local required = Settings.Police.Permissions[action]
     if required == nil or required == false then return false, 'هذه الصلاحية غير متاحة للشرطة' end
-    if job.isboss then return true end
-    if required == 'boss' then return false, 'هذه الصلاحية لمدير الشرطة فقط' end
+    if required == 'boss' then
+        if job.isboss then return true end
+        return false, 'هذه الصلاحية لضباط الشرطة فقط'
+    end
     if JS.GetGrade(Player) < (tonumber(required) or 0) then return false, 'رتبتك لا تسمح بهذا الإجراء' end
     return true
 end
@@ -268,6 +279,7 @@ function JS.GetRole(Player)
     if JS.IsJustice(Player) then return 'justice' end
     if JS.IsPolice(Player) then return 'police' end
     if JS.IsLawyer(Player) then return 'lawyer' end
+    if JS.GetFinanceSector and JS.GetFinanceSector(Player, true) then return 'sector' end
     return nil
 end
 
@@ -639,6 +651,8 @@ JS.ActionLabels = {
     police_request = 'طلب تصريح (شرطة)',
     police_answer = 'الرد على طلب شرطة',
     police_view = 'اطلاع شرطي على ملف',
+    sector_deposit = 'إيداع في حساب قطاع',
+    sector_withdraw = 'سحب من حساب قطاع',
     summon_delete = 'حذف استدعاء',
 }
 

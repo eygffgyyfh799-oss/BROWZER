@@ -196,6 +196,7 @@ JS.RegisterCallback('RespectJustice:server:getCityOverview', 'city', function(sr
 
     if perms.economy then
         overview.economy = GetEconomy()
+        if overview.economy and JS.GetSectorBalances then overview.economy.sectors = JS.GetSectorBalances() end
     end
 
     return { ok = true, overview = overview, perms = perms }

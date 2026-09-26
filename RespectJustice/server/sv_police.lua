@@ -60,7 +60,14 @@ JS.RegisterCallback('RespectJustice:server:tabletInfo', nil, function(src, Playe
             warrants = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM justice_warrants WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW())")) or 0,
             suspects = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM justice_suspects WHERE active = 1')) or 0,
             myPending = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM justice_police_requests WHERE officer_cid = ? AND status = 'pending'", { Player.PlayerData.citizenid })) or 0,
+            finance = JS.GetFinanceSector and JS.GetFinanceSector(Player) or nil,
         }
+    end
+
+    if role == 'sector' then
+        local sector, err = JS.GetFinanceSector(Player)
+        if not sector then return { ok = false, err = err or 'القسم المالي لمسؤولي القطاع فقط' } end
+        return { ok = true, role = 'sector', perms = {}, finance = sector }
     end
 
     if role == 'lawyer' then
@@ -71,7 +78,7 @@ JS.RegisterCallback('RespectJustice:server:tabletInfo', nil, function(src, Playe
         }
     end
 
-    return { ok = false, err = 'نظام الدولة لموظفي العدل والشرطة والمحامين فقط' }
+    return { ok = false, err = 'نظام الدولة لموظفي العدل والشرطة والمحامين ومسؤولي القطاعات فقط' }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
