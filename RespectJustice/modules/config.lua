@@ -77,6 +77,7 @@ return {
             WithdrawCooldown = 5,        -- ثواني الانتظار بين كل سحب
             LocateBlipTime = 60,         -- مدة بقاء علامة الموقع على الخريطة (ثانية)
             LogViews = true,             -- تسجيل كل مرة يتم فيها فتح ملف مواطن
+            WebhookSkip = { view = true },  -- عمليات تنحفظ في السجل بس ما تنرسل لـ Discord (عشان ما يمتلي)
 
             -- إيداع المبالغ المسحوبة في حساب الوزارة (اختياري)
             -- مثال qb-management: resource = 'qb-management', func = 'AddMoney'

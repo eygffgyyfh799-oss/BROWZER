@@ -3,7 +3,7 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS = {}
-JS.Config = Load('config')
+JS.Config = LoadConfig()
 JS.Settings = JS.Config.Settings
 JS.Job = JS.Settings.Job
 JS.Ready = false
@@ -19,7 +19,11 @@ JS.StatusLabels = { new = 'جديدة', review = 'قيد النظر', closed = '
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.Notify(src, msg, msgType, length)
-    RTCore.Functions.Notify(src, msg, msgType or 'primary', length or 5000)
+    msgType, length = msgType or 'primary', length or 5000
+    local ok = pcall(RTCore.Functions.Notify, src, msg, msgType, length)
+    if not ok then
+        TriggerClientEvent('RespectJustice:client:notify', src, msg, msgType, length)
+    end
 end
 
 function JS.Now()
@@ -459,7 +463,7 @@ function JS.Log(Player, action, targetCitizenid, targetName, details)
         officerCid, officerName, action, targetCitizenid, targetName, encoded
     })
 
-    if webhook == '' then return end
+    if webhook == '' or (Settings.Panel.WebhookSkip or {})[action] then return end
 
     local lines = {
         ('**الموظف:** %s (%s)'):format(officerName, officerCid),
@@ -471,16 +475,34 @@ function JS.Log(Player, action, targetCitizenid, targetName, details)
         lines[#lines + 1] = ('**%s:** %s'):format(key, type(value) == 'table' and json.encode(value) or tostring(value))
     end
 
-    PerformHttpRequest(webhook, function() end, 'POST', json.encode({
-        username = 'RespectJustice',
-        embeds = { {
-            title = JS.ActionLabels[action] or action,
-            description = table.concat(lines, '\n'),
-            color = 13280380,
-            timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ'),
-        } },
-    }), { ['Content-Type'] = 'application/json' })
+    JS.QueueWebhook({
+        title = JS.ActionLabels[action] or action,
+        description = JS.Truncate(table.concat(lines, '\n'), 3900),
+        color = 13280380,
+        timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ'),
+    })
 end
+
+-- طابور Discord: رسالة كل ثانية ونص عشان ما ينحظر الـ webhook (حد Discord للطلبات)
+local webhookQueue = {}
+
+function JS.QueueWebhook(embed)
+    if #webhookQueue >= 200 then table.remove(webhookQueue, 1) end
+    webhookQueue[#webhookQueue + 1] = embed
+end
+
+CreateThread(function()
+    if webhook == '' then return end
+    while true do
+        local embed = table.remove(webhookQueue, 1)
+        if embed then
+            PerformHttpRequest(webhook, function(status)
+                if status == 429 then table.insert(webhookQueue, 1, embed) end
+            end, 'POST', json.encode({ username = 'RespectJustice', embeds = { embed } }), { ['Content-Type'] = 'application/json' })
+        end
+        Wait(embed and 1500 or 1000)
+    end
+end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- حساب الوزارة (اختياري)

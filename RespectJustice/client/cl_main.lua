@@ -74,7 +74,7 @@ end
 local function OpenDutyHistory()
     RTCore.Functions.TriggerCallback('RespectJustice:server:getDutyHistory', function(playersHistory)
         if not playersHistory or not next(playersHistory) then
-            return RTCore.Functions.Notify('لا يوجد سجل بالوقت الحالي', 'error', 5000)
+            return JC.Notify('لا يوجد سجل بالوقت الحالي', 'error', 5000)
         end
 
         local options = {}
@@ -151,7 +151,7 @@ local PointOptions = {
             action = function()
                 local remaining = GetDutyCooldown()
                 if remaining > 0 then
-                    return RTCore.Functions.Notify(('يجب ان تنتظر %s ثانية'):format(remaining), 'error', 5000)
+                    return JC.Notify(('يجب ان تنتظر %s ثانية'):format(remaining), 'error', 5000)
                 end
                 dutyCooldownEnd = GetGameTimer() + Settings.DutyCooldown * 1000
                 -- الترتيب مهم: نبدل الدوام أولاً ثم نسجل الحالة الجديدة
@@ -252,11 +252,14 @@ local function create_zones()
             icon = 'fa-solid fa-comment',
             label = 'تحدث',
             action = function()
-                local ok, phoneNumber = pcall(function()
-                    return exports['lb-phone']:GetEquippedPhoneNumber()
-                end)
-                if not ok or not phoneNumber then
-                    return RTCore.Functions.Notify('يجب ان يتوفر لديك رقم جوال', 'error', 5000)
+                -- التحقق من الجوال فقط إذا lb-phone شغال (لو مو موجود ما نمنع تقديم الدعوى)
+                if GetResourceState('lb-phone') == 'started' then
+                    local ok, phoneNumber = pcall(function()
+                        return exports['lb-phone']:GetEquippedPhoneNumber()
+                    end)
+                    if ok and not phoneNumber then
+                        return JC.Notify('يجب ان يتوفر لديك رقم جوال', 'error', 5000)
+                    end
                 end
 
                 lib.registerContext({
@@ -370,7 +373,7 @@ RegisterCommand('jcoords', function()
     local text = ('vector4(%.2f, %.2f, %.2f, %.2f)'):format(c.x, c.y, c.z, GetEntityHeading(ped))
     pcall(lib.setClipboard, text)
     print(text)
-    RTCore.Functions.Notify('تم نسخ الإحداثية: ' .. text, 'success', 10000)
+    JC.Notify('تم نسخ الإحداثية: ' .. text, 'success', 10000)
 end, false)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -379,7 +382,7 @@ end, false)
 
 RegisterNetEvent('RespectJustice:client:giveMoney', function()
     if not IsJustice() then
-        return RTCore.Functions.Notify('يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error', 5000)
+        return JC.Notify('يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error', 5000)
     end
 
     local playerPed = PlayerPedId()
@@ -398,7 +401,7 @@ RegisterNetEvent('RespectJustice:client:giveMoney', function()
     end
 
     if not closestPlayer then
-        return RTCore.Functions.Notify('لا يوجد شخص قريب', 'error', 5000)
+        return JC.Notify('لا يوجد شخص قريب', 'error', 5000)
     end
 
     local input = lib.inputDialog('تعويض الشخص', {
@@ -410,7 +413,7 @@ RegisterNetEvent('RespectJustice:client:giveMoney', function()
     local citizenid = _2rayan.Functions.trim(input[1])
     local amount = tonumber(input[2])
     if not citizenid or citizenid == '' or not amount or amount <= 0 then
-        return RTCore.Functions.Notify('البيانات المدخلة غير صحيحة', 'error', 5000)
+        return JC.Notify('البيانات المدخلة غير صحيحة', 'error', 5000)
     end
 
     TriggerServerEvent('RespectJustice:server:giveMoneyToPlayer', citizenid, math.floor(amount))

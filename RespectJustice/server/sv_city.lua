@@ -50,6 +50,21 @@ local function NormalizePlate(plate)
     return plate
 end
 
+local function CleanPlate(text)
+    return ((text or ''):upper():gsub('^%s+', ''):gsub('%s+$', ''))
+end
+
+-- كل اللوحات الموجودة في الشارع الآن دفعة وحدة { [plate] = entity } (أسرع من البحث لكل مركبة)
+local function WorldPlates()
+    local plates = {}
+    for _, vehicle in ipairs(GetAllVehicles()) do
+        if DoesEntityExist(vehicle) then
+            plates[CleanPlate(GetVehicleNumberPlateText(vehicle))] = vehicle
+        end
+    end
+    return plates
+end
+
 -- المركبة موجودة الآن في العالم؟
 local function FindWorldVehicle(plate)
     for _, vehicle in ipairs(GetAllVehicles()) do
@@ -69,7 +84,7 @@ local function HousesReady()
     return h and JS.TableExists(h.table) and JS.ColumnExists(h.table, h.owner) and JS.ColumnExists(h.table, h.id)
 end
 
-local function MapVehicle(row, names)
+local function MapVehicle(row, names, worldPlates)
     local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[row.vehicle]
     local label = shared and (('%s %s'):format(shared.brand or '', shared.name or row.vehicle):gsub('^%s+', '')) or row.vehicle
     local plate = (row.plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
@@ -84,7 +99,7 @@ local function MapVehicle(row, names)
         stateCode = tonumber(row.state),
         state = VehicleStates[tonumber(row.state)] or tostring(row.state or '-'),
         depotprice = tonumber(row.depotprice),
-        inWorld = FindWorldVehicle(plate) ~= nil,
+        inWorld = (worldPlates and worldPlates[plate] or FindWorldVehicle(plate)) ~= nil,
     }
 end
 
@@ -203,8 +218,8 @@ JS.RegisterCallback('RespectJustice:server:searchVehicles', 'city', function(src
     for i, row in ipairs(rows) do ids[i] = row.citizenid end
     local names = GetNames(ids)
 
-    local list = {}
-    for i, row in ipairs(rows) do list[i] = MapVehicle(row, names) end
+    local list, worldPlates = {}, WorldPlates()
+    for i, row in ipairs(rows) do list[i] = MapVehicle(row, names, worldPlates) end
     return { ok = true, vehicles = list, perms = JS.GetPermissions(Player) }
 end)
 

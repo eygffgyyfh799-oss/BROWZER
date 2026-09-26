@@ -5,7 +5,7 @@ lua54 'yes'
 name 'RespectJustice'
 description 'نظام وزارة العدل - نظام معلومات المواطنين، القضايا، البصمة، الخزائن، الأرشيف، التعويضات، ومركبات العدل'
 author '2rayan'
-version '5.1.0'
+version '5.2.0'
 
 shared_scripts {
     '@RespectLib/init.lua',
@@ -30,6 +30,7 @@ server_scripts {
     'server/sv_panel.lua',
     'server/sv_jobs.lua',
     'server/sv_city.lua',
+    'server/sv_diagnostics.lua',
 }
 
 files {

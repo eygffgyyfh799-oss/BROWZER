@@ -1,4 +1,4 @@
-local Settings = Load('config').Settings
+local Settings = LoadConfig().Settings
 
 -- { label = string, vehicle = entity }
 local spawnedVehicles = {}
@@ -43,23 +43,23 @@ local function SpawnJusticeVehicle(data, value)
     CleanupSpawnedVehicles()
 
     if #spawnedVehicles >= Settings.MaxSpawnedVehicles then
-        return RTCore.Functions.Notify('يجب ارجاع المركبة الحالية قبل استخراج مركبة جديدة', 'error', 7500)
+        return JC.Notify('يجب ارجاع المركبة الحالية قبل استخراج مركبة جديدة', 'error', 7500)
     end
 
     local modelName = GetVehicleModel(value)
     local model = joaat(modelName)
     if not IsModelInCdimage(model) or not IsModelAVehicle(model) then
-        return RTCore.Functions.Notify('المركبة غير متوفرة: ' .. tostring(modelName), 'error', 7500)
+        return JC.Notify('المركبة غير متوفرة: ' .. tostring(modelName), 'error', 7500)
     end
 
     local coords = GetSpawn(data.vehSpawns or {})
     if not coords then
-        return RTCore.Functions.Notify('لا يوجد مكان فارغ لاستخراج المركبة', 'error', 7500)
+        return JC.Notify('لا يوجد مكان فارغ لاستخراج المركبة', 'error', 7500)
     end
 
     pcall(lib.requestModel, model, 10000)
     if not HasModelLoaded(model) then
-        return RTCore.Functions.Notify('تعذر تحميل المركبة، حاول مرة أخرى', 'error', 7500)
+        return JC.Notify('تعذر تحميل المركبة، حاول مرة أخرى', 'error', 7500)
     end
 
     DoScreenFadeOut(300)
@@ -71,7 +71,7 @@ local function SpawnJusticeVehicle(data, value)
 
     if not DoesEntityExist(veh) then
         DoScreenFadeIn(500)
-        return RTCore.Functions.Notify('تعذر استخراج المركبة', 'error', 7500)
+        return JC.Notify('تعذر استخراج المركبة', 'error', 7500)
     end
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
@@ -124,7 +124,7 @@ local function ReturnVehicle(index)
     end
 
     table.remove(spawnedVehicles, index)
-    RTCore.Functions.Notify('تم ارجاع المركبة', 'success', 5000)
+    JC.Notify('تم ارجاع المركبة', 'success', 5000)
 end
 
 AddEventHandler('RespectJustice:client:spawnVehicleMenu', function(data)

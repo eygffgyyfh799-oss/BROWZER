@@ -3,14 +3,26 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JC = {}
-JC.Config = Load('config')
-JC.Coords = Load('coords') or {}
+JC.Config = LoadConfig()
+JC.Coords = LoadCoords()
 JC.Settings = JC.Config.Settings
 JC.Job = JC.Settings.Job
 
+local LibTypes = { primary = 'inform', success = 'success', error = 'error', inform = 'inform', warning = 'warning' }
+
+-- إشعار: يستخدم إشعار الكور، ولو فشل يستخدم إشعار RespectLib
 function JC.Notify(msg, msgType, length)
-    RTCore.Functions.Notify(msg, msgType or 'primary', length or 5000)
+    msgType, length = msgType or 'primary', length or 5000
+    local ok = pcall(RTCore.Functions.Notify, msg, msgType, length)
+    if not ok then
+        pcall(lib.notify, { description = msg, type = LibTypes[msgType] or 'inform', duration = length })
+    end
 end
+
+-- احتياطي: لو إشعار الكور في السيرفر ما اشتغل، السيرفر يرسل هنا
+RegisterNetEvent('RespectJustice:client:notify', function(msg, msgType, length)
+    if type(msg) == 'string' then JC.Notify(msg, msgType, length) end
+end)
 
 function JC.IsJustice()
     local job = RTCore.Functions.GetPlayerData().job
@@ -26,20 +38,39 @@ function JC.IsBoss()
     return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
 end
 
--- ينتظر نتيجة callback من السيرفر
+-- ينتظر نتيجة callback من السيرفر (بحد أقصى 10 ثواني عشان ما تعلق القائمة)
 function JC.Await(name, ...)
     local p = promise.new()
+    local finished = false
     RTCore.Functions.TriggerCallback(name, function(result)
+        if finished then return end
+        finished = true
         p:resolve(result)
     end, ...)
+    SetTimeout(10000, function()
+        if finished then return end
+        finished = true
+        p:resolve(nil)
+    end)
     return Citizen.Await(p)
 end
 
--- مثل Await لكن يعرض رسالة الخطأ تلقائياً ويرجع nil عند الفشل
+-- مثل Await لكن: يمنع الضغط المزدوج، ويعرض رسالة الخطأ تلقائياً ويرجع nil عند الفشل
+local inFlight = {}
+
 function JC.Call(name, ...)
-    local result = JC.Await(name, ...)
+    if inFlight[name] then return nil end
+    inFlight[name] = true
+    local ok, result = pcall(JC.Await, name, ...)
+    inFlight[name] = nil
+
+    if not ok then
+        print(('^1[RespectJustice] %s: %s^7'):format(name, tostring(result)))
+        JC.Notify('حدث خطأ غير متوقع، حاول مرة ثانية', 'error')
+        return nil
+    end
     if type(result) ~= 'table' then
-        JC.Notify('تعذر الاتصال بالسيرفر', 'error')
+        JC.Notify('السيرفر ما رد، حاول مرة ثانية', 'error')
         return nil
     end
     if result.ok == false then
