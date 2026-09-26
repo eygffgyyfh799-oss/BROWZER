@@ -48,6 +48,8 @@ CreateThread(function()
     JS.EnsureColumn('justice_reports', 'status', "varchar(20) NOT NULL DEFAULT 'new'")
     JS.EnsureColumn('justice_reports', 'handled_by', "varchar(100) NOT NULL DEFAULT ''")
     JS.EnsureColumn('justice_reports', 'submitter_info', 'longtext NULL')
+    JS.EnsureIndex('justice_reports', 'status')
+    JS.EnsureIndex('justice_reports', 'defendant_citizenid')
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_report_notes` (
@@ -268,4 +270,44 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'تعويض', JS.Now(), 'compensation'
     })
     JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount })
+end)
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- تنظيف السجلات القديمة (عند التشغيل ثم كل 24 ساعة)
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+local function CleanupOldData()
+    local cleanup = Settings.Cleanup or {}
+    local removed = 0
+
+    local logsDays = tonumber(cleanup.LogsDays) or 0
+    if logsDays > 0 then
+        removed = removed + (MySQL.update.await('DELETE FROM justice_logs WHERE created_at < NOW() - INTERVAL ? DAY', { logsDays }) or 0)
+    end
+
+    local dutyDays = tonumber(cleanup.DutyDays) or 0
+    if dutyDays > 0 then
+        removed = removed + (MySQL.update.await('DELETE FROM justice_duty_history WHERE timestamp < ?', { os.time() - dutyDays * 86400 }) or 0)
+    end
+
+    local reportDays = tonumber(cleanup.ClosedReportsDays) or 0
+    if reportDays > 0 then
+        removed = removed + (MySQL.update.await(
+            "DELETE FROM justice_report_notes WHERE report_id IN (SELECT id FROM (SELECT id FROM justice_reports WHERE status = 'closed' AND created_at < NOW() - INTERVAL ? DAY) AS old)",
+            { reportDays }) or 0)
+        removed = removed + (MySQL.update.await("DELETE FROM justice_reports WHERE status = 'closed' AND created_at < NOW() - INTERVAL ? DAY", { reportDays }) or 0)
+    end
+
+    if removed > 0 then
+        print(('^2[RespectJustice]^7 Cleanup removed %d old records'):format(removed))
+    end
+end
+
+CreateThread(function()
+    while not JS.Ready do Wait(1000) end
+    while true do
+        local ok, err = pcall(CleanupOldData)
+        if not ok then print(('^1[RespectJustice]^7 Cleanup failed: %s'):format(tostring(err))) end
+        Wait(24 * 60 * 60 * 1000)
+    end
 end)

@@ -94,7 +94,7 @@ function JC.Reports.OpenList(filter, parent)
     for _, report in ipairs(result.reports) do
         options[#options + 1] = {
             title = ('#%d | %s'):format(report.id, report.title),
-            description = ('%s | %s | %s%s'):format(report.caseType, report.name, report.date,
+            description = ('%s | %s %s | %s%s'):format(report.caseType, report.submitterOnline and '🟢' or '⚫', report.name, report.date,
                 report.defendantName and (' | ضد: ' .. report.defendantName) or ''),
             icon = StatusIcons[report.status] or StatusIcons.new,
             iconColor = StatusColors[report.status],
@@ -157,8 +157,8 @@ function JC.Reports.OpenDetails(reportId, parent)
     -- مقدم الدعوى
     options[#options + 1] = {
         title = ('مقدم الدعوى: %s'):format(report.name),
-        description = ('الرقم الوطني: %s | الجوال: %s | %s'):format(report.citizenid, JC.Value(report.phoneNumber),
-            report.submitterOnline and 'متصل' or 'غير متصل'),
+        description = ('%s\nالرقم الوطني: %s | الجوال: %s'):format(report.submitterStatus or (report.submitterOnline and '🟢 متصل' or '⚫ غير متصل'),
+            report.citizenid, JC.Value(report.phoneNumber)),
         icon = 'fas fa-user',
         iconColor = report.submitterOnline and 'green' or 'gray',
         metadata = {
@@ -177,7 +177,7 @@ function JC.Reports.OpenDetails(reportId, parent)
     -- المدعى عليه
     options[#options + 1] = {
         title = ('المدعى عليه: %s'):format(report.defendantName or 'غير محدد'),
-        description = report.defendantCitizenid and ('الرقم الوطني: ' .. report.defendantCitizenid) or 'لم يتم تحديد رقم وطني',
+        description = report.defendantCitizenid and ('%s\nالرقم الوطني: %s'):format(report.defendantStatus or '', report.defendantCitizenid) or 'لم يتم تحديد رقم وطني',
         icon = 'fas fa-user-slash',
         arrow = perms.view and report.defendantCitizenid ~= nil,
         onSelect = (perms.view and report.defendantCitizenid) and function()

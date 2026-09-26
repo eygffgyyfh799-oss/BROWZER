@@ -117,9 +117,10 @@ JS.RegisterCallback('RespectJustice:server:getJobMembers', 'view', function(src,
     if not job or IsBlacklisted(jobName) then return { ok = false, err = 'القطاع غير موجود' } end
 
     local members, seen = {}, {}
-    local function add(cid, charinfo, jobData, target)
+    local function add(cid, charinfo, jobData, target, lastUpdated)
         if seen[cid] then return end
         seen[cid] = true
+        local status = JS.GetStatus(cid, lastUpdated)
         local grade = type(jobData.grade) == 'table' and jobData.grade or {}
         members[#members + 1] = {
             citizenid = cid,
@@ -130,6 +131,7 @@ JS.RegisterCallback('RespectJustice:server:getJobMembers', 'view', function(src,
             online = target ~= nil,
             onduty = target ~= nil and jobData.onduty == true,
             serverId = target and target.PlayerData.source or nil,
+            status = status,
         }
     end
 
@@ -142,9 +144,9 @@ JS.RegisterCallback('RespectJustice:server:getJobMembers', 'view', function(src,
 
     local tableName = Settings.Database.Players
     if JS.TableExists(tableName) then
-        local rows = MySQL.query.await(("SELECT citizenid, charinfo, job FROM `%s` WHERE JSON_UNQUOTE(JSON_EXTRACT(job, '$.name')) = ? LIMIT 300"):format(tableName), { jobName }) or {}
+        local rows = MySQL.query.await(("SELECT %s FROM `%s` WHERE JSON_UNQUOTE(JSON_EXTRACT(job, '$.name')) = ? LIMIT 300"):format(JS.PlayerListColumns(), tableName), { jobName }) or {}
         for _, row in ipairs(rows) do
-            add(row.citizenid, JS.Decode(row.charinfo), JS.Decode(row.job), nil)
+            add(row.citizenid, JS.Decode(row.charinfo), JS.Decode(row.job), nil, row.last_updated)
         end
     end
 

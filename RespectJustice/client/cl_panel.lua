@@ -15,12 +15,18 @@ local function ListMenu(id, title, parent, items, emptyText)
     lib.showContext(id)
 end
 
+local function StatusText(entry)
+    if entry.status and entry.status.text then return entry.status.text end
+    return entry.online and '🟢 متصل' or '⚫ غير متصل'
+end
+
 local function CitizenOption(entry, parent)
     return {
-        title = ('%s%s'):format(entry.serverId and ('[%d] '):format(entry.serverId) or '', entry.name ~= '' and entry.name or 'بدون اسم'),
-        description = ('الرقم الوطني: %s | %s | الجوال: %s'):format(entry.citizenid, JC.Value(entry.job), JC.Value(entry.phone)),
+        title = ('%s%s%s'):format(entry.online and '🟢 ' or '⚫ ', entry.serverId and ('[%d] '):format(entry.serverId) or '', entry.name ~= '' and entry.name or 'بدون اسم'),
+        description = ('%s\nالرقم الوطني: %s | %s | الجوال: %s%s'):format(StatusText(entry), entry.citizenid, JC.Value(entry.job), JC.Value(entry.phone),
+            entry.suspended and ' | ⛔ خدماته موقوفة' or ''),
         icon = entry.suspended and 'fas fa-user-lock' or 'fas fa-user',
-        iconColor = entry.suspended and 'red' or ((entry.online == false) and 'gray' or 'green'),
+        iconColor = entry.suspended and 'red' or (entry.online and 'green' or 'gray'),
         arrow = true,
         onSelect = function() JC.Panel.OpenProfile(entry.citizenid, parent) end,
     }
@@ -41,10 +47,23 @@ function JC.Panel.Open()
 
     local options = {
         {
-            title = ('اللاعبين المتصلين (%d)'):format(info.online or 0),
+            title = 'إحصائيات',
+            description = ('🟢 متصل: %d | 👥 المواطنين: %d | ⚖️ العدل في الدوام: %d | 📂 قضايا جديدة: %d | ⛔ موقوفين: %d'):format(
+                info.online or 0, info.totalCitizens or 0, info.justiceOnDuty or 0, info.newReports or 0, info.suspended or 0),
+            icon = 'fas fa-chart-simple',
+            readOnly = true,
+        },
+        {
+            title = ('🟢 اللاعبين المتصلين (%d)'):format(info.online or 0),
             description = 'جميع اللاعبين الموجودين في السيرفر الآن',
             icon = 'fas fa-users', arrow = true,
             onSelect = JC.Panel.OpenOnline,
+        },
+        {
+            title = ('👥 جميع المواطنين (%d)'):format(info.totalCitizens or 0),
+            description = 'المتصلين وغير المتصلين مع آخر ظهور',
+            icon = 'fas fa-address-book', arrow = true,
+            onSelect = function() JC.Panel.OpenAll(0, 'all') end,
         },
         {
             title = 'البحث عن مواطن',
@@ -101,6 +120,51 @@ function JC.Panel.OpenOnline()
     ListMenu('justice_panel_online', ('اللاعبين المتصلين (%d)'):format(#items), 'justice_panel_main', items, 'لا يوجد لاعبين')
 end
 
+local FilterLabels = { all = 'الكل', online = '🟢 المتصلين', offline = '⚫ غير المتصلين' }
+
+function JC.Panel.OpenAll(page, filter)
+    local result = JC.Call('RespectJustice:server:getAllCitizens', page, filter)
+    if not result then return end
+
+    local items = {
+        {
+            title = ('العرض: %s | الصفحة %d من %d'):format(FilterLabels[result.filter], result.page + 1, result.pages),
+            description = ('الإجمالي: %d | المتصلين الآن: %d'):format(result.total, result.online),
+            icon = 'fas fa-filter', arrow = true,
+            onSelect = function()
+                local input = lib.inputDialog('عرض المواطنين', {
+                    { type = 'select', label = 'العرض', required = true, default = result.filter, options = {
+                        { value = 'all', label = FilterLabels.all },
+                        { value = 'online', label = FilterLabels.online },
+                        { value = 'offline', label = FilterLabels.offline },
+                    } },
+                })
+                JC.Panel.OpenAll(0, input and input[1] or result.filter)
+            end,
+        },
+    }
+
+    if result.page > 0 then
+        items[#items + 1] = {
+            title = 'الصفحة السابقة', icon = 'fas fa-arrow-right',
+            onSelect = function() JC.Panel.OpenAll(result.page - 1, result.filter) end,
+        }
+    end
+
+    for _, entry in ipairs(result.list) do
+        items[#items + 1] = CitizenOption(entry, 'justice_panel_all')
+    end
+
+    if result.page + 1 < result.pages then
+        items[#items + 1] = {
+            title = 'الصفحة التالية', icon = 'fas fa-arrow-left',
+            onSelect = function() JC.Panel.OpenAll(result.page + 1, result.filter) end,
+        }
+    end
+
+    ListMenu('justice_panel_all', ('جميع المواطنين (%d)'):format(result.total), 'justice_panel_main', items, 'لا يوجد مواطنين')
+end
+
 function JC.Panel.OpenSearch()
     local input = lib.inputDialog('البحث عن مواطن', {
         { type = 'input', label = 'الاسم / الرقم الوطني / الجوال / رقم السيرفر', required = true, min = 1, max = 40, icon = 'magnifying-glass' },
@@ -124,8 +188,8 @@ function JC.Panel.OpenSuspended()
     local items = {}
     for i, entry in ipairs(result.list) do
         items[i] = {
-            title = ('%s (%s)'):format(entry.name, entry.citizenid),
-            description = 'السبب: ' .. JC.Value(entry.reason),
+            title = ('%s%s (%s)'):format(entry.status and entry.status.online and '🟢 ' or '⚫ ', entry.name, entry.citizenid),
+            description = ('%s\nالسبب: %s'):format(StatusText(entry), JC.Value(entry.reason)),
             icon = 'fas fa-user-lock', iconColor = 'red', arrow = true,
             metadata = { { label = 'بواسطة', value = JC.Value(entry.officer) }, { label = 'التاريخ', value = JC.Value(entry.date) } },
             onSelect = function() JC.Panel.OpenProfile(entry.citizenid, 'justice_panel_suspended') end,
@@ -452,11 +516,11 @@ function JC.Panel.OpenProfile(citizenid, parent)
     local menuId = 'justice_profile_' .. p.citizenid
     local reopen = function() JC.Panel.OpenProfile(citizenid, parent) end
 
-    local status = p.online and ('متصل - رقم السيرفر %d - البنق %dms'):format(p.serverId or 0, p.ping or 0) or 'غير متصل'
+    local status = StatusText(p) .. (p.online and (' | البنق %dms'):format(p.ping or 0) or '')
     local options = {
         {
             title = p.name ~= '' and p.name or 'بدون اسم',
-            description = ('الرقم الوطني: %s | %s'):format(p.citizenid, status),
+            description = ('%s\nالرقم الوطني: %s'):format(status, p.citizenid),
             icon = p.online and 'fas fa-circle' or 'far fa-circle',
             iconColor = p.online and 'green' or 'gray',
         },

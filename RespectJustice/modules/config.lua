@@ -70,6 +70,13 @@ return {
             Society = { enabled = false, resource = 'qb-management', func = 'AddMoney' },
         },
 
+        -- تنظيف تلقائي للسجلات القديمة (بالأيام، 0 = لا يحذف أبداً)
+        Cleanup = {
+            LogsDays = 120,              -- سجل العمليات
+            DutyDays = 60,               -- سجل البصمة
+            ClosedReportsDays = 0,       -- القضايا المغلقة
+        },
+
         -- أسماء جداول قاعدة البيانات (غيّرها إذا كانت مختلفة في سيرفرك)
         Database = {
             Players = 'players',

@@ -119,7 +119,7 @@ local function OpenMember(job, member, perms)
     local options = {
         {
             title = member.name ~= '' and member.name or 'بدون اسم',
-            description = ('الرقم الوطني: %s | %s%s'):format(member.citizenid, member.online and ('متصل [%d]'):format(member.serverId or 0) or 'غير متصل',
+            description = ('%s\nالرقم الوطني: %s%s'):format(member.status and member.status.text or (member.online and '🟢 متصل' or '⚫ غير متصل'), member.citizenid,
                 member.online and (member.onduty and ' | في الدوام' or ' | خارج الدوام') or ''),
             icon = 'fas fa-user', iconColor = member.online and 'green' or 'gray',
         },
@@ -218,9 +218,9 @@ function JC.Jobs.OpenJob(jobName)
 
     for _, member in ipairs(result.members) do
         options[#options + 1] = {
-            title = ('%s%s'):format(member.online and ('[%d] '):format(member.serverId or 0) or '', member.name ~= '' and member.name or member.citizenid),
+            title = ('%s%s%s'):format(member.online and '🟢 ' or '⚫ ', member.online and ('[%d] '):format(member.serverId or 0) or '', member.name ~= '' and member.name or member.citizenid),
             description = ('%d - %s%s | %s'):format(member.gradeLevel, member.gradeName, member.isboss and ' (مدير)' or '',
-                member.online and (member.onduty and 'في الدوام' or 'متصل - خارج الدوام') or 'غير متصل'),
+                member.online and (member.onduty and 'في الدوام' or 'متصل - خارج الدوام') or (member.status and member.status.text or '⚫ غير متصل')),
             icon = member.isboss and 'fas fa-user-tie' or 'fas fa-user',
             iconColor = member.onduty and 'green' or (member.online and 'yellow' or 'gray'),
             arrow = true,

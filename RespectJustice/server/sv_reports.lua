@@ -27,6 +27,12 @@ local function MapReport(row, full)
         report.evidence = (row.evidence and row.evidence ~= '') and row.evidence or nil
         report.submitter = JS.Decode(row.submitter_info)
         report.submitterOnline = RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
+        report.submitterStatus = JS.GetStatus(row.citizenid).text
+        if report.defendantCitizenid then
+            report.defendantStatus = JS.GetStatus(report.defendantCitizenid).text
+        end
+    else
+        report.submitterOnline = RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
     end
 
     -- حماية البيانات القديمة المحفوظة قبل التنظيف

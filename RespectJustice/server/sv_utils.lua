@@ -93,6 +93,72 @@ function JS.FormatDbDate(value)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- حالة الاتصال: متصل / غير متصل + منذ متى
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+local joinTimes = {}   -- [source] = وقت الدخول
+local lastSeen = {}    -- [citizenid] = وقت الخروج (خلال تشغيل السيرفر الحالي)
+
+AddEventHandler('playerJoining', function()
+    joinTimes[source] = os.time()
+end)
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    joinTimes[src] = nil
+    local ok, Player = pcall(RTCore.Functions.GetPlayer, src)
+    if ok and Player and Player.PlayerData then
+        lastSeen[Player.PlayerData.citizenid] = os.time()
+    end
+end)
+
+-- صيغة عربية صحيحة: دقيقة / دقيقتين / 3 دقائق / 11 دقيقة
+local function Plural(n, one, two, few, many)
+    if n == 1 then return one end
+    if n == 2 then return two end
+    if n >= 3 and n <= 10 then return ('%d %s'):format(n, few) end
+    return ('%d %s'):format(n, many)
+end
+
+function JS.Ago(seconds)
+    seconds = math.max(0, math.floor(tonumber(seconds) or 0))
+    if seconds < 60 then return 'الآن' end
+    local minutes = math.floor(seconds / 60)
+    if minutes < 60 then return 'منذ ' .. Plural(minutes, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة') end
+    local hours = math.floor(minutes / 60)
+    if hours < 24 then return 'منذ ' .. Plural(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة') end
+    local days = math.floor(hours / 24)
+    if days < 30 then return 'منذ ' .. Plural(days, 'يوم', 'يومين', 'أيام', 'يوم') end
+    local months = math.floor(days / 30)
+    if months < 12 then return 'منذ ' .. Plural(months, 'شهر', 'شهرين', 'أشهر', 'شهر') end
+    return 'منذ ' .. Plural(math.floor(months / 12), 'سنة', 'سنتين', 'سنوات', 'سنة')
+end
+
+-- lastUpdated: قيمة last_updated من جدول players (ميلي ثانية) إن وجدت
+-- يرجع { online, serverId, text }
+function JS.GetStatus(citizenid, lastUpdated)
+    local Player = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    if Player then
+        local src = Player.PlayerData.source
+        local joined = joinTimes[src]
+        return {
+            online = true,
+            serverId = src,
+            text = ('🟢 متصل الآن [%d]%s'):format(src, joined and (' - دخل ' .. JS.Ago(os.time() - joined)) or ''),
+        }
+    end
+
+    local seen = lastSeen[citizenid]
+    if not seen and type(lastUpdated) == 'number' then
+        seen = math.floor(lastUpdated / 1000)
+    end
+    return {
+        online = false,
+        text = seen and ('⚫ غير متصل - آخر ظهور ' .. JS.Ago(os.time() - seen)) or '⚫ غير متصل',
+    }
+end
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- الصلاحيات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -260,6 +326,25 @@ function JS.EnsureColumn(tableName, column, definition)
     print(('^3[RespectJustice]^7 Added column %s.%s'):format(tableName, column))
 end
 
+-- أعمدة خفيفة من جدول players (بدون المخزون الثقيل) + last_updated إذا موجود
+function JS.PlayerListColumns()
+    local cols = 'citizenid, charinfo, job'
+    if JS.ColumnExists(Settings.Database.Players, 'last_updated') then
+        cols = cols .. ', last_updated'
+    end
+    return cols
+end
+
+function JS.EnsureIndex(tableName, column)
+    if not JS.SafeIdentifier(tableName) or not JS.SafeIdentifier(column) then return end
+    local count = MySQL.scalar.await(
+        'SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+        { tableName, column })
+    if (tonumber(count) or 0) == 0 then
+        MySQL.query.await(('ALTER TABLE `%s` ADD INDEX `%s` (`%s`)'):format(tableName, column, column))
+    end
+end
+
 function JS.GetPlayerRow(citizenid)
     local tableName = Settings.Database.Players
     if not JS.TableExists(tableName) then return nil end
@@ -295,6 +380,7 @@ function JS.GetCitizen(citizenid)
         metadata = JS.Decode(row.metadata),
         items = JS.Decode(row.inventory),
         lastUpdated = JS.FormatDbDate(row.last_updated),
+        lastUpdatedRaw = row.last_updated,
         raw = row,
     }
 end

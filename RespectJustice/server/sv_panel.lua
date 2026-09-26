@@ -115,6 +115,7 @@ local function BuildProfile(citizen, Viewer)
         citizenid = cid,
         name = JS.FullName(ci),
         online = citizen.online ~= nil,
+        status = JS.GetStatus(cid, citizen.lastUpdatedRaw),
         serverId = citizen.online and citizen.online.PlayerData.source or nil,
         ping = citizen.online and GetPlayerPing(citizen.online.PlayerData.source) or nil,
         lastUpdated = citizen.lastUpdated,
@@ -175,12 +176,110 @@ JS.RegisterCallback('RespectJustice:server:panelInfo', 'view', function(src, Pla
     local suspended = 0
     for _ in pairs(JS.Suspended) do suspended = suspended + 1 end
 
+    local players = RTCore.Functions.GetPlayers()
+    local justiceOnDuty = 0
+    for _, playerId in pairs(players) do
+        local target = RTCore.Functions.GetPlayer(playerId)
+        if JS.IsJustice(target) and target.PlayerData.job.onduty then justiceOnDuty = justiceOnDuty + 1 end
+    end
+
+    local totalCitizens = 0
+    if JS.TableExists(Settings.Database.Players) then
+        totalCitizens = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s`'):format(Settings.Database.Players))) or 0
+    end
+
     return {
         ok = true,
         perms = JS.GetPermissions(Player),
-        online = #RTCore.Functions.GetPlayers(),
-        newReports = newReports,
+        online = #players,
+        totalCitizens = totalCitizens,
+        justiceOnDuty = justiceOnDuty,
+        newReports = tonumber(newReports) or 0,
         suspended = suspended,
+    }
+end)
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- جميع المواطنين (صفحات) - filter: 'all' | 'online' | 'offline'
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+local PAGE_SIZE = 40
+
+JS.RegisterCallback('RespectJustice:server:getAllCitizens', 'view', function(src, Player, page, filter)
+    page = math.max(0, math.floor(tonumber(page) or 0))
+    if filter ~= 'online' and filter ~= 'offline' then filter = 'all' end
+
+    local onlineIds = {}
+    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
+        local target = RTCore.Functions.GetPlayer(playerId)
+        if target then onlineIds[#onlineIds + 1] = target.PlayerData.citizenid end
+    end
+
+    local function entry(cid, charinfo, job, lastUpdated)
+        local status = JS.GetStatus(cid, lastUpdated)
+        return {
+            citizenid = cid,
+            name = JS.FullName(charinfo),
+            job = job and JS.Safe(job.label or job.name) or '-',
+            phone = charinfo and charinfo.phone or '-',
+            online = status.online,
+            serverId = status.serverId,
+            status = status,
+            suspended = JS.Suspended[cid] ~= nil,
+        }
+    end
+
+    local list, total = {}, 0
+
+    if filter == 'online' then
+        total = #onlineIds
+        for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
+            local target = RTCore.Functions.GetPlayer(playerId)
+            if target then
+                local pd = target.PlayerData
+                list[#list + 1] = entry(pd.citizenid, pd.charinfo, pd.job)
+            end
+        end
+        table.sort(list, function(a, b) return (a.serverId or 0) < (b.serverId or 0) end)
+        local paged = {}
+        for i = page * PAGE_SIZE + 1, math.min(#list, (page + 1) * PAGE_SIZE) do paged[#paged + 1] = list[i] end
+        list = paged
+    else
+        local tableName = Settings.Database.Players
+        if not JS.TableExists(tableName) then return { ok = false, err = 'جدول اللاعبين غير موجود' } end
+
+        local where, params = '', {}
+        if filter == 'offline' and #onlineIds > 0 then
+            where = 'WHERE citizenid NOT IN (?)'
+            params[1] = onlineIds
+        end
+
+        total = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s` %s'):format(tableName, where), params)) or 0
+
+        local order = JS.ColumnExists(tableName, 'last_updated') and 'last_updated DESC' or 'citizenid'
+        local query = ('SELECT %s FROM `%s` %s ORDER BY %s LIMIT %d OFFSET %d'):format(
+            JS.PlayerListColumns(), tableName, where, order, PAGE_SIZE, page * PAGE_SIZE)
+        for _, row in ipairs(MySQL.query.await(query, params) or {}) do
+            list[#list + 1] = entry(row.citizenid, JS.Decode(row.charinfo), JS.Decode(row.job), row.last_updated)
+        end
+
+        -- المتصلين أولاً مع الحفاظ على ترتيب آخر ظهور
+        local onlineFirst, offline = {}, {}
+        for _, item in ipairs(list) do
+            table.insert(item.online and onlineFirst or offline, item)
+        end
+        for _, item in ipairs(offline) do onlineFirst[#onlineFirst + 1] = item end
+        list = onlineFirst
+    end
+
+    return {
+        ok = true,
+        list = list,
+        page = page,
+        pages = math.max(1, math.ceil(total / PAGE_SIZE)),
+        total = total,
+        online = #onlineIds,
+        filter = filter,
     }
 end)
 
@@ -201,6 +300,8 @@ JS.RegisterCallback('RespectJustice:server:getOnlinePlayers', 'view', function()
                 job = pd.job and (pd.job.label or pd.job.name) or '-',
                 phone = pd.charinfo and pd.charinfo.phone or '-',
                 suspended = JS.Suspended[pd.citizenid] ~= nil,
+                online = true,
+                status = JS.GetStatus(pd.citizenid),
             }
         end
     end
@@ -219,15 +320,18 @@ JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src
     end
 
     local results, seen = {}, {}
-    local function add(cid, charinfo, job, online)
+    local function add(cid, charinfo, job, lastUpdated)
         if seen[cid] then return end
         seen[cid] = true
+        local status = JS.GetStatus(cid, lastUpdated)
         results[#results + 1] = {
             citizenid = cid,
             name = JS.FullName(charinfo),
-            job = job and (job.label or job.name) or '-',
+            job = job and JS.Safe(job.label or job.name) or '-',
             phone = charinfo and charinfo.phone or '-',
-            online = online,
+            online = status.online,
+            serverId = status.serverId,
+            status = status,
             suspended = JS.Suspended[cid] ~= nil,
         }
     end
@@ -236,7 +340,7 @@ JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src
     local serverId = tonumber(query)
     if serverId then
         local target = RTCore.Functions.GetPlayer(serverId)
-        if target then add(target.PlayerData.citizenid, target.PlayerData.charinfo, target.PlayerData.job, true) end
+        if target then add(target.PlayerData.citizenid, target.PlayerData.charinfo, target.PlayerData.job) end
     end
 
     -- المتصلين
@@ -248,7 +352,7 @@ JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src
             local charinfo = pd.charinfo or {}
             local name = JS.FullName(charinfo):lower()
             if pd.citizenid == query or tostring(charinfo.phone) == query or name:find(lower, 1, true) then
-                add(pd.citizenid, pd.charinfo, pd.job, true)
+                add(pd.citizenid, pd.charinfo, pd.job)
             end
         end
     end
@@ -258,15 +362,15 @@ JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src
     if JS.TableExists(tableName) then
         local like = '%' .. query:gsub('[%%_\\]', '\\%0') .. '%'
         local rows = MySQL.query.await(([[
-            SELECT citizenid, charinfo, job FROM `%s`
+            SELECT %s FROM `%s`
             WHERE citizenid = ?
                OR JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.phone')) = ?
                OR CONCAT(JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.firstname')), ' ', JSON_UNQUOTE(JSON_EXTRACT(charinfo, '$.lastname'))) LIKE ?
             LIMIT 30
-        ]]):format(tableName), { query, query, like }) or {}
+        ]]):format(JS.PlayerListColumns(), tableName), { query, query, like }) or {}
 
         for _, row in ipairs(rows) do
-            add(row.citizenid, JS.Decode(row.charinfo), JS.Decode(row.job), RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil)
+            add(row.citizenid, JS.Decode(row.charinfo), JS.Decode(row.job), row.last_updated)
         end
     end
 
@@ -443,7 +547,7 @@ end)
 JS.RegisterCallback('RespectJustice:server:getSuspended', 'view', function()
     local list = {}
     for cid, data in pairs(JS.Suspended) do
-        list[#list + 1] = { citizenid = cid, name = data.name, reason = data.reason, officer = data.officer, date = data.date, id = data.id }
+        list[#list + 1] = { citizenid = cid, name = data.name, reason = data.reason, officer = data.officer, date = data.date, id = data.id, status = JS.GetStatus(cid) }
     end
     table.sort(list, function(a, b) return (a.id or 0) > (b.id or 0) end)
     return { ok = true, list = list }
