@@ -25,6 +25,19 @@ local function RunDiagnostics()
         end
     end
 
+    -- البنك
+    local bankRes = Settings.Banking and Settings.Banking.Resource or 'RespectBanking'
+    if GetResourceState(bankRes) == 'started' then
+        line('ok', ('%s: شغال - تجميد حسابات الموقوفين يحتاج سطر التحقق داخله (README)'):format(bankRes))
+    else
+        line('warn', ('%s غير شغال: تجميد الحسابات ما يشتغل'):format(bankRes))
+    end
+    local police = {}
+    for _, name in ipairs(Settings.Police.Jobs or {}) do
+        if not (RTCore.Shared.Jobs or {})[name] then police[#police + 1] = name end
+    end
+    if #police > 0 then line('warn', ('وظائف الشرطة غير موجودة في الكور: %s - عدّل Settings.Police.Jobs'):format(table.concat(police, ', '))) end
+
     -- الوظيفة والرتب
     local jobs = RTCore.Shared.Jobs or {}
     local job = jobs[Settings.Job]

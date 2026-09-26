@@ -72,7 +72,7 @@ local Defaults = {
 			UnemployedJob = 'unemployed', JobsBlacklist = {},
 			WithdrawMax = 5000000, WithdrawCooldown = 5, LocateBlipTime = 60, LogViews = true,
 			Society = { enabled = false, resource = 'qb-management', func = 'AddMoney' },
-			WebhookSkip = { view = true },
+			WebhookSkip = { view = true, police_view = true },
 			WithdrawTo = 'officer',
 		},
 		Police = {

@@ -638,6 +638,7 @@ JS.ActionLabels = {
     lawyer_remove = 'إزالة محامي',
     police_request = 'طلب تصريح (شرطة)',
     police_answer = 'الرد على طلب شرطة',
+    police_view = 'اطلاع شرطي على ملف',
     summon_delete = 'حذف استدعاء',
 }
 
