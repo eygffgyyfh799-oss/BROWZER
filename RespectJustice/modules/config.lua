@@ -30,7 +30,8 @@ return {
         {
             coords = vector4(-1579.48, 215.69, 74.34, 297.27),
             duty = {
-                { coords = vector3(-1579.48, 215.69, 74.34), size = { 0.8, 1 }, heading = 340, debugPoly = false, minZ = 73.34, maxZ = 75.54 }
+                -- تسجيل دخول / خروج الدوام
+                { coords = vector3(-1643.99, 174.14, 60.93), size = { 1.2, 1.2 }, heading = 300.72, debugPoly = false, minZ = 59.43, maxZ = 62.43 }
             },
             personal_stash = {
                 -- الخزنة الشخصية + رؤية القضايا المقدمة
