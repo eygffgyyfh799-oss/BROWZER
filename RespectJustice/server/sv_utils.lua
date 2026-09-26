@@ -422,8 +422,26 @@ function JS.Throttle(src, name, ms)
     return false
 end
 
+-- حد عام: 25 طلب كل 5 ثواني لكل لاعب (يمنع إغراق السيرفر وقاعدة البيانات)
+local floods = {}
+
+function JS.Flooding(src)
+    local now = GetGameTimer()
+    local f = floods[src]
+    if not f or now - f.start > 5000 then
+        floods[src] = { start = now, count = 1 }
+        return false
+    end
+    f.count = f.count + 1
+    if f.count == 26 then
+        print(('^3[RespectJustice] ⚠ اللاعب [%d] أرسل طلبات كثيرة جداً (احتمال تلاعب)^7'):format(src))
+    end
+    return f.count > 25
+end
+
 AddEventHandler('playerDropped', function()
     throttles[source] = nil
+    floods[source] = nil
 end)
 
 CreateThread(function()
@@ -457,6 +475,9 @@ function JS.RegisterCallback(name, action, handler)
         if JS.Throttle(src, name, 300) then
             return cb({ ok = false, err = 'الرجاء الانتظار قليلاً' })
         end
+        if JS.Flooding(src) then
+            return cb({ ok = false, err = 'طلبات كثيرة، انتظر ثواني' })
+        end
 
         local Player = RTCore.Functions.GetPlayer(src)
         if not Player then
@@ -470,7 +491,14 @@ function JS.RegisterCallback(name, action, handler)
             else
                 allowed, err = JS.Can(Player, action)
             end
-            if not allowed then return cb({ ok = false, err = err or 'غير مسموح' }) end
+            if not allowed then
+                -- محاولة من شخص ما له أي دور = غالباً تلاعب (Executor)
+                if not JS.GetRole(Player) then
+                    print(('^3[RespectJustice] ⚠ محاولة بدون صلاحية: %s [%d] (%s) → %s^7'):format(
+                        JS.PlayerName(Player), src, Player.PlayerData.citizenid, name))
+                end
+                return cb({ ok = false, err = err or 'غير مسموح' })
+            end
         end
 
         local success, result = pcall(handler, src, Player, ...)

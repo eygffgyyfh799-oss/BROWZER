@@ -65,7 +65,28 @@ local function DetectProvider()
 end
 
 -- ═════ من يقدر يستخدم القسم المالي ═════
-function JS.GetFinanceSector(Player, ignoreDuty)
+local function IsJudge(Player)
+    local full = tonumber(Settings.Panel.FullAccessGrade)
+    return JS.IsJustice(Player) and full ~= nil and JS.GetGrade(Player) >= full
+end
+
+function JS.SectorList()
+    local list = {}
+    for job, sector in pairs(Finance.Sectors or {}) do list[#list + 1] = { job = job, label = JS.Safe(sector.label or job) } end
+    table.sort(list, function(a, b) return a.label < b.label end)
+    return list
+end
+
+-- requestedJob: القاضي يختار أي قطاع
+function JS.GetFinanceSector(Player, ignoreDuty, requestedJob)
+    if Player and IsJudge(Player) then
+        if not ignoreDuty and Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return nil, 'يجب أن تكون في الدوام' end
+        local list = JS.SectorList()
+        if #list == 0 then return nil end
+        local chosen = list[1]
+        for _, s in ipairs(list) do if s.job == requestedJob then chosen = s end end
+        return { job = chosen.job, label = chosen.label, judge = true }
+    end
     local job = Player and Player.PlayerData.job
     local sector = job and Finance.Sectors and Finance.Sectors[job.name]
     if not sector then return nil end
@@ -126,8 +147,8 @@ local function Validate(amount, reason)
 end
 
 -- ═════ Callbacks ═════
-JS.RegisterCallback('RespectJustice:server:financeInfo', FinanceOnly, function(src, Player)
-    local sector = JS.GetFinanceSector(Player)
+JS.RegisterCallback('RespectJustice:server:financeInfo', FinanceOnly, function(src, Player, requestedJob)
+    local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local ok, balance = pcall(Provider().balance, sector.job)
     if not ok then
         print(('^1[RespectJustice] finance balance error (%s): %s^7'):format(JS.FinanceProvider, tostring(balance)))
@@ -138,11 +159,12 @@ JS.RegisterCallback('RespectJustice:server:financeInfo', FinanceOnly, function(s
         provider = Provider().label, maxPerTransaction = Finance.MaxPerTransaction,
         myBank = math.floor(tonumber(Player.PlayerData.money.bank) or 0),
         history = History(sector.job),
+        sectors = sector.judge and JS.SectorList() or nil,
     }
 end)
 
-JS.RegisterCallback('RespectJustice:server:financeDeposit', FinanceOnly, function(src, Player, amount, reason)
-    local sector = JS.GetFinanceSector(Player)
+JS.RegisterCallback('RespectJustice:server:financeDeposit', FinanceOnly, function(src, Player, amount, reason, requestedJob)
+    local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local err
     amount, reason, err = Validate(amount, reason)
     if err then return { ok = false, err = err } end
@@ -161,8 +183,8 @@ JS.RegisterCallback('RespectJustice:server:financeDeposit', FinanceOnly, functio
     return { ok = true, balance = math.floor(tonumber(balance) or 0) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:financeWithdraw', FinanceOnly, function(src, Player, amount, reason)
-    local sector = JS.GetFinanceSector(Player)
+JS.RegisterCallback('RespectJustice:server:financeWithdraw', FinanceOnly, function(src, Player, amount, reason, requestedJob)
+    local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local err
     amount, reason, err = Validate(amount, reason)
     if err then return { ok = false, err = err } end

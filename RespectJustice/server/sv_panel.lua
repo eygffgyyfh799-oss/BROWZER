@@ -205,6 +205,7 @@ JS.RegisterCallback('RespectJustice:server:panelInfo', 'view', function(src, Pla
         ok = true,
         role = 'justice',
         perms = JS.GetPermissions(Player),
+        finance = JS.GetFinanceSector and JS.GetFinanceSector(Player) or nil,
         warrants = warrants,
         suspects = suspects,
         policeRequests = policeRequests,

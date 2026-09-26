@@ -229,6 +229,7 @@ NAV_BY_ROLE.justice = [
     { page: 'warrants', icon: '🚨', label: 'أوامر القبض والتفتيش' },
     { page: 'policeRequests', icon: '🚓', label: 'قسم الشرطة', perm: 'policeRequests', badge: () => S.info.policeRequests },
     { page: 'stats', icon: '📊', label: 'الإحصائيات', perm: 'stats' },
+    { page: 'finance', icon: '💰', label: 'مالية القطاعات', show: () => !!S.info.finance },
     { page: 'logs', icon: '🗂️', label: 'سجل العمليات', perm: 'logs' },
 ];
 NAV_BY_ROLE.police = [
@@ -1440,10 +1441,12 @@ PAGES.lcase = {
 // ════════════════════════════════════════════════════════════════════════════
 PAGES.finance = {
     title: 'القسم المالي',
-    async render() {
-        const res = await call('financeInfo');
+    async render(job) {
+        const res = await call('financeInfo', job || null);
         if (!res) return null;
         $('page-title').textContent = `القسم المالي: ${res.label}`;
+        const sectorChips = arr(res.sectors).length ? h('div', { class: 'chips' }, arr(res.sectors).map((x) =>
+            h('button', { class: 'chip' + (x.job === res.job ? ' active' : ''), onclick: () => { S.current.arg = x.job; render(); } }, x.label))) : null;
         const reload = () => render();
         const act = async (type) => {
             const deposit = type === 'deposit';
@@ -1457,11 +1460,12 @@ PAGES.finance = {
                 ],
             });
             if (!v || !await confirmBox('تأكيد', `${deposit ? 'إيداع' : 'سحب'} ${money(v.amount)}\nالسبب: ${v.reason}`, !deposit)) return;
-            const r = await call(deposit ? 'financeDeposit' : 'financeWithdraw', v.amount, v.reason);
+            const r = await call(deposit ? 'financeDeposit' : 'financeWithdraw', v.amount, v.reason, res.job);
             if (r) { toast(`تمت العملية، رصيد القطاع: ${money(r.balance)}`, 'success'); reload(); }
         };
         const history = arr(res.history);
         return h('div', null,
+            sectorChips,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
                 stat(`رصيد ${res.label}`, money(res.balance), 'green'),
                 stat('رصيدك البنكي', money(res.myBank), 'gold'),
