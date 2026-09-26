@@ -33,7 +33,8 @@ return {
                 { coords = vector3(-1579.48, 215.69, 74.34), size = { 0.8, 1 }, heading = 340, debugPoly = false, minZ = 73.34, maxZ = 75.54 }
             },
             personal_stash = {
-                { coords = vector3(-1579.48, 215.69, 74.34), size = { 1.8, 1 }, heading = 70,  debugPoly = false, minZ = 73.34, maxZ = 75.54 },
+                -- الخزنة الشخصية + رؤية القضايا المقدمة
+                { coords = vector3(-1577.84, 208.23, 64.66), size = { 1.8, 1.2 }, heading = 300.68, debugPoly = false, minZ = 63.16, maxZ = 66.16, showReports = true },
                 { coords = vector3(248.71, -444.59, 48.09), size = { 3.0, 1 }, heading = 340, debugPoly = false, minZ = 47.09, maxZ = 50.49 },
                 -- js1
                 { coords = vector3(-1014.5, -425.37, 50.85), size = { 2.6, 0.8 }, heading = 296, debugPoly = false, minZ = 49.9, maxZ = 51.9 },
@@ -49,7 +50,8 @@ return {
                 { coords = vector3(-1020.97, -437.13, 58.33), size = { 2.8, 0.6 }, heading = 28, debugPoly = false, minZ = 57.33 , maxZ = 59.53 }
             },
             reports = {
-                { pedModel = "cs_josh", coords = vector4(234.08, -422.77, 48.10, 248.29), animation = { 'anim@amb@nightclub@lazlow@ig1_vip@', 'clubvip_base_laz' } }
+                -- المدني: تقديم القضايا
+                { pedModel = "cs_josh", coords = vector4(-1643.72, 177.33, 61.76, 0.0), animation = { 'anim@amb@nightclub@lazlow@ig1_vip@', 'clubvip_base_laz' } }
             },
             spawn_vehicles = {
                 {
@@ -76,9 +78,9 @@ return {
                     }
                 }
             },
-            reports_check = {
-                { coords = vector3(193.86, -424.76, 47.33), size = { 2.8, 1 }, heading = 70, debugPoly = false, minZ = 46.33, maxZ = 47.73 }
-            },
+            -- رؤية القضايا صارت في الخزنة الشخصية (showReports = true)
+            -- لإضافة مكان مستقل: { coords = vector3(x, y, z), size = { 2.8, 1 }, heading = 0, debugPoly = false, minZ = z - 1, maxZ = z + 1.5 }
+            reports_check = {},
             blip = {
                 show = true,
                 sprite = 176,

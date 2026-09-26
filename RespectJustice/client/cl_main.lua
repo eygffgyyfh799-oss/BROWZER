@@ -236,7 +236,7 @@ local function create_zones()
         end
 
         for key, value in pairs(v.personal_stash or {}) do
-            AddZone(('justice_personal_stash_%s_%s'):format(k, key), value, {
+            local stashOptions = {
                 {
                     icon = 'fas fa-box',
                     label = 'الخزنة الشخصية',
@@ -265,7 +265,19 @@ local function create_zones()
                         TriggerEvent('inventory:client:SetCurrentStash', stashId)
                     end,
                 },
-            })
+            }
+
+            -- showReports: إضافة خيار رؤية القضايا لنفس المنطقة بدل منطقتين متداخلتين
+            if value.showReports then
+                stashOptions[#stashOptions + 1] = {
+                    icon = 'fas fa-scale-balanced',
+                    label = 'رؤية القضايا المقدمة',
+                    job = JOB,
+                    action = OpenReportsMenu,
+                }
+            end
+
+            AddZone(('justice_personal_stash_%s_%s'):format(k, key), value, stashOptions)
         end
 
         for key, value in pairs(v.reports_check or {}) do
