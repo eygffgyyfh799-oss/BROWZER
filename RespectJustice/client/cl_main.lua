@@ -99,19 +99,44 @@ end
 -- إنشاء البلبس والمناطق والشخصيات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-local function create_blips()
-    local blipData = data.Points.Blip
-    if not blipData or not blipData.show then return end
+-- ترجمة الأنواع المكتوبة في coords.lua
+local TypeNames = {
+    ['بصمة'] = 'Duty',
+    ['خزنة'] = 'Stash',
+    ['رؤية القضايا'] = 'ReportsView',
+    ['نظام المواطنين'] = 'CitizenPanel',
+    ['بوت القضايا'] = 'ReportPed',
+    ['بوت المركبات'] = 'VehiclePed',
+    ['خروج المركبات'] = 'VehicleSpawn',
+    ['علامة الخريطة'] = 'Blip',
+}
 
-    local blip = AddBlipForCoord(blipData.coords.x, blipData.coords.y, blipData.coords.z)
-    SetBlipSprite(blip, blipData.sprite or 176)
-    SetBlipColour(blip, blipData.colour or 0)
-    SetBlipAsShortRange(blip, true)
-    SetBlipScale(blip, blipData.scale or 0.45)
-    BeginTextCommandSetBlipName("STRING")
-    AddTextComponentString(exports['RespectScripts']:escape(blipData.label))
-    EndTextCommandSetBlipName(blip)
-    created_blips[#created_blips + 1] = blip
+-- تجميع الإحداثيات حسب النوع: Points.Duty = { {name, coords, model}, ... }
+local Points = {}
+for i, entry in ipairs(JC.Coords) do
+    local pointType = type(entry) == 'table' and TypeNames[entry.type]
+    if not pointType or not entry.coords then
+        print(('^1[RespectJustice]^7 coords.lua سطر %d: نوع غير معروف "%s" (%s)'):format(i, tostring(entry and entry.type), tostring(entry and entry.name)))
+    else
+        Points[pointType] = Points[pointType] or {}
+        table.insert(Points[pointType], entry)
+    end
+end
+
+local function create_blips()
+    local style = data.Blip or {}
+    for _, entry in ipairs(Points.Blip or {}) do
+        local c = entry.coords
+        local blip = AddBlipForCoord(c.x, c.y, c.z)
+        SetBlipSprite(blip, entry.sprite or style.sprite or 176)
+        SetBlipColour(blip, entry.colour or style.colour or 0)
+        SetBlipAsShortRange(blip, true)
+        SetBlipScale(blip, entry.scale or style.scale or 0.45)
+        BeginTextCommandSetBlipName("STRING")
+        AddTextComponentString(exports['RespectScripts']:escape(entry.name or 'وزارة العدل'))
+        EndTextCommandSetBlipName(blip)
+        created_blips[#created_blips + 1] = blip
+    end
 end
 
 -- الخيارات اللي تظهر عند كل نوع من الإحداثيات
@@ -197,7 +222,8 @@ local function create_zones()
     -- تجميع الإحداثيات المتطابقة في منطقة وحدة حتى ما تغطي منطقة على الثانية
     local zones, zoneOrder = {}, {}
     for _, pointType in ipairs(PointOrder) do
-        for _, coords in ipairs(data.Points[pointType] or {}) do
+        for _, entry in ipairs(Points[pointType] or {}) do
+            local coords = entry.coords
             local key = ('%.1f_%.1f_%.1f'):format(coords.x, coords.y, coords.z)
             if not zones[key] then
                 zones[key] = { coords = coords, options = {} }
@@ -213,8 +239,13 @@ local function create_zones()
         AddZone('justice_point_' .. i, zones[key].coords, zones[key].options)
     end
 
+    local spawns = {}
+    for i, entry in ipairs(Points.VehicleSpawn or {}) do
+        spawns[i] = entry.coords
+    end
+
     -- بوت تقديم القضايا
-    SpawnPed('report_ped', data.Points.ReportPed, {
+    local reportPedOptions = {
         {
             icon = 'fa-solid fa-comment',
             label = 'تحدث',
@@ -247,10 +278,10 @@ local function create_zones()
                 lib.showContext('justice_player_select_menu_reports')
             end,
         },
-    })
+    }
 
     -- بوت مركبات العدل
-    SpawnPed('vehicle_ped', data.Points.VehiclePed, {
+    local vehiclePedOptions = {
         {
             icon = 'fa-solid fa-car',
             label = 'تحدث',
@@ -259,11 +290,31 @@ local function create_zones()
             action = function()
                 TriggerEvent('RespectJustice:client:spawnVehicleMenu', {
                     vehicles = data.Vehicles,
-                    vehSpawns = data.Points.VehicleSpawns,
+                    vehSpawns = spawns,
                 })
             end,
         },
-    })
+    }
+
+    local peds = data.Peds or {}
+    for i, entry in ipairs(Points.ReportPed or {}) do
+        local look = peds['بوت القضايا'] or {}
+        SpawnPed('report_ped_' .. i, {
+            coords = entry.coords,
+            model = entry.model or look.model or 'cs_josh',
+            animation = look.animation,
+            scenario = look.scenario,
+        }, reportPedOptions)
+    end
+    for i, entry in ipairs(Points.VehiclePed or {}) do
+        local look = peds['بوت المركبات'] or {}
+        SpawnPed('vehicle_ped_' .. i, {
+            coords = entry.coords,
+            model = entry.model or look.model or 'csb_trafficwarden',
+            animation = look.animation,
+            scenario = look.scenario,
+        }, vehiclePedOptions)
+    end
 end
 
 local function cleanup()
@@ -297,6 +348,19 @@ AddEventHandler('onResourceStop', function(resource)
         cleanup()
     end
 end)
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- /jcoords : ينسخ إحداثيتك الحالية بنفس شكل ملف coords.lua
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+RegisterCommand('jcoords', function()
+    local ped = PlayerPedId()
+    local c = GetEntityCoords(ped)
+    local text = ('vector4(%.2f, %.2f, %.2f, %.2f)'):format(c.x, c.y, c.z, GetEntityHeading(ped))
+    pcall(lib.setClipboard, text)
+    print(text)
+    RTCore.Functions.Notify('تم نسخ الإحداثية: ' .. text, 'success', 10000)
+end, false)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- التعويض

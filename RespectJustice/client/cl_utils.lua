@@ -4,6 +4,7 @@
 
 JC = {}
 JC.Config = Load('config')
+JC.Coords = Load('coords') or {}
 JC.Settings = JC.Config.Settings
 JC.Job = JC.Settings.Job
 

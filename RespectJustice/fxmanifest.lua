@@ -30,6 +30,7 @@ server_scripts {
 
 files {
     'modules/config.lua',
+    'modules/coords.lua',
 }
 
 dependencies {
