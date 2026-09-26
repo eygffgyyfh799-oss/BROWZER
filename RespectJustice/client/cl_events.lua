@@ -3,10 +3,15 @@ local Settings = Load('config').Settings
 -- { label = string, vehicle = entity }
 local spawnedVehicles = {}
 
+local function GetVehicleModel(value)
+    return value.model or value.vehName
+end
+
 local function GetVehicleLabel(value)
-    if value.vehLabel then return value.vehLabel end
-    local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[value.vehName]
-    return shared and shared.name or value.vehName
+    if value.label or value.vehLabel then return value.label or value.vehLabel end
+    local model = GetVehicleModel(value)
+    local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[model]
+    return shared and shared.name or model
 end
 
 local function CleanupSpawnedVehicles()
@@ -41,12 +46,13 @@ local function SpawnJusticeVehicle(data, value)
         return RTCore.Functions.Notify('يجب ارجاع المركبة الحالية قبل استخراج مركبة جديدة', 'error', 7500)
     end
 
-    local model = joaat(value.vehName)
+    local modelName = GetVehicleModel(value)
+    local model = joaat(modelName)
     if not IsModelInCdimage(model) or not IsModelAVehicle(model) then
-        return RTCore.Functions.Notify('المركبة غير متوفرة: ' .. tostring(value.vehName), 'error', 7500)
+        return RTCore.Functions.Notify('المركبة غير متوفرة: ' .. tostring(modelName), 'error', 7500)
     end
 
-    local coords = GetSpawn(data.vehSpawns)
+    local coords = GetSpawn(data.vehSpawns or {})
     if not coords then
         return RTCore.Functions.Notify('لا يوجد مكان فارغ لاستخراج المركبة', 'error', 7500)
     end
@@ -76,8 +82,9 @@ local function SpawnJusticeVehicle(data, value)
     SetEntityHeading(veh, heading)
 
     SetVehicleModKit(veh, 0)
-    if value.vehLivery then
-        SetVehicleMod(veh, 48, value.vehLivery, false)
+    local livery = value.livery or value.vehLivery
+    if livery then
+        SetVehicleMod(veh, 48, livery, false)
     end
     ToggleVehicleMod(veh, 18, true)
     SetVehicleFixed(veh)
@@ -85,8 +92,6 @@ local function SpawnJusticeVehicle(data, value)
     SetVehicleCustomSecondaryColour(veh, 0, 0, 0)
     if value.windowTint then
         SetVehicleWindowTint(veh, value.windowTint)
-    elseif value.vehName == 'expxl22' then
-        SetVehicleWindowTint(veh, 3)
     end
 
     -- لوحة المركبة لا تتجاوز 8 أحرف
@@ -138,7 +143,7 @@ AddEventHandler('RespectJustice:client:spawnVehicleMenu', function(data)
         }
     end
 
-    for _, value in pairs(data.vehicles) do
+    for _, value in ipairs(data.vehicles or {}) do
         options[#options + 1] = {
             title = GetVehicleLabel(value),
             icon = 'fas fa-car',

@@ -81,69 +81,91 @@ return {
         },
     },
 
-    Locations = {
-        {
-            coords = vector4(-1579.48, 215.69, 74.34, 297.27),
-            duty = {
-                -- تسجيل دخول / خروج الدوام
-                { coords = vector3(-1643.99, 174.14, 60.93), size = { 1.2, 1.2 }, heading = 300.72, debugPoly = false, minZ = 59.43, maxZ = 62.43 }
-            },
-            personal_stash = {
-                -- الخزنة الشخصية + رؤية القضايا المقدمة
-                { coords = vector3(-1577.84, 208.23, 64.66), size = { 1.8, 1.2 }, heading = 300.68, debugPoly = false, minZ = 63.16, maxZ = 66.16, showReports = true },
-                { coords = vector3(248.71, -444.59, 48.09), size = { 3.0, 1 }, heading = 340, debugPoly = false, minZ = 47.09, maxZ = 50.49 },
-                -- js1
-                { coords = vector3(-1014.5, -425.37, 50.85), size = { 2.6, 0.8 }, heading = 296, debugPoly = false, minZ = 49.9, maxZ = 51.9 },
-                { coords = vector3(-1018.21, -418.02, 50.85), size = { 2.6, 0.6 }, heading = 297, debugPoly = false, minZ = 49.85, maxZ = 52.05 },
-                { coords = vector3(-997.15, -423.63, 50.83), size = { 0.6, 2.6 }, heading = 27, debugPoly = false, minZ = 49.83, maxZ = 52.03 },
-                { coords = vector3(-1000.88, -416.29, 50.83), size = { 0.6, 2.6 }, heading = 27, debugPoly = false, minZ = 49.83, maxZ = 52.03 },
-                { coords = vector3(-1015.69, -433.08, 50.85), size = { 2.6, 0.6 }, heading = 297, debugPoly = false, minZ = 49.85, maxZ = 52.05 },
-                { coords = vector3(-1019.4, -425.76, 50.86), size = { 2.8, 0.6 }, heading = 296, debugPoly = false, minZ = 49.86, maxZ = 52.06 },
-                { coords = vector3(-1033.11, -434.83, 50.87), size = { 2.8, 0.6 }, heading = 296, debugPoly = false, minZ = 49.86, maxZ = 52.06 },
-                { coords = vector3(-1036.84, -427.59, 50.87), size = { 2.8, 0.6 }, heading = 297, debugPoly = false, minZ = 49.87, maxZ = 52.07 },
-                { coords = vector3(-1013.04, -414.03, 58.33), size = { 2.8, 0.6 }, heading = 26, debugPoly = false, minZ = 57.33, maxZ = 59.53 },
-                { coords = vector3(-1005.37, -428.99, 58.33), size = { 2.8, 0.6 }, heading = 26, debugPoly = false, minZ = 57.28, maxZ = 59.48 },
-                { coords = vector3(-1020.97, -437.13, 58.33), size = { 2.8, 0.6 }, heading = 28, debugPoly = false, minZ = 57.33 , maxZ = 59.53 }
-            },
-            reports = {
-                -- المدني: تقديم القضايا
-                { pedModel = "cs_josh", coords = vector4(-1643.72, 177.33, 61.76, 0.0), animation = { 'anim@amb@nightclub@lazlow@ig1_vip@', 'clubvip_base_laz' } }
-            },
-            spawn_vehicles = {
-                {
-                    pedModel = "csb_trafficwarden",
-                    coords = vector4(202.0, -379.4, 44.34, 340.0),
-                    scenario = 'WORLD_HUMAN_AA_SMOKE',
-                    vehSpawns = {
-                        [1] = vector4(200.35, -370.84, 43.62, 335.0),
-                        [2] = vector4(197.26, -378.55, 43.71, 340.0),
-                    },
-                    vehicles = {
-                        [1] = {
-                            vehLabel = "اودي",
-                            vehName = "audi1"
-                        },
-                        [2] = {
-                            vehLabel = "اكسبدشن",
-                            vehName = "expxl22"
-                        },
-                        -- [3] = {
-                        --     vehLabel = "بي ام",
-                        --     vehName = "bmw251"
-                        -- },
-                    }
-                }
-            },
-            -- رؤية القضايا صارت في الخزنة الشخصية (showReports = true)
-            -- لإضافة مكان مستقل: { coords = vector3(x, y, z), size = { 2.8, 1 }, heading = 0, debugPoly = false, minZ = z - 1, maxZ = z + 1.5 }
-            reports_check = {},
-            blip = {
-                show = true,
-                sprite = 176,
-                scale = 0.45,
-                colour = 0,
-                label = 'محكمة ريسبكت'
-            }
+    -- ════════════════════════════════════════════════════════════════════
+    -- 📍 الإحداثيات  (غيّر الأرقام فقط)
+    --
+    --   vector4(X, Y, Z, الاتجاه)     أو     vector3(X, Y, Z)
+    --
+    -- • لإضافة مكان ثاني لنفس الشيء: انسخ السطر وحطه تحته
+    -- • لحذف مكان: احذف السطر أو حط قبله --
+    -- • إذا حطيت نفس الإحداثية لأكثر من شيء (مثلاً خزنة + رؤية القضايا)
+    --   تنضم الخيارات كلها في نقطة وحدة تلقائياً
+    -- ════════════════════════════════════════════════════════════════════
+    Points = {
+
+        -- 🕒 البصمة (تسجيل دخول وخروج الدوام) + سجل البصمة للمدير
+        Duty = {
+            vector4(-1643.99, 174.14, 60.93, 300.72),
+        },
+
+        -- 🔒 الخزنة الشخصية + الأرشيف للمدير
+        Stash = {
+            vector4(-1577.84, 208.23, 64.66, 300.68),   -- المحكمة
+            vector3(248.71, -444.59, 48.09),
+            vector3(-1014.5, -425.37, 50.85),           -- js1
+            vector3(-1018.21, -418.02, 50.85),
+            vector3(-997.15, -423.63, 50.83),
+            vector3(-1000.88, -416.29, 50.83),
+            vector3(-1015.69, -433.08, 50.85),
+            vector3(-1019.4, -425.76, 50.86),
+            vector3(-1033.11, -434.83, 50.87),
+            vector3(-1036.84, -427.59, 50.87),
+            vector3(-1013.04, -414.03, 58.33),
+            vector3(-1005.37, -428.99, 58.33),
+            vector3(-1020.97, -437.13, 58.33),
+        },
+
+        -- 📂 رؤية القضايا المقدمة (للموظفين)
+        ReportsView = {
+            vector4(-1577.84, 208.23, 64.66, 300.68),
+        },
+
+        -- 🪪 نظام معلومات المواطنين (للموظفين) - ويفتح كمان بالأمر /justice
+        CitizenPanel = {
+            vector4(-1577.84, 208.23, 64.66, 300.68),
+        },
+
+        -- 🧑‍⚖️ بوت تقديم القضايا (للمواطنين)
+        -- الرقم الأخير = الاتجاه اللي يطالع فيه البوت (من 0 إلى 360)
+        ReportPed = {
+            coords = vector4(-1643.68, 177.25, 61.76, 0.0),
+            model = 'cs_josh',
+            animation = { 'anim@amb@nightclub@lazlow@ig1_vip@', 'clubvip_base_laz' },
+        },
+
+        -- 🚓 بوت مركبات العدل (للموظفين)
+        VehiclePed = {
+            coords = vector4(202.0, -379.4, 44.34, 340.0),
+            model = 'csb_trafficwarden',
+            scenario = 'WORLD_HUMAN_AA_SMOKE',
+        },
+
+        -- 🅿️ أماكن خروج مركبات العدل
+        VehicleSpawns = {
+            vector4(200.35, -370.84, 43.62, 335.0),
+            vector4(197.26, -378.55, 43.71, 340.0),
+        },
+
+        -- 🗺️ علامة المحكمة على الخريطة
+        Blip = {
+            show = true,
+            coords = vector3(-1579.48, 215.69, 74.34),
+            label = 'محكمة ريسبكت',
+            sprite = 176,
+            colour = 0,
+            scale = 0.45,
         },
     },
+
+    -- 🚗 مركبات العدل  (label = الاسم اللي يطلع بالقائمة، model = اسم الموديل)
+    Vehicles = {
+        { label = 'اودي', model = 'audi1' },
+        { label = 'اكسبدشن', model = 'expxl22', windowTint = 3 },
+        -- { label = 'بي ام', model = 'bmw251' },
+    },
+
+    -- حجم منطقة التفاعل حول كل إحداثية (بالمتر)
+    ZoneSize = 2.5,
+    -- true = يظهر لك مربع المنطقة داخل اللعبة (للتجربة فقط)
+    DebugZones = false,
 }

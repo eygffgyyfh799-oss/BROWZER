@@ -18,28 +18,32 @@ local function GetDutyCooldown()
     return math.max(0, math.ceil((dutyCooldownEnd - GetGameTimer()) / 1000))
 end
 
-local function AddZone(name, value, options)
-    exports['RespectTarget']:AddBoxZone(name, value.coords, value.size[1], value.size[2], {
+-- منطقة تفاعل حول الإحداثية (مربع بحجم ZoneSize وارتفاع 3 متر)
+local function AddZone(name, coords, options)
+    local size = data.ZoneSize or 2.5
+    exports['RespectTarget']:AddBoxZone(name, vector3(coords.x, coords.y, coords.z), size, size, {
         name = name,
-        heading = value.heading,
-        debugPoly = value.debugPoly,
-        minZ = value.minZ,
-        maxZ = value.maxZ,
+        heading = coords.w or 0.0,
+        debugPoly = data.DebugZones == true,
+        minZ = coords.z - 1.5,
+        maxZ = coords.z + 1.5,
     }, {
         options = options,
-        distance = value.distance or 1.5,
+        distance = 2.0,
     })
     created_zones[#created_zones + 1] = name
 end
 
 local function SpawnPed(key, pedData, targetOptions)
-    local model = type(pedData.pedModel) == 'string' and joaat(pedData.pedModel) or pedData.pedModel
+    if not pedData or not pedData.coords then return end
+    local model = type(pedData.model) == 'string' and joaat(pedData.model) or pedData.model
     pcall(lib.requestModel, model, 10000)
     if not HasModelLoaded(model) then
-        return print(('^1[RespectJustice]^7 Failed to load ped model: %s'):format(pedData.pedModel))
+        return print(('^1[RespectJustice]^7 Failed to load ped model: %s'):format(tostring(pedData.model)))
     end
 
-    local ped = CreatePed(4, model, pedData.coords.x, pedData.coords.y, pedData.coords.z - 1.0, pedData.coords.w, false, false)
+    local c = pedData.coords
+    local ped = CreatePed(4, model, c.x, c.y, c.z - 1.0, c.w or 0.0, false, false)
     SetModelAsNoLongerNeeded(model)
     FreezeEntityPosition(ped, true)
     SetEntityInvincible(ped, true)
@@ -96,163 +100,170 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function create_blips()
-    for _, v in pairs(data.Locations) do
-        if v.blip and v.blip.show then
-            local blip = AddBlipForCoord(v.coords.x, v.coords.y, v.coords.z)
-            SetBlipSprite(blip, v.blip.sprite)
-            SetBlipColour(blip, v.blip.colour)
-            SetBlipAsShortRange(blip, true)
-            SetBlipScale(blip, v.blip.scale)
-            BeginTextCommandSetBlipName("STRING")
-            AddTextComponentString(exports['RespectScripts']:escape(v.blip.label))
-            EndTextCommandSetBlipName(blip)
-            created_blips[#created_blips + 1] = blip
-        end
-    end
+    local blipData = data.Points.Blip
+    if not blipData or not blipData.show then return end
+
+    local blip = AddBlipForCoord(blipData.coords.x, blipData.coords.y, blipData.coords.z)
+    SetBlipSprite(blip, blipData.sprite or 176)
+    SetBlipColour(blip, blipData.colour or 0)
+    SetBlipAsShortRange(blip, true)
+    SetBlipScale(blip, blipData.scale or 0.45)
+    BeginTextCommandSetBlipName("STRING")
+    AddTextComponentString(exports['RespectScripts']:escape(blipData.label))
+    EndTextCommandSetBlipName(blip)
+    created_blips[#created_blips + 1] = blip
 end
 
+-- الخيارات اللي تظهر عند كل نوع من الإحداثيات
+local PointOptions = {
+    Duty = {
+        {
+            icon = 'fas fa-clipboard',
+            label = 'البصمة',
+            job = JOB,
+            action = function()
+                local remaining = GetDutyCooldown()
+                if remaining > 0 then
+                    return RTCore.Functions.Notify(('يجب ان تنتظر %s ثانية'):format(remaining), 'error', 5000)
+                end
+                dutyCooldownEnd = GetGameTimer() + Settings.DutyCooldown * 1000
+                -- الترتيب مهم: نبدل الدوام أولاً ثم نسجل الحالة الجديدة
+                TriggerServerEvent('QBCore:ToggleDuty')
+                TriggerServerEvent('RespectJustice:server:updateDutyHistory')
+            end,
+        },
+        {
+            icon = 'fas fa-laptop',
+            label = 'سجل البصمة',
+            job = JOB,
+            canInteract = IsJusticeBoss,
+            action = OpenDutyHistory,
+        },
+    },
+
+    Stash = {
+        {
+            icon = 'fas fa-box',
+            label = 'الخزنة الشخصية',
+            job = JOB,
+            action = function()
+                local stashId = 'justice_stash_' .. RTCore.Functions.GetPlayerData().citizenid
+                TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.PersonalStash)
+                TriggerEvent('inventory:client:SetCurrentStash', stashId)
+            end,
+        },
+        {
+            icon = 'fas fa-box-archive',
+            label = 'الأرشيف',
+            job = JOB,
+            canInteract = IsJusticeBoss,
+            action = function()
+                local input = lib.inputDialog('قائمة الارشيف', {
+                    { type = 'number', label = 'الرقم الوطني للارشيف', required = true, min = 1 },
+                })
+                local archiveId = input and tonumber(input[1])
+                if not archiveId or archiveId < 1 then return end
+                archiveId = math.floor(archiveId)
+
+                local stashId = 'justice_archive_' .. archiveId
+                TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.ArchiveStash)
+                TriggerEvent('inventory:client:SetCurrentStash', stashId)
+            end,
+        },
+    },
+
+    ReportsView = {
+        {
+            icon = 'fas fa-scale-balanced',
+            label = 'رؤية القضايا المقدمة',
+            job = JOB,
+            action = function() JC.Reports.OpenList() end,
+        },
+    },
+
+    CitizenPanel = {
+        {
+            icon = 'fas fa-address-card',
+            label = 'نظام معلومات المواطنين',
+            job = JOB,
+            action = function() JC.Panel.Open() end,
+        },
+    },
+}
+
+local PointOrder = { 'Duty', 'Stash', 'ReportsView', 'CitizenPanel' }
+
 local function create_zones()
-    for k, v in pairs(data.Locations) do
-        for key, value in pairs(v.duty or {}) do
-            AddZone(('justice_duty_%s_%s'):format(k, key), value, {
-                {
-                    icon = 'fas fa-clipboard',
-                    label = 'البصمة',
-                    job = JOB,
-                    action = function()
-                        local remaining = GetDutyCooldown()
-                        if remaining > 0 then
-                            return RTCore.Functions.Notify(('يجب ان تنتظر %s ثانية'):format(remaining), 'error', 5000)
-                        end
-                        dutyCooldownEnd = GetGameTimer() + Settings.DutyCooldown * 1000
-                        -- الترتيب مهم: نبدل الدوام أولاً ثم نسجل الحالة الجديدة
-                        TriggerServerEvent('QBCore:ToggleDuty')
-                        TriggerServerEvent('RespectJustice:server:updateDutyHistory')
-                    end,
-                },
-                {
-                    icon = 'fas fa-laptop',
-                    label = 'سجل البصمة',
-                    job = JOB,
-                    canInteract = IsJusticeBoss,
-                    action = OpenDutyHistory,
-                },
-            })
-        end
-
-        for key, value in pairs(v.personal_stash or {}) do
-            local stashOptions = {
-                {
-                    icon = 'fas fa-box',
-                    label = 'الخزنة الشخصية',
-                    job = JOB,
-                    action = function()
-                        local stashId = 'justice_stash_' .. RTCore.Functions.GetPlayerData().citizenid
-                        TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.PersonalStash)
-                        TriggerEvent('inventory:client:SetCurrentStash', stashId)
-                    end,
-                },
-                {
-                    icon = 'fas fa-box-archive',
-                    label = 'الأرشيف',
-                    job = JOB,
-                    canInteract = IsJusticeBoss,
-                    action = function()
-                        local input = lib.inputDialog('قائمة الارشيف', {
-                            { type = 'number', label = 'الرقم الوطني للارشيف', required = true, min = 1 },
-                        })
-                        local archiveId = input and tonumber(input[1])
-                        if not archiveId or archiveId < 1 then return end
-                        archiveId = math.floor(archiveId)
-
-                        local stashId = 'justice_archive_' .. archiveId
-                        TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.ArchiveStash)
-                        TriggerEvent('inventory:client:SetCurrentStash', stashId)
-                    end,
-                },
-            }
-
-            -- showReports: إضافة خيار رؤية القضايا لنفس المنطقة بدل منطقتين متداخلتين
-            if value.showReports then
-                stashOptions[#stashOptions + 1] = {
-                    icon = 'fas fa-scale-balanced',
-                    label = 'رؤية القضايا المقدمة',
-                    job = JOB,
-                    action = function() JC.Reports.OpenList() end,
-                }
-                stashOptions[#stashOptions + 1] = {
-                    icon = 'fas fa-address-card',
-                    label = 'نظام معلومات المواطنين',
-                    job = JOB,
-                    action = function() JC.Panel.Open() end,
-                }
+    -- تجميع الإحداثيات المتطابقة في منطقة وحدة حتى ما تغطي منطقة على الثانية
+    local zones, zoneOrder = {}, {}
+    for _, pointType in ipairs(PointOrder) do
+        for _, coords in ipairs(data.Points[pointType] or {}) do
+            local key = ('%.1f_%.1f_%.1f'):format(coords.x, coords.y, coords.z)
+            if not zones[key] then
+                zones[key] = { coords = coords, options = {} }
+                zoneOrder[#zoneOrder + 1] = key
             end
-
-            AddZone(('justice_personal_stash_%s_%s'):format(k, key), value, stashOptions)
-        end
-
-        for key, value in pairs(v.reports_check or {}) do
-            AddZone(('justice_reports_check_%s_%s'):format(k, key), value, {
-                {
-                    icon = 'fas fa-circle',
-                    label = 'رؤية القضايا المقدمة',
-                    job = JOB,
-                    action = function() JC.Reports.OpenList() end,
-                },
-            })
-        end
-
-        for _k, _v in pairs(v.reports or {}) do
-            SpawnPed(('reports_%s_%s'):format(k, _k), _v, {
-                {
-                    icon = 'fa-solid fa-comment',
-                    label = 'تحدث',
-                    action = function()
-                        local ok, phoneNumber = pcall(function()
-                            return exports['lb-phone']:GetEquippedPhoneNumber()
-                        end)
-                        if not ok or not phoneNumber then
-                            return RTCore.Functions.Notify('يجب ان يتوفر لديك رقم جوال', 'error', 5000)
-                        end
-
-                        lib.registerContext({
-                            id = 'justice_player_select_menu_reports',
-                            title = 'قائمة القضايا',
-                            options = {
-                                {
-                                    title = 'تقديم دعوى قضائية',
-                                    icon = 'fas fa-file-signature',
-                                    description = ('اضغط هنا لكتابة ولطلب تقديم دعوى إلى وزارة العدل برسوم %d دولار'):format(Settings.ReportFee),
-                                    onSelect = JC.Reports.OpenSubmit,
-                                },
-                                {
-                                    title = 'متابعة دعاواي',
-                                    icon = 'fas fa-list-check',
-                                    description = 'حالة الدعاوى التي قدمتها',
-                                    onSelect = function() JC.Reports.OpenMine('justice_player_select_menu_reports') end,
-                                },
-                            },
-                        })
-                        lib.showContext('justice_player_select_menu_reports')
-                    end,
-                },
-            })
-        end
-
-        for _k, _v in pairs(v.spawn_vehicles or {}) do
-            SpawnPed(('spawn_vehicles_%s_%s'):format(k, _k), _v, {
-                {
-                    icon = 'fa-solid fa-car',
-                    label = 'تحدث',
-                    job = JOB,
-                    canInteract = IsJustice,
-                    action = function()
-                        TriggerEvent('RespectJustice:client:spawnVehicleMenu', _v)
-                    end,
-                },
-            })
+            for _, option in ipairs(PointOptions[pointType]) do
+                table.insert(zones[key].options, option)
+            end
         end
     end
+
+    for i, key in ipairs(zoneOrder) do
+        AddZone('justice_point_' .. i, zones[key].coords, zones[key].options)
+    end
+
+    -- بوت تقديم القضايا
+    SpawnPed('report_ped', data.Points.ReportPed, {
+        {
+            icon = 'fa-solid fa-comment',
+            label = 'تحدث',
+            action = function()
+                local ok, phoneNumber = pcall(function()
+                    return exports['lb-phone']:GetEquippedPhoneNumber()
+                end)
+                if not ok or not phoneNumber then
+                    return RTCore.Functions.Notify('يجب ان يتوفر لديك رقم جوال', 'error', 5000)
+                end
+
+                lib.registerContext({
+                    id = 'justice_player_select_menu_reports',
+                    title = 'قائمة القضايا',
+                    options = {
+                        {
+                            title = 'تقديم دعوى قضائية',
+                            icon = 'fas fa-file-signature',
+                            description = ('اضغط هنا لكتابة ولطلب تقديم دعوى إلى وزارة العدل برسوم %d دولار'):format(Settings.ReportFee),
+                            onSelect = JC.Reports.OpenSubmit,
+                        },
+                        {
+                            title = 'متابعة دعاواي',
+                            icon = 'fas fa-list-check',
+                            description = 'حالة الدعاوى التي قدمتها',
+                            onSelect = function() JC.Reports.OpenMine('justice_player_select_menu_reports') end,
+                        },
+                    },
+                })
+                lib.showContext('justice_player_select_menu_reports')
+            end,
+        },
+    })
+
+    -- بوت مركبات العدل
+    SpawnPed('vehicle_ped', data.Points.VehiclePed, {
+        {
+            icon = 'fa-solid fa-car',
+            label = 'تحدث',
+            job = JOB,
+            canInteract = IsJustice,
+            action = function()
+                TriggerEvent('RespectJustice:client:spawnVehicleMenu', {
+                    vehicles = data.Vehicles,
+                    vehSpawns = data.Points.VehicleSpawns,
+                })
+            end,
+        },
+    })
 end
 
 local function cleanup()
