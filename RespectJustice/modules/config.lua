@@ -52,6 +52,16 @@ return {
                 logs = 'boss',           -- سجل العمليات
                 compensation = 'boss',   -- تعويض مواطن (مبلغ يُضاف لحسابه)
                 jobs = 'boss',           -- تغيير وظيفة ورتبة المواطن + التحكم بالقطاعات (توظيف، ترقية، فصل، دوام)
+
+                -- نظام المدينة
+                city = 0,                -- رؤية نظرة عامة على المدينة + سجل المركبات والعقارات
+                summon = 0,              -- إرسال استدعاء للمحكمة
+                vehicles = 'boss',       -- حجز / فك حجز / نقل ملكية مركبة
+                properties = 'boss',     -- نقل ملكية عقار
+                licenses = 'boss',       -- منح / سحب التراخيص
+                gangs = 'boss',          -- تغيير / إزالة عصابة المواطن
+                announce = 'boss',       -- إعلان لكل المدينة
+                economy = 'boss',        -- اقتصاد المدينة وأغنى المواطنين
             },
 
             UnemployedJob = 'unemployed',   -- الوظيفة اللي يروح لها المواطن عند الفصل
@@ -70,6 +80,16 @@ return {
             Society = { enabled = false, resource = 'qb-management', func = 'AddMoney' },
         },
 
+        -- نظام المدينة
+        City = {
+            ImpoundFee = 500,            -- رسوم فك الحجز اللي يدفعها المواطن في الحجز (إذا الكراج يدعمها)
+            ImpoundGarage = 'impoundlot',-- اسم كراج الحجز
+            AnnounceCooldown = 60,       -- ثواني بين كل إعلان
+            AnnounceMaxLength = 250,
+            SummonMaxLength = 200,
+            NoGang = 'none',             -- اسم "بدون عصابة"
+        },
+
         -- تنظيف تلقائي للسجلات القديمة (بالأيام، 0 = لا يحذف أبداً)
         Cleanup = {
             LogsDays = 120,              -- سجل العمليات
@@ -81,7 +101,7 @@ return {
         Database = {
             Players = 'players',
             Vehicles = 'player_vehicles',
-            Houses = { table = 'player_houses', owner = 'citizenid', label = 'house' },
+            Houses = { table = 'player_houses', owner = 'citizenid', label = 'house', id = 'id' },
         },
 
         Licenses = {

@@ -203,11 +203,7 @@ JS.RegisterCallback('RespectJustice:server:setCitizenJob', 'jobs', function(src,
         Notify(citizen.online.PlayerData.source,
             ('تم تغيير وظيفتك من وزارة العدل إلى: %s - %s'):format(job.label or jobName, grade.name or level), 'primary', 10000)
     else
-        local raw = citizen.raw and citizen.raw.job
-        local affected = MySQL.update.await(('UPDATE `%s` SET job = ? WHERE citizenid = ? AND job = ?'):format(Settings.Database.Players), {
-            json.encode(BuildJobData(jobName, job, level, grade)), citizenid, raw
-        })
-        if not affected or affected == 0 then
+        if not JS.UpdatePlayerJson(citizenid, 'job', BuildJobData(jobName, job, level, grade), citizen.raw.job) then
             return { ok = false, err = 'تغيرت بيانات المواطن أثناء العملية، حاول مرة أخرى' }
         end
     end

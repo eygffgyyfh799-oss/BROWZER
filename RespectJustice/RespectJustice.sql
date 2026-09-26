@@ -106,3 +106,20 @@ CREATE TABLE IF NOT EXISTS `justice_logs` (
     KEY `target_citizenid` (`target_citizenid`),
     KEY `action` (`action`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- استدعاءات المحكمة
+CREATE TABLE IF NOT EXISTS `justice_summons` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `citizenid` varchar(50) NOT NULL,
+    `name` varchar(100) NOT NULL,
+    `reason` varchar(255) NOT NULL,
+    `appointment` varchar(100) NOT NULL DEFAULT '',
+    `location` varchar(100) NOT NULL DEFAULT '',
+    `officer_citizenid` varchar(50) NOT NULL,
+    `officer_name` varchar(100) NOT NULL,
+    `status` varchar(20) NOT NULL DEFAULT 'pending',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `citizenid` (`citizenid`),
+    KEY `status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

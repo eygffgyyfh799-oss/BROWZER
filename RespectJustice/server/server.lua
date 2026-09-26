@@ -7,7 +7,7 @@ local DutyHistory = {}
 -- إنشاء جداول قاعدة البيانات وتحديثها وتحميل البيانات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-CreateThread(function()
+local function InitDatabase()
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_duty_history` (
             `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -81,8 +81,8 @@ CreateThread(function()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
     JS.EnsureColumn('justice_transactions', 'type', "varchar(30) NOT NULL DEFAULT 'compensation'")
-    MySQL.query.await("ALTER TABLE `justice_transactions` MODIFY `reason` varchar(255) NOT NULL")
-    MySQL.query.await("ALTER TABLE `justice_transactions` MODIFY `amount` bigint(20) NOT NULL")
+    JS.TryQuery("ALTER TABLE `justice_transactions` MODIFY `reason` varchar(255) NOT NULL")
+    JS.TryQuery("ALTER TABLE `justice_transactions` MODIFY `amount` bigint(20) NOT NULL")
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_suspensions` (
@@ -116,6 +116,24 @@ CreateThread(function()
             KEY `officer_citizenid` (`officer_citizenid`),
             KEY `target_citizenid` (`target_citizenid`),
             KEY `action` (`action`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_summons` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `reason` varchar(255) NOT NULL,
+            `appointment` varchar(100) NOT NULL DEFAULT '',
+            `location` varchar(100) NOT NULL DEFAULT '',
+            `officer_citizenid` varchar(50) NOT NULL,
+            `officer_name` varchar(100) NOT NULL,
+            `status` varchar(20) NOT NULL DEFAULT 'pending',
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `citizenid` (`citizenid`),
+            KEY `status` (`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
@@ -156,8 +174,16 @@ CreateThread(function()
         end
     end
 
-    JS.Ready = true
     print(('^2[RespectJustice]^7 Ready: %d duty records, %d active suspensions'):format(#DutyHistory, #suspensions))
+end
+
+CreateThread(function()
+    local ok, err = pcall(InitDatabase)
+    if not ok then
+        print(('^1[RespectJustice]^7 Database init error: %s'):format(tostring(err)))
+    end
+    JS.Ready = true
+    TriggerEvent('RespectJustice:server:ready')
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════

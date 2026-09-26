@@ -319,11 +319,21 @@ function JS.ColumnExists(tableName, column)
     return schemaCache[key]
 end
 
+-- تنفيذ استعلام تحديث للجداول بدون ما يوقف التشغيل لو فشل
+function JS.TryQuery(query, params)
+    local ok, err = pcall(MySQL.query.await, query, params)
+    if not ok then
+        print(('^3[RespectJustice]^7 DB step skipped: %s'):format(tostring(err)))
+    end
+    return ok
+end
+
 function JS.EnsureColumn(tableName, column, definition)
     if JS.ColumnExists(tableName, column) then return end
-    MySQL.query.await(('ALTER TABLE `%s` ADD COLUMN `%s` %s'):format(tableName, column, definition))
-    schemaCache[('c:%s.%s'):format(tableName, column)] = true
-    print(('^3[RespectJustice]^7 Added column %s.%s'):format(tableName, column))
+    if JS.TryQuery(('ALTER TABLE `%s` ADD COLUMN `%s` %s'):format(tableName, column, definition)) then
+        schemaCache[('c:%s.%s'):format(tableName, column)] = true
+        print(('^3[RespectJustice]^7 Added column %s.%s'):format(tableName, column))
+    end
 end
 
 -- أعمدة خفيفة من جدول players (بدون المخزون الثقيل) + last_updated إذا موجود
@@ -341,8 +351,28 @@ function JS.EnsureIndex(tableName, column)
         'SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
         { tableName, column })
     if (tonumber(count) or 0) == 0 then
-        MySQL.query.await(('ALTER TABLE `%s` ADD INDEX `%s` (`%s`)'):format(tableName, column, column))
+        JS.TryQuery(('ALTER TABLE `%s` ADD INDEX `idx_%s` (`%s`)'):format(tableName, column, column))
     end
+end
+
+-- تحديث عمود JSON لمواطن غير متصل بأمان:
+-- يتأكد إن البيانات ما تغيرت أثناء العملية، ويعتبر العملية ناجحة إذا القيمة الجديدة نفس القديمة
+local PlayerJsonColumns = { money = true, charinfo = true, job = true, gang = true, metadata = true }
+
+function JS.UpdatePlayerJson(citizenid, column, newValue, oldRaw)
+    if not PlayerJsonColumns[column] then return false end
+    local encoded = json.encode(newValue)
+    if encoded == oldRaw then return true end
+
+    local tableName = Settings.Database.Players
+    local affected = MySQL.update.await(('UPDATE `%s` SET `%s` = ? WHERE citizenid = ? AND `%s` = ?'):format(tableName, column, column), {
+        encoded, citizenid, oldRaw
+    })
+    if affected and affected > 0 then return true end
+
+    -- بعض قواعد البيانات ترجع 0 إذا القيمة ما تغيرت فعلياً
+    local current = MySQL.scalar.await(('SELECT `%s` FROM `%s` WHERE citizenid = ?'):format(column, tableName), { citizenid })
+    return current == encoded
 end
 
 function JS.GetPlayerRow(citizenid)
@@ -403,6 +433,15 @@ JS.ActionLabels = {
     report_delete = 'حذف قضية',
     job = 'تغيير وظيفة',
     duty = 'تغيير دوام موظف',
+    vehicle_impound = 'حجز مركبة',
+    vehicle_release = 'فك حجز مركبة',
+    vehicle_transfer = 'نقل ملكية مركبة',
+    property_transfer = 'نقل ملكية عقار',
+    license_grant = 'منح ترخيص',
+    license_revoke = 'سحب ترخيص',
+    gang = 'تغيير عصابة',
+    summon = 'استدعاء للمحكمة',
+    announce = 'إعلان للمدينة',
 }
 
 local webhook = GetConvar('justice_webhook', '')

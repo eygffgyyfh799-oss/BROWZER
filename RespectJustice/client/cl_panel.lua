@@ -82,6 +82,15 @@ function JC.Panel.Open()
         }
     end
 
+    if perms.city then
+        options[#options + 1] = {
+            title = '🏙️ نظام المدينة',
+            description = 'المركبات، العقارات، الاستدعاءات، الاقتصاد، الإعلانات',
+            icon = 'fas fa-city', arrow = true,
+            onSelect = function() JC.City.Open('justice_panel_main') end,
+        }
+    end
+
     options[#options + 1] = {
         title = 'القطاعات',
         description = perms.jobs and 'كل القطاعات: الموظفين، التوظيف، الرتب، الفصل، الدوام' or 'كل القطاعات وموظفينها',
@@ -285,15 +294,26 @@ local function ProfileSections(p, perms, menuId, reopen)
     }
 
     -- التراخيص
-    local licenseItems = {}
+    local licenseItems, activeCount = {}, 0
     for i, license in ipairs(p.licenses or {}) do
+        if license.active then activeCount = activeCount + 1 end
+        local canToggle = perms.licenses and not p.isSelf
         licenseItems[i] = {
-            title = license.label, description = license.active and 'فعالة' or 'غير فعالة',
+            title = license.label,
+            description = (license.active and 'فعالة' or 'غير فعالة') .. (canToggle and (license.active and ' - اضغط للسحب' or ' - اضغط للمنح') or ''),
             icon = license.active and 'fas fa-circle-check' or 'fas fa-circle-xmark', iconColor = license.active and 'green' or 'red',
+            onSelect = canToggle and function()
+                local action = license.active and 'سحب' or 'منح'
+                local ok = lib.alertDialog({ header = action .. ' ترخيص', content = ('%s **%s** للمواطن **%s**؟'):format(action, license.label, p.name), centered = true, cancel = true })
+                if ok == 'confirm' and JC.Call('RespectJustice:server:setLicense', p.citizenid, license.key, not license.active) then
+                    JC.Notify(('تم %s الترخيص'):format(action), 'success')
+                end
+                reopen()
+            end or nil,
         }
     end
     sections[#sections + 1] = {
-        title = ('التراخيص (%d)'):format(#licenseItems), icon = 'fas fa-id-badge', arrow = true,
+        title = ('التراخيص (%d فعالة)'):format(activeCount), icon = 'fas fa-id-badge', arrow = true,
         onSelect = function() ListMenu('justice_profile_licenses', 'التراخيص', menuId, licenseItems, 'لا توجد تراخيص') end,
     }
 
@@ -308,6 +328,8 @@ local function ProfileSections(p, perms, menuId, reopen)
                         title = ('%s | %s'):format(v.label, JC.Value(v.plate)),
                         description = ('%s | الكراج: %s'):format(v.state, JC.Value(v.garage)),
                         icon = 'fas fa-car',
+                        arrow = perms.city and v.plate ~= nil,
+                        onSelect = (perms.city and v.plate) and function() JC.City.OpenVehicle(v.plate, 'justice_profile_vehicles') end or nil,
                         metadata = {
                             { label = 'الموديل', value = JC.Value(v.model) },
                             { label = 'الوقود', value = v.fuel and (v.fuel .. '%') or '-' },
@@ -360,6 +382,21 @@ local function ProfileSections(p, perms, menuId, reopen)
             end
             ListMenu('justice_profile_reports', 'قضايا المواطن', menuId, items, 'لا توجد قضايا')
         end,
+    }
+
+    local summonItems = {}
+    for i, sm in ipairs(p.summons or {}) do
+        summonItems[i] = {
+            title = ('#%d | %s'):format(sm.id, sm.statusLabel),
+            description = ('%s\nالموعد: %s | المكان: %s'):format(sm.reason, JC.Value(sm.appointment), JC.Value(sm.location)),
+            icon = 'fas fa-envelope',
+            metadata = { { label = 'بواسطة', value = JC.Value(sm.officer) }, { label = 'التاريخ', value = JC.Value(sm.date) } },
+            onSelect = (perms.summon and (sm.status == 'pending' or sm.status == 'delivered')) and function() JC.City.UpdateSummon(sm, reopen) end or nil,
+        }
+    end
+    sections[#sections + 1] = {
+        title = ('الاستدعاءات (%d)'):format(#summonItems), icon = 'fas fa-envelope-open-text', arrow = true,
+        onSelect = function() ListMenu('justice_profile_summons', 'استدعاءات المواطن', menuId, summonItems, 'لا توجد استدعاءات') end,
     }
 
     if perms.logs then
@@ -463,6 +500,41 @@ local function ProfileActions(p, perms, reopen)
                 end,
             }
         end
+    end
+
+    if perms.summon then
+        actions[#actions + 1] = {
+            title = 'استدعاء للمحكمة', icon = 'fas fa-envelope', iconColor = 'blue',
+            description = p.online and 'يوصله الآن' or 'يوصله أول ما يدخل السيرفر',
+            onSelect = function() JC.City.SendSummon(p.citizenid, p.name, reopen) end,
+        }
+    end
+
+    if perms.gangs and not p.isSelf then
+        actions[#actions + 1] = {
+            title = 'تغيير العصابة', icon = 'fas fa-mask', iconColor = 'purple',
+            description = 'الحالية: ' .. (p.gang and p.gang.label or 'لا يوجد'),
+            onSelect = function()
+                local result = JC.Call('RespectJustice:server:getGangs')
+                if not result then return reopen() end
+                local gangOptions = {}
+                for i, g in ipairs(result.gangs) do gangOptions[i] = { value = tostring(i), label = ('%s (%s)'):format(g.label, g.name) } end
+                local input = lib.inputDialog('عصابة ' .. p.name, {
+                    { type = 'select', label = 'العصابة', required = true, searchable = true, options = gangOptions },
+                })
+                local gang = input and result.gangs[tonumber(input[1])]
+                if not gang or #gang.grades == 0 then return reopen() end
+                local gradeOptions = {}
+                for i, g in ipairs(gang.grades) do gradeOptions[i] = { value = tostring(g.level), label = ('%d - %s'):format(g.level, g.name) } end
+                local gInput = lib.inputDialog('الرتبة في ' .. gang.label, {
+                    { type = 'select', label = 'الرتبة', required = true, options = gradeOptions, default = gradeOptions[1].value },
+                })
+                if gInput and gInput[1] and JC.Call('RespectJustice:server:setGang', p.citizenid, gang.name, tonumber(gInput[1])) then
+                    JC.Notify('تم تغيير العصابة', 'success')
+                end
+                reopen()
+            end,
+        }
     end
 
     if perms.edit and not p.isSelf then

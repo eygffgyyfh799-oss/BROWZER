@@ -133,7 +133,9 @@ local function create_blips()
         SetBlipAsShortRange(blip, true)
         SetBlipScale(blip, entry.scale or style.scale or 0.45)
         BeginTextCommandSetBlipName("STRING")
-        AddTextComponentString(exports['RespectScripts']:escape(entry.name or 'وزارة العدل'))
+        local label = entry.name or 'وزارة العدل'
+        local ok, escaped = pcall(function() return exports['RespectScripts']:escape(label) end)
+        AddTextComponentString(ok and escaped or label)
         EndTextCommandSetBlipName(blip)
         created_blips[#created_blips + 1] = blip
     end
@@ -273,6 +275,12 @@ local function create_zones()
                             description = 'حالة الدعاوى التي قدمتها',
                             onSelect = function() JC.Reports.OpenMine('justice_player_select_menu_reports') end,
                         },
+                        {
+                            title = 'استدعاءاتي',
+                            icon = 'fas fa-envelope',
+                            description = 'استدعاءات المحكمة الموجهة لك',
+                            onSelect = function() JC.City.OpenMySummons('justice_player_select_menu_reports') end,
+                        },
                     },
                 })
                 lib.showContext('justice_player_select_menu_reports')
@@ -338,9 +346,12 @@ local function cleanup()
     created_zones = {}
 end
 
+-- كل جزء لحاله: لو فشل واحد ما يوقف الباقي
 CreateThread(function()
-    create_blips()
-    create_zones()
+    local ok, err = pcall(create_blips)
+    if not ok then print('^1[RespectJustice]^7 create_blips: ' .. tostring(err)) end
+    ok, err = pcall(create_zones)
+    if not ok then print('^1[RespectJustice]^7 create_zones: ' .. tostring(err)) end
 end)
 
 AddEventHandler('onResourceStop', function(resource)

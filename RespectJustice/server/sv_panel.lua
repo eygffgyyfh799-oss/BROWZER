@@ -73,9 +73,15 @@ local function GetItems(items)
 end
 
 local function GetLicenses(metadata)
-    local list = {}
-    for key, value in pairs(metadata.licences or metadata.licenses or {}) do
-        list[#list + 1] = { label = Settings.Licenses[key] or key, active = value == true }
+    local list, seen = {}, {}
+    local current = metadata.licences or metadata.licenses or {}
+    for key, value in pairs(current) do
+        seen[key] = true
+        list[#list + 1] = { key = key, label = Settings.Licenses[key] or key, active = value == true }
+    end
+    -- أنواع التراخيص الموجودة في الإعدادات وما عنده منها (عشان تقدر تمنحها)
+    for key, label in pairs(Settings.Licenses) do
+        if not seen[key] then list[#list + 1] = { key = key, label = label, active = false } end
     end
     table.sort(list, function(a, b) return a.label < b.label end)
     return list
@@ -161,6 +167,8 @@ local function BuildProfile(citizen, Viewer)
         transactions = transactions,
         reports = reports,
         suspension = JS.Suspended[cid],
+        summons = JS.GetSummons and JS.GetSummons(cid) or {},
+        licenseTypes = Settings.Licenses,
         isSelf = Viewer.PlayerData.citizenid == cid,
     }
 
@@ -250,8 +258,8 @@ JS.RegisterCallback('RespectJustice:server:getAllCitizens', 'view', function(src
 
         local where, params = '', {}
         if filter == 'offline' and #onlineIds > 0 then
-            where = 'WHERE citizenid NOT IN (?)'
-            params[1] = onlineIds
+            where = ('WHERE citizenid NOT IN (%s)'):format(('?,'):rep(#onlineIds):sub(1, -2))
+            params = onlineIds
         end
 
         total = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s` %s'):format(tableName, where), params)) or 0
@@ -467,10 +475,7 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
         end
         money.bank = bank - amount
 
-        local affected = MySQL.update.await(('UPDATE `%s` SET money = ? WHERE citizenid = ? AND money = ?'):format(tableName), {
-            json.encode(money), citizenid, row.money
-        })
-        if not affected or affected == 0 then
+        if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then
             return fail('تغيرت بيانات المواطن أثناء العملية، حاول مرة أخرى')
         end
         targetName = JS.FullName(JS.Decode(row.charinfo))
@@ -617,10 +622,7 @@ JS.RegisterCallback('RespectJustice:server:editCitizen', 'edit', function(src, P
         if citizen.online.Functions.Save then pcall(citizen.online.Functions.Save) end
         Notify(citizen.online.PlayerData.source, 'تم تحديث بياناتك الشخصية من وزارة العدل', 'primary', 8000)
     else
-        local affected = MySQL.update.await(('UPDATE `%s` SET charinfo = ? WHERE citizenid = ? AND charinfo = ?'):format(Settings.Database.Players), {
-            json.encode(charinfo), citizenid, citizen.raw.charinfo
-        })
-        if not affected or affected == 0 then
+        if not JS.UpdatePlayerJson(citizenid, 'charinfo', charinfo, citizen.raw.charinfo) then
             return { ok = false, err = 'تغيرت بيانات المواطن أثناء العملية، حاول مرة أخرى' }
         end
     end
