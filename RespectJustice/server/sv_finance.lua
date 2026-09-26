@@ -65,11 +65,6 @@ local function DetectProvider()
 end
 
 -- ═════ من يقدر يستخدم القسم المالي ═════
-local function IsJudge(Player)
-    local full = tonumber(Settings.Panel.FullAccessGrade)
-    return JS.IsJustice(Player) and full ~= nil and JS.GetGrade(Player) >= full
-end
-
 function JS.SectorList()
     local list = {}
     for job, sector in pairs(Finance.Sectors or {}) do list[#list + 1] = { job = job, label = JS.Safe(sector.label or job) } end
@@ -79,7 +74,7 @@ end
 
 -- requestedJob: القاضي يختار أي قطاع
 function JS.GetFinanceSector(Player, ignoreDuty, requestedJob)
-    if Player and IsJudge(Player) then
+    if Player and JS.IsJudge(Player) then
         if not ignoreDuty and Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return nil, 'يجب أن تكون في الدوام' end
         local list = JS.SectorList()
         if #list == 0 then return nil end

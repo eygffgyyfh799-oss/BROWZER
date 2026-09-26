@@ -1027,7 +1027,7 @@ function courtView(court, perms, reload, who) {
     return h('div', null,
         court.suspect ? card('🕵️ قائمة المشبوهين', suspectItem(court.suspect, 'profile')) : null,
         card(`🚨 أوامر القبض والتفتيش (${arr(court.warrants).length})`, arr(court.warrants).length
-            ? h('div', { class: 'list' }, arr(court.warrants).map((w) => warrantItem(w, { cancel: perms.warrants, reload })))
+            ? h('div', { class: 'list' }, arr(court.warrants).map((w) => warrantItem(w, { cancel: perms.warrants, execute: !!S.info.judge, reload })))
             : empty('لا توجد أوامر', '🚨')),
         card(`🔨 أرشيف الأحكام (${arr(court.verdicts).length})`, arr(court.verdicts).length
             ? h('div', { class: 'list' }, arr(court.verdicts).map(verdictItem))
@@ -1157,7 +1157,7 @@ PAGES.warrants = {
         const chip = (v, label) => h('button', { class: 'chip' + (onlyActive === v ? ' active' : ''), onclick: () => { S.current.arg = v; render(); } }, label);
         return h('div', null,
             h('div', { class: 'chips' }, chip(true, '🚨 السارية'), chip(false, 'كل الأوامر')),
-            card(null, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'profile', cancel: S.perms.warrants, reload: render }))) : empty('لا توجد أوامر', '🚨')));
+            card(null, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'profile', cancel: S.perms.warrants, execute: !!S.info.judge, reload: render }))) : empty('لا توجد أوامر', '🚨')));
     },
 };
 
@@ -1518,7 +1518,7 @@ function onLiveEvent(ev) {
 
 // ═════ الفتح والإغلاق ═════
 function renderMe() {
-    const roleLabel = { justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي', sector: '💰 مسؤول القطاع' }[S.role] || '';
+    const roleLabel = S.info && S.info.judge ? '👑 القاضي - صلاحية كاملة على نظام الدولة' : ({ justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي', sector: '💰 مسؤول القطاع' }[S.role] || '');
     $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 

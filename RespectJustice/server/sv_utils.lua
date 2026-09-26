@@ -237,7 +237,18 @@ function JS.IsPolice(Player)
     return job ~= nil and InList(Settings.Police.Jobs, job.name)
 end
 
+-- القاضي (رتبة الصلاحية الكاملة) = فل أكسس على كل نظام الدولة
+function JS.IsJudge(Player)
+    local full = tonumber(Settings.Panel.FullAccessGrade)
+    return JS.IsJustice(Player) and full ~= nil and JS.GetGrade(Player) >= full
+end
+
 function JS.CanPolice(Player, action)
+    if JS.IsJudge(Player) then
+        if Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return false, 'يجب أن تكون في الدوام' end
+        if Settings.Police.Permissions[action] == nil then return false, 'صلاحية غير معروفة' end
+        return true
+    end
     if not JS.IsPolice(Player) then return false, 'هذا القسم للشرطة فقط' end
     local job = Player.PlayerData.job
     if Settings.Police.RequireDuty and not job.onduty then return false, 'يجب أن تكون في الدوام' end
