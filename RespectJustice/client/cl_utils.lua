@@ -19,7 +19,11 @@ end
 
 function JC.IsBoss()
     local job = RTCore.Functions.GetPlayerData().job
-    return job ~= nil and job.name == JC.Job and job.isboss == true
+    if not job or job.name ~= JC.Job then return false end
+    if job.isboss == true then return true end
+    local grade = type(job.grade) == 'table' and job.grade.level or job.grade
+    local fullAccess = tonumber(JC.Settings.Panel.FullAccessGrade)
+    return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
 end
 
 -- ينتظر نتيجة callback من السيرفر

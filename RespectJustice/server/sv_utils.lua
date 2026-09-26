@@ -171,8 +171,12 @@ function JS.IsJustice(Player)
     return Player ~= nil and Player.PlayerData.job ~= nil and Player.PlayerData.job.name == JS.Job
 end
 
+-- المدير أو رتبة المسؤول ورئيس المحكمة (FullAccessGrade) وأعلى
 function JS.IsBoss(Player)
-    return JS.IsJustice(Player) and Player.PlayerData.job.isboss == true
+    if not JS.IsJustice(Player) then return false end
+    if Player.PlayerData.job.isboss == true then return true end
+    local fullAccess = tonumber(Settings.Panel.FullAccessGrade)
+    return fullAccess ~= nil and JS.GetGrade(Player) >= fullAccess
 end
 
 function JS.Can(Player, action)
@@ -187,7 +191,7 @@ function JS.Can(Player, action)
 
     local required = Settings.Panel.Permissions[action]
     if required == nil then return false, 'صلاحية غير معروفة' end
-    if job.isboss then return true end
+    if JS.IsBoss(Player) then return true end
     if required == 'boss' then return false, 'هذه الصلاحية للمدير فقط' end
     if JS.GetGrade(Player) < (tonumber(required) or 0) then
         return false, 'رتبتك لا تسمح بهذا الإجراء'
