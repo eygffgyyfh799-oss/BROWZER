@@ -1,67 +1,10 @@
-local Config = Load('config')
-local Settings = Config.Settings
-local JOB = Settings.Job
-
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- المتغيرات العامة
--- ════════════════════════════════════════════════════════════════════════════════════════════════
+local Settings = JS.Settings
+local Notify = JS.Notify
 
 local DutyHistory = {}
-local Cooldowns = { duty = {}, report = {}, compensation = {} }
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- دوال مساعدة
--- ════════════════════════════════════════════════════════════════════════════════════════════════
-
-local function Notify(src, msg, msgType, length)
-    RTCore.Functions.Notify(src, msg, msgType, length or 5000)
-end
-
-local function GetFormattedDateTime()
-    return os.date("%d/%m/%Y %H:%M", os.time())
-end
-
-local function GetCurrentTime()
-    return os.date("%Y-%m-%d %H:%M:%S", os.time())
-end
-
-local function GetFullName(Player)
-    local charinfo = Player.PlayerData.charinfo or {}
-    return ('%s %s'):format(charinfo.firstname or '', charinfo.lastname or '')
-end
-
-local function IsJustice(Player)
-    return Player and Player.PlayerData.job and Player.PlayerData.job.name == JOB
-end
-
-local function IsJusticeBoss(Player)
-    return IsJustice(Player) and Player.PlayerData.job.isboss == true
-end
-
--- يرجع true إذا كان اللاعب في فترة انتظار، ويبدأ فترة جديدة إذا لم يكن كذلك
-local function OnCooldown(kind, key, seconds)
-    local now = os.time()
-    local expires = Cooldowns[kind][key]
-    if expires and expires > now then
-        return true, expires - now
-    end
-    Cooldowns[kind][key] = now + seconds
-    return false
-end
-
-local function MapReportRow(row)
-    return {
-        id = row.id,
-        citizenid = row.citizenid,
-        name = row.name,
-        phoneNumber = row.phone_number,
-        report = row.report,
-        date = row.date,
-    }
-end
-
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إنشاء جداول قاعدة البيانات وتحميل البيانات
+-- إنشاء جداول قاعدة البيانات وتحديثها وتحميل البيانات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 CreateThread(function()
@@ -95,6 +38,30 @@ CreateThread(function()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
+    -- أعمدة جديدة للقضايا (تضاف تلقائياً للجداول القديمة بدون حذف أي بيانات)
+    JS.EnsureColumn('justice_reports', 'title', "varchar(120) NOT NULL DEFAULT ''")
+    JS.EnsureColumn('justice_reports', 'case_type', "varchar(50) NOT NULL DEFAULT ''")
+    JS.EnsureColumn('justice_reports', 'defendant_name', "varchar(100) NOT NULL DEFAULT ''")
+    JS.EnsureColumn('justice_reports', 'defendant_citizenid', "varchar(50) NOT NULL DEFAULT ''")
+    JS.EnsureColumn('justice_reports', 'witnesses', 'text NULL')
+    JS.EnsureColumn('justice_reports', 'evidence', 'text NULL')
+    JS.EnsureColumn('justice_reports', 'status', "varchar(20) NOT NULL DEFAULT 'new'")
+    JS.EnsureColumn('justice_reports', 'handled_by', "varchar(100) NOT NULL DEFAULT ''")
+    JS.EnsureColumn('justice_reports', 'submitter_info', 'longtext NULL')
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_report_notes` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `report_id` int(11) NOT NULL,
+            `author_citizenid` varchar(50) NOT NULL,
+            `author_name` varchar(100) NOT NULL,
+            `note` text NOT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `report_id` (`report_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_transactions` (
             `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -111,15 +78,53 @@ CreateThread(function()
             KEY `target_citizenid` (`target_citizenid`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
+    JS.EnsureColumn('justice_transactions', 'type', "varchar(30) NOT NULL DEFAULT 'compensation'")
+    MySQL.query.await("ALTER TABLE `justice_transactions` MODIFY `reason` varchar(255) NOT NULL")
+    MySQL.query.await("ALTER TABLE `justice_transactions` MODIFY `amount` bigint(20) NOT NULL")
 
-    local result = MySQL.query.await('SELECT * FROM justice_duty_history ORDER BY timestamp DESC, id DESC LIMIT ?', {
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_suspensions` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `citizenid` varchar(50) NOT NULL,
+            `name` varchar(100) NOT NULL,
+            `reason` varchar(255) NOT NULL,
+            `officer_citizenid` varchar(50) NOT NULL,
+            `officer_name` varchar(100) NOT NULL,
+            `active` tinyint(1) NOT NULL DEFAULT 1,
+            `lifted_by` varchar(100) NULL,
+            `lifted_at` timestamp NULL DEFAULT NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `citizenid` (`citizenid`),
+            KEY `active` (`active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    MySQL.query.await([[
+        CREATE TABLE IF NOT EXISTS `justice_logs` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `officer_citizenid` varchar(50) NOT NULL,
+            `officer_name` varchar(100) NOT NULL,
+            `action` varchar(50) NOT NULL,
+            `target_citizenid` varchar(50) NULL,
+            `target_name` varchar(100) NULL,
+            `details` longtext NULL,
+            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `officer_citizenid` (`officer_citizenid`),
+            KEY `target_citizenid` (`target_citizenid`),
+            KEY `action` (`action`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ]])
+
+    -- سجل البصمة
+    local history = MySQL.query.await('SELECT * FROM justice_duty_history ORDER BY timestamp DESC, id DESC LIMIT ?', {
         Settings.DutyHistoryLimit
     }) or {}
-
     DutyHistory = {}
-    for i = 1, #result do
-        local row = result[i]
-        DutyHistory[#DutyHistory + 1] = {
+    for i = 1, #history do
+        local row = history[i]
+        DutyHistory[i] = {
             citizenid = row.citizenid,
             name = row.name,
             dutyStatus = row.duty_status,
@@ -128,11 +133,33 @@ CreateThread(function()
         }
     end
 
-    print(('^2[RespectJustice]^7 Database ready, loaded %d duty history records'):format(#DutyHistory))
+    -- الخدمات الموقوفة
+    local suspensions = MySQL.query.await('SELECT * FROM justice_suspensions WHERE active = 1') or {}
+    for i = 1, #suspensions do
+        local row = suspensions[i]
+        JS.Suspended[row.citizenid] = {
+            id = row.id,
+            name = row.name,
+            reason = row.reason,
+            officer = row.officer_name,
+            date = JS.FormatDbDate(row.created_at),
+        }
+    end
+
+    -- فحص الجداول الخارجية وإظهار تحذير إذا لم تكن موجودة
+    local db = Settings.Database
+    for _, tableName in ipairs({ db.Players, db.Vehicles, db.Houses and db.Houses.table }) do
+        if tableName and not JS.TableExists(tableName) then
+            print(('^3[RespectJustice]^7 Table `%s` not found, related info will be hidden. Check Settings.Database in config.lua'):format(tableName))
+        end
+    end
+
+    JS.Ready = true
+    print(('^2[RespectJustice]^7 Ready: %d duty records, %d active suspensions'):format(#DutyHistory, #suspensions))
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تحديث سجل البصمة
+-- سجل البصمة
 -- يُستدعى من العميل بعد QBCore:ToggleDuty، والأحداث تصل للسيرفر بنفس الترتيب
 -- لذلك حالة الدوام هنا هي الحالة الجديدة بعد التبديل
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -140,157 +167,50 @@ end)
 RegisterNetEvent('RespectJustice:server:updateDutyHistory', function()
     local src = source
     local Player = RTCore.Functions.GetPlayer(src)
-    if not IsJustice(Player) then return end
+    if not JS.IsJustice(Player) then return end
 
     local citizenid = Player.PlayerData.citizenid
-    if OnCooldown('duty', citizenid, math.max(Settings.DutyCooldown - 2, 1)) then return end
+    if JS.OnCooldown('duty', citizenid, math.max(Settings.DutyCooldown - 2, 1)) then return end
 
-    local name = GetFullName(Player)
-    local dutyStatus = Player.PlayerData.job.onduty and 'بدأ الدوام' or 'أنهى الدوام'
-    local timeFormated = GetFormattedDateTime()
-    local timestamp = os.time()
-
-    table.insert(DutyHistory, 1, {
+    local entry = {
         citizenid = citizenid,
-        name = name,
-        dutyStatus = dutyStatus,
-        timeFormated = timeFormated,
-        timestamp = timestamp,
-    })
+        name = JS.PlayerName(Player),
+        dutyStatus = Player.PlayerData.job.onduty and 'بدأ الدوام' or 'أنهى الدوام',
+        timeFormated = JS.Now(),
+        timestamp = os.time(),
+    }
 
+    table.insert(DutyHistory, 1, entry)
     while #DutyHistory > Settings.DutyHistoryLimit do
         table.remove(DutyHistory)
     end
 
     MySQL.insert('INSERT INTO justice_duty_history (citizenid, name, duty_status, time, timestamp) VALUES (?, ?, ?, ?, ?)', {
-        citizenid, name, dutyStatus, timeFormated, timestamp
+        entry.citizenid, entry.name, entry.dutyStatus, entry.timeFormated, entry.timestamp
     })
 end)
 
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الحصول على سجل البصمة (للمدير فقط)
--- ════════════════════════════════════════════════════════════════════════════════════════════════
-
 RTCore.Functions.CreateCallback('RespectJustice:server:getDutyHistory', function(source, cb)
     local Player = RTCore.Functions.GetPlayer(source)
-    if not IsJusticeBoss(Player) then return cb({}) end
+    if not JS.IsBoss(Player) then return cb({}) end
     cb(DutyHistory)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تقديم قضية
--- ════════════════════════════════════════════════════════════════════════════════════════════════
-
-RegisterNetEvent('RespectJustice:server:submitReport', function(reportText)
-    local src = source
-    local Player = RTCore.Functions.GetPlayer(src)
-    if not Player then return end
-
-    reportText = _2rayan.Functions.trim(reportText)
-    -- utf8.len يحسب الأحرف العربية بشكل صحيح، و # يحسب البايتات
-    local length = reportText and (utf8.len(reportText) or #reportText) or 0
-    if length < Settings.ReportMinLength then
-        return Notify(src, ('يجب أن يكون موضوع الدعوى %d أحرف على الأقل'):format(Settings.ReportMinLength), 'error')
-    end
-    if length > Settings.ReportMaxLength then
-        return Notify(src, ('عذرًا، يجب أن يكون الموضوع أقل من %d حرف'):format(Settings.ReportMaxLength), 'error')
-    end
-
-    local citizenid = Player.PlayerData.citizenid
-    local blocked, remaining = OnCooldown('report', citizenid, Settings.ReportCooldown)
-    if blocked then
-        return Notify(src, ('يجب أن تنتظر %d ثانية قبل تقديم دعوى جديدة'):format(remaining), 'error')
-    end
-
-    local reportFee = Settings.ReportFee
-    if (Player.PlayerData.money.cash or 0) < reportFee or not Player.Functions.RemoveMoney('cash', reportFee, 'justice-report-fee') then
-        Cooldowns.report[citizenid] = nil
-        return Notify(src, ('ليس لديك مبلغ كافٍ لتقديم الدعوى (تحتاج إلى $%d)'):format(reportFee), 'error')
-    end
-
-    local name = GetFullName(Player)
-    local phoneNumber = tostring(Player.PlayerData.charinfo.phone or 'غير متوفر')
-    local date = GetFormattedDateTime()
-
-    local insertId = MySQL.insert.await('INSERT INTO justice_reports (citizenid, name, phone_number, report, date, job) VALUES (?, ?, ?, ?, ?, ?)', {
-        citizenid, name, phoneNumber, reportText, date, JOB
-    })
-
-    if not insertId then
-        Player.Functions.AddMoney('cash', reportFee, 'justice-report-refund')
-        Cooldowns.report[citizenid] = nil
-        return Notify(src, 'حدث خطأ أثناء تقديم الدعوى، تم إرجاع المبلغ', 'error')
-    end
-
-    Notify(src, ('تم تقديم الدعوى القضائية بنجاح برقم #%d مقابل $%d'):format(insertId, reportFee), 'success')
-
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
-        if IsJustice(target) and target.PlayerData.job.onduty then
-            Notify(playerId, ('تم تقديم دعوى قضائية جديدة #%d من: %s'):format(insertId, name), 'primary', 7000)
-        end
-    end
-
-    print(('^2[RespectJustice]^7 New report #%d submitted by: %s (%s)'):format(insertId, name, citizenid))
-end)
-
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الحصول على القضايا (مرتبة من الأحدث إلى الأقدم)
--- ════════════════════════════════════════════════════════════════════════════════════════════════
-
-RTCore.Functions.CreateCallback('RespectJustice:server:getJobReports', function(source, cb)
-    local Player = RTCore.Functions.GetPlayer(source)
-    if not IsJustice(Player) then return cb({}) end
-
-    local result = MySQL.query.await('SELECT * FROM justice_reports WHERE job = ? ORDER BY id DESC', { JOB }) or {}
-    local reports = {}
-    for i = 1, #result do
-        reports[i] = MapReportRow(result[i])
-    end
-    cb(reports)
-end)
-
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- حذف قضية (للمدير فقط)
--- ════════════════════════════════════════════════════════════════════════════════════════════════
-
-RegisterNetEvent('RespectJustice:server:removeReport', function(reportId)
-    local src = source
-    local Player = RTCore.Functions.GetPlayer(src)
-    if not Player then return end
-
-    if not IsJusticeBoss(Player) then
-        return Notify(src, 'ليس لديك صلاحية لحذف القضايا', 'error')
-    end
-
-    reportId = tonumber(reportId)
-    if not reportId then return end
-
-    local affectedRows = MySQL.update.await('DELETE FROM justice_reports WHERE id = ? AND job = ?', { reportId, JOB })
-    if affectedRows and affectedRows > 0 then
-        Notify(src, 'تم حذف القضية بنجاح', 'success')
-        print(('^2[RespectJustice]^7 Report #%d deleted by: %s (%s)'):format(reportId, GetFullName(Player), Player.PlayerData.citizenid))
-    else
-        Notify(src, 'القضية غير موجودة أو تم حذفها مسبقاً', 'error')
-    end
-end)
-
--- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إعطاء تعويض للشخص
+-- التعويض
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitizenid, amount)
     local src = source
     local Player = RTCore.Functions.GetPlayer(src)
-    if not Player then return end
+    if not Player or not JS.Ready then return end
 
-    if not IsJustice(Player) then
+    if not JS.IsJustice(Player) then
         return Notify(src, 'يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error')
     end
 
     local job = Player.PlayerData.job
-    local grade = job.grade and tonumber(job.grade.level) or 0
-    if not job.isboss and grade < Settings.CompensationMinGrade then
+    if not job.isboss and JS.GetGrade(Player) < Settings.CompensationMinGrade then
         return Notify(src, 'ليس لديك صلاحية لإعطاء التعويضات', 'error')
     end
 
@@ -307,8 +227,8 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         return Notify(src, ('المبلغ المدخل كبير جداً (الحد الأقصى: $%d)'):format(Settings.CompensationMax), 'error')
     end
 
-    targetCitizenid = _2rayan.Functions.trim(tostring(targetCitizenid or ''))
-    if not targetCitizenid or targetCitizenid == '' then
+    targetCitizenid = JS.ValidCitizenId(targetCitizenid)
+    if not targetCitizenid then
         return Notify(src, 'الرقم الوطني غير صحيح', 'error')
     end
 
@@ -329,7 +249,7 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         return Notify(src, 'يجب أن يكون المستفيد بالقرب منك', 'error')
     end
 
-    local blocked, remaining = OnCooldown('compensation', Player.PlayerData.citizenid, Settings.CompensationCooldown)
+    local blocked, remaining = JS.OnCooldown('compensation', Player.PlayerData.citizenid, Settings.CompensationCooldown)
     if blocked then
         return Notify(src, ('يجب أن تنتظر %d ثانية'):format(remaining), 'error')
     end
@@ -338,29 +258,14 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         return Notify(src, 'تعذر تحويل المبلغ', 'error')
     end
 
-    local officerName = GetFullName(Player)
-    local targetName = GetFullName(TargetPlayer)
+    local officerName = JS.PlayerName(Player)
+    local targetName = JS.PlayerName(TargetPlayer)
 
     Notify(src, ('تم تحويل $%d إلى %s بنجاح'):format(moneyAmount, targetName), 'success')
     Notify(targetSrc, ('تم تحويل $%d إلى حسابك البنكي من وزارة العدل - الموظف: %s'):format(moneyAmount, officerName), 'success', 7000)
 
-    print(('^2[RespectJustice]^7 %s (%s) gave $%d to %s (%s)'):format(
-        officerName, Player.PlayerData.citizenid, moneyAmount, targetName, targetCitizenid))
-
-    MySQL.insert('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date) VALUES (?, ?, ?, ?, ?, ?, ?)', {
-        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'compensation', GetCurrentTime()
+    MySQL.insert('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'تعويض', JS.Now(), 'compensation'
     })
-end)
-
--- تنظيف فترات الانتظار المنتهية كل 10 دقائق
-CreateThread(function()
-    while true do
-        Wait(600000)
-        local now = os.time()
-        for _, list in pairs(Cooldowns) do
-            for key, expires in pairs(list) do
-                if expires <= now then list[key] = nil end
-            end
-        end
-    end
+    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount })
 end)

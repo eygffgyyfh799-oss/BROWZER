@@ -1,6 +1,6 @@
-local data = Load('config')
-local Settings = data.Settings
-local JOB = Settings.Job
+local data = JC.Config
+local Settings = JC.Settings
+local JOB = JC.Job
 
 local created_blips = {}
 local created_zones = {}
@@ -10,15 +10,8 @@ local created_peds = {}
 -- دوال مساعدة
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-local function IsJustice()
-    local job = RTCore.Functions.GetPlayerData().job
-    return job and job.name == JOB
-end
-
-local function IsJusticeBoss()
-    local job = RTCore.Functions.GetPlayerData().job
-    return job and job.name == JOB and job.isboss == true
-end
+local IsJustice = JC.IsJustice
+local IsJusticeBoss = JC.IsBoss
 
 local dutyCooldownEnd = 0
 local function GetDutyCooldown()
@@ -96,94 +89,6 @@ local function OpenDutyHistory()
         })
         lib.showContext('justice_laptop_duty')
     end)
-end
-
-local OpenReportsMenu
-
-local function OpenReportDetails(report)
-    local options = {
-        { title = 'رجوع', icon = 'fas fa-arrow-right', onSelect = function() OpenReportsMenu() end },
-        { title = 'الرقم الوطني', description = tostring(report.citizenid) },
-        { title = 'اسم المواطن', description = report.name },
-        { title = 'تاريخ القضية', description = report.date },
-        { title = 'رقم الجوال', description = tostring(report.phoneNumber) },
-        { title = 'تفاصيل القضية', description = report.report },
-    }
-
-    if IsJusticeBoss() then
-        options[#options + 1] = {
-            title = 'حذف القضية',
-            icon = 'fas fa-trash',
-            onSelect = function()
-                local confirm = lib.alertDialog({
-                    header = 'حذف القضية #' .. report.id,
-                    content = 'هل أنت متأكد من حذف هذه القضية؟ لا يمكن التراجع عن هذا الإجراء.',
-                    centered = true,
-                    cancel = true,
-                })
-                if confirm == 'confirm' then
-                    TriggerServerEvent('RespectJustice:server:removeReport', report.id)
-                    Wait(500)
-                    OpenReportsMenu()
-                end
-            end,
-        }
-    end
-
-    lib.registerContext({
-        id = 'justice_office_reports_menu_option',
-        title = 'تفاصيل القضية رقم #' .. report.id,
-        menu = 'justice_office_reports_menu',
-        options = options,
-        rt_logo = true,
-    })
-    lib.showContext('justice_office_reports_menu_option')
-end
-
-OpenReportsMenu = function()
-    RTCore.Functions.TriggerCallback('RespectJustice:server:getJobReports', function(reports)
-        local options = {}
-
-        if not reports or #reports == 0 then
-            options[1] = { title = 'لا توجد قضايا متاحة حالياً', disabled = true }
-        else
-            for _, report in ipairs(reports) do
-                options[#options + 1] = {
-                    title = 'القضية رقم #' .. report.id,
-                    description = ('%s | %s | %s'):format(report.name, report.citizenid, report.date),
-                    icon = 'fas fa-scale-balanced',
-                    onSelect = function() OpenReportDetails(report) end,
-                }
-            end
-        end
-
-        lib.registerContext({
-            id = 'justice_office_reports_menu',
-            title = ('قائمة القضايا (%d)'):format(reports and #reports or 0),
-            options = options,
-            desc = 'لمشاهدة تفاصيل قضية، يرجى اختيار القضية المطلوبة',
-            rt_logo = true,
-        })
-        lib.showContext('justice_office_reports_menu')
-    end)
-end
-
-local function OpenSubmitReport()
-    local input = lib.inputDialog('قائمة القضايا', {
-        { type = 'textarea', label = 'موضوع الدعوى القضائية', required = true, min = Settings.ReportMinLength, max = Settings.ReportMaxLength },
-    })
-    if not input or not input[1] then return end
-
-    local text = _2rayan.Functions.trim(input[1]) or ''
-    local length = utf8.len(text) or #text
-    if length < Settings.ReportMinLength then
-        return RTCore.Functions.Notify(('يجب أن يكون موضوع الدعوى %d أحرف على الأقل'):format(Settings.ReportMinLength), 'error')
-    end
-    if length > Settings.ReportMaxLength then
-        return RTCore.Functions.Notify(('عذرًا، يجب أن يكون الموضوع أقل من %d حرف'):format(Settings.ReportMaxLength), 'error')
-    end
-
-    TriggerServerEvent('RespectJustice:server:submitReport', text)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -273,7 +178,13 @@ local function create_zones()
                     icon = 'fas fa-scale-balanced',
                     label = 'رؤية القضايا المقدمة',
                     job = JOB,
-                    action = OpenReportsMenu,
+                    action = function() JC.Reports.OpenList() end,
+                }
+                stashOptions[#stashOptions + 1] = {
+                    icon = 'fas fa-address-card',
+                    label = 'نظام معلومات المواطنين',
+                    job = JOB,
+                    action = function() JC.Panel.Open() end,
                 }
             end
 
@@ -286,7 +197,7 @@ local function create_zones()
                     icon = 'fas fa-circle',
                     label = 'رؤية القضايا المقدمة',
                     job = JOB,
-                    action = OpenReportsMenu,
+                    action = function() JC.Reports.OpenList() end,
                 },
             })
         end
@@ -312,7 +223,13 @@ local function create_zones()
                                     title = 'تقديم دعوى قضائية',
                                     icon = 'fas fa-file-signature',
                                     description = ('اضغط هنا لكتابة ولطلب تقديم دعوى إلى وزارة العدل برسوم %d دولار'):format(Settings.ReportFee),
-                                    onSelect = OpenSubmitReport,
+                                    onSelect = JC.Reports.OpenSubmit,
+                                },
+                                {
+                                    title = 'متابعة دعاواي',
+                                    icon = 'fas fa-list-check',
+                                    description = 'حالة الدعاوى التي قدمتها',
+                                    onSelect = function() JC.Reports.OpenMine('justice_player_select_menu_reports') end,
                                 },
                             },
                         })
