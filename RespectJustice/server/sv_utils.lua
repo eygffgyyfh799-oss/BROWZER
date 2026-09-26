@@ -30,6 +30,13 @@ function JS.Len(str)
     return utf8.len(str) or #str
 end
 
+-- يمنع حقن HTML و Markdown (مثل صور خارجية تكشف IP الموظفين عند فتح القائمة)
+function JS.Safe(str)
+    if type(str) ~= 'string' then return str end
+    str = str:gsub('[<>]', ''):gsub('!%[', '['):gsub('%]%(', '] ('):gsub('`', "'")
+    return str
+end
+
 -- ينظف النص: يحذف المسافات الزائدة ورموز التحكم و < >
 -- يرجع nil إذا كان النص غير صالح أو أطول من الحد
 function JS.CleanText(value, maxLen, required)
@@ -39,7 +46,8 @@ function JS.CleanText(value, maxLen, required)
     if type(value) ~= 'string' and type(value) ~= 'number' then return nil end
 
     local str = _2rayan.Functions.trim(tostring(value)) or ''
-    str = str:gsub('[\0-\9\11-\31<>]', '')
+    if not utf8.len(str) then return nil end -- نص تالف (UTF-8 غير صالح)
+    str = JS.Safe(str:gsub('[\0-\9\11-\31]', ''))
     if required and str == '' then return nil end
     if maxLen and JS.Len(str) > maxLen then return nil end
     return str
@@ -68,7 +76,8 @@ end
 
 function JS.FullName(charinfo)
     charinfo = charinfo or {}
-    return (('%s %s'):format(charinfo.firstname or '', charinfo.lastname or ''):gsub('^%s+', ''):gsub('%s+$', ''))
+    local name = ('%s %s'):format(tostring(charinfo.firstname or ''), tostring(charinfo.lastname or ''))
+    return JS.Safe((name:gsub('^%s+', ''):gsub('%s+$', '')))
 end
 
 function JS.PlayerName(Player)
@@ -306,6 +315,8 @@ JS.ActionLabels = {
     report_status = 'تغيير حالة قضية',
     report_note = 'ملاحظة على قضية',
     report_delete = 'حذف قضية',
+    job = 'تغيير وظيفة',
+    duty = 'تغيير دوام موظف',
 }
 
 local webhook = GetConvar('justice_webhook', '')

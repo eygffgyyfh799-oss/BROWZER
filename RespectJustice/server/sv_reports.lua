@@ -29,6 +29,11 @@ local function MapReport(row, full)
         report.submitterOnline = RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
     end
 
+    -- حماية البيانات القديمة المحفوظة قبل التنظيف
+    for _, key in ipairs({ 'title', 'name', 'defendantName', 'report', 'witnesses', 'evidence', 'handledBy' }) do
+        report[key] = JS.Safe(report[key])
+    end
+
     return report
 end
 
@@ -185,7 +190,7 @@ JS.RegisterCallback('RespectJustice:server:getReport', 'reports', function(src, 
 
     local notes = {}
     for i, note in ipairs(MySQL.query.await('SELECT * FROM justice_report_notes WHERE report_id = ? ORDER BY id DESC', { reportId }) or {}) do
-        notes[i] = { author = note.author_name, note = note.note, date = JS.FormatDbDate(note.created_at) }
+        notes[i] = { author = JS.Safe(note.author_name), note = JS.Safe(note.note), date = JS.FormatDbDate(note.created_at) }
     end
 
     local report = MapReport(row, true)

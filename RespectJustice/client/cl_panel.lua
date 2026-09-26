@@ -64,6 +64,13 @@ function JC.Panel.Open()
     end
 
     options[#options + 1] = {
+        title = 'القطاعات',
+        description = perms.jobs and 'كل القطاعات: الموظفين، التوظيف، الرتب، الفصل، الدوام' or 'كل القطاعات وموظفينها',
+        icon = 'fas fa-sitemap', arrow = true,
+        onSelect = function() JC.Jobs.OpenList('justice_panel_main') end,
+    }
+
+    options[#options + 1] = {
         title = ('المواطنين الموقوفة خدماتهم (%d)'):format(info.suspended or 0),
         icon = 'fas fa-user-lock', arrow = true,
         onSelect = JC.Panel.OpenSuspended,
@@ -374,6 +381,26 @@ local function ProfileActions(p, perms, reopen)
         end
     end
 
+    if perms.jobs and not p.isSelf then
+        actions[#actions + 1] = {
+            title = 'تغيير الوظيفة والرتبة', icon = 'fas fa-briefcase', iconColor = 'blue',
+            description = ('الحالية: %s - %s'):format(JC.Value(p.job.label), JC.Value(p.job.grade)),
+            onSelect = function()
+                JC.Jobs.ChangeCitizenJob(p.citizenid, p.name)
+                reopen()
+            end,
+        }
+        if p.job.name ~= Panel.UnemployedJob then
+            actions[#actions + 1] = {
+                title = 'فصل من الوظيفة', icon = 'fas fa-user-xmark', iconColor = 'red',
+                onSelect = function()
+                    JC.Jobs.Fire(p.citizenid, p.name)
+                    reopen()
+                end,
+            }
+        end
+    end
+
     if perms.edit and not p.isSelf then
         actions[#actions + 1] = {
             title = 'تعديل البيانات الشخصية', icon = 'fas fa-user-pen', iconColor = 'yellow',
@@ -398,7 +425,7 @@ local function ProfileActions(p, perms, reopen)
         }
     end
 
-    if p.online and not p.isSelf then
+    if perms.compensation and p.online and not p.isSelf then
         actions[#actions + 1] = {
             title = 'تعويض المواطن', icon = 'fas fa-hand-holding-dollar', iconColor = 'green',
             description = ('يجب أن يكون بالقرب منك (%.0f متر)'):format(Settings.CompensationMaxDistance),

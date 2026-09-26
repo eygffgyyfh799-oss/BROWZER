@@ -205,17 +205,9 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
     local Player = RTCore.Functions.GetPlayer(src)
     if not Player or not JS.Ready then return end
 
-    if not JS.IsJustice(Player) then
-        return Notify(src, 'يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error')
-    end
-
-    local job = Player.PlayerData.job
-    if not job.isboss and JS.GetGrade(Player) < Settings.CompensationMinGrade then
-        return Notify(src, 'ليس لديك صلاحية لإعطاء التعويضات', 'error')
-    end
-
-    if Settings.CompensationRequireDuty and not job.onduty then
-        return Notify(src, 'يجب أن تكون في الدوام لإعطاء التعويضات', 'error')
+    local allowed, err = JS.Can(Player, 'compensation')
+    if not allowed then
+        return Notify(src, err, 'error')
     end
 
     local moneyAmount = math.floor(tonumber(amount) or 0)
@@ -254,6 +246,14 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         return Notify(src, ('يجب أن تنتظر %d ثانية'):format(remaining), 'error')
     end
 
+    -- الحد اليومي لكل موظف
+    local todayTotal = tonumber(MySQL.scalar.await(
+        "SELECT COALESCE(SUM(amount), 0) FROM justice_transactions WHERE officer_citizenid = ? AND type = 'compensation' AND created_at >= CURDATE()",
+        { Player.PlayerData.citizenid })) or 0
+    if todayTotal + moneyAmount > Settings.CompensationDailyMax then
+        return Notify(src, ('وصلت الحد اليومي للتعويضات (المتبقي اليوم: $%d)'):format(math.max(0, Settings.CompensationDailyMax - todayTotal)), 'error', 7000)
+    end
+
     if not TargetPlayer.Functions.AddMoney('bank', moneyAmount, 'justice-compensation') then
         return Notify(src, 'تعذر تحويل المبلغ', 'error')
     end
@@ -264,7 +264,7 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
     Notify(src, ('تم تحويل $%d إلى %s بنجاح'):format(moneyAmount, targetName), 'success')
     Notify(targetSrc, ('تم تحويل $%d إلى حسابك البنكي من وزارة العدل - الموظف: %s'):format(moneyAmount, officerName), 'success', 7000)
 
-    MySQL.insert('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+    MySQL.insert.await('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
         Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'تعويض', JS.Now(), 'compensation'
     })
     JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount })

@@ -128,6 +128,7 @@ local function BuildProfile(citizen, Viewer)
         account = ci.account,
 
         job = {
+            name = job.name,
             label = job.label or job.name or 'عاطل',
             grade = GradeName(job.grade),
             onduty = job.onduty == true,
