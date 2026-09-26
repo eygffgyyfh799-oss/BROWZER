@@ -147,13 +147,12 @@ RegisterNetEvent('RespectJustice:server:submitReport', function(data)
 
     Notify(src, ('تم تقديم الدعوى بنجاح برقم #%d مقابل $%d، سيتم التواصل معك على رقمك %s'):format(insertId, fee, phoneNumber), 'success', 8000)
 
-    local message = ('دعوى جديدة #%d (%s) من %s: %s'):format(insertId, caseType, name, title)
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
-        if JS.IsJustice(target) and target.PlayerData.job.onduty then
-            Notify(playerId, message, 'primary', 8000)
-        end
-    end
+    JS.BroadcastTablet(JS.JusticeOnDuty, {
+        type = 'new_case',
+        title = ('⚖️ دعوى جديدة #%d (%s)'):format(insertId, caseType),
+        text = ('من %s: %s'):format(name, title),
+        id = insertId,
+    })
 
     print(('^2[RespectJustice]^7 New report #%d by %s (%s)'):format(insertId, name, citizenid))
 end)

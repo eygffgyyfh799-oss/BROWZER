@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التابلت: واجهة نظام معلومات المواطنين (html/) - يفتح بزر 9 من أي مكان
+-- التابلت: واجهة نظام الدولة (html/) - يفتح بزر 9 من أي مكان
 -- كل الصلاحيات والتحقق في السيرفر، الواجهة بس تعرض
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -21,6 +21,10 @@ for _, name in ipairs({
     'getCityOverview', 'searchVehicles', 'getVehicle', 'vehicleAction', 'searchProperties', 'transferProperty',
     'setLicense', 'sendSummon', 'setSummonStatus', 'getAllSummons', 'announce',
     'getLogs', 'undoLog', 'deleteLog', 'deleteSummon',
+    'tabletInfo', 'getSuspects', 'addSuspect', 'removeSuspect', 'getWarrants', 'issueWarrant', 'cancelWarrant',
+    'assignLawyer', 'removeLawyer', 'addDocument', 'lawyerCases', 'lawyerCase', 'lawyerNote',
+    'issueVerdict', 'getStats', 'getPoliceRequests', 'answerPoliceRequest',
+    'policeSearch', 'policeProfile', 'policeWarrants', 'executeWarrant', 'policeSuspects', 'policeRequest', 'policeMyRequests',
 }) do Allowed[name] = true end
 
 -- ═════ أنيميشن التابلت ═════
@@ -64,12 +68,12 @@ end
 
 function JC.Tablet.Open(page, arg)
     if isOpen then return end
-    if not JC.IsJustice() then
-        return JC.Notify('يجب أن تكون من موظفي العدل', 'error')
+    if not JC.GuessRole() then
+        return JC.Notify('نظام الدولة لموظفي العدل والشرطة والمحامين فقط', 'error')
     end
     if IsPauseMenuActive() or IsNuiFocused() then return end
 
-    local info = JC.Call('RespectJustice:server:panelInfo')
+    local info = JC.Call('RespectJustice:server:tabletInfo')
     if not info then return end
 
     local pd = RTCore.Functions.GetPlayerData()
@@ -88,7 +92,13 @@ function JC.Tablet.Open(page, arg)
             job = job.label or job.name,
             grade = type(job.grade) == 'table' and job.grade.name or job.grade,
         },
+        role = info.role,
         config = {
+            maxFine = Settings.Verdicts.MaxFine,
+            maxJail = Settings.Verdicts.MaxJail,
+            warrantHours = Settings.Verdicts.WarrantHours,
+            grantMinutes = Settings.Police.GrantMinutes,
+            documentMax = Settings.Lawyers.DocumentMax,
             unemployed = Panel.UnemployedJob,
             withdrawMax = Panel.WithdrawMax,
             compensationMax = Settings.CompensationMax,
@@ -151,16 +161,30 @@ end)
 -- ═════ زر الفتح (9 افتراضياً، واللاعب يقدر يغيره من إعدادات اللعبة ← Key Bindings ← FiveM) ═════
 RegisterCommand('justicetablet', function()
     if isOpen then return end
-    if JC.IsJustice() then JC.Tablet.Open() end
+    if JC.GuessRole() then JC.Tablet.Open() end
 end, false)
 
-RegisterKeyMapping('justicetablet', 'فتح نظام معلومات المواطنين (وزارة العدل)', 'keyboard', Panel.Key or '9')
+RegisterKeyMapping('justicetablet', 'فتح نظام الدولة (العدل / الشرطة / المحامين)', 'keyboard', Panel.Key or '9')
+
+-- ═════ الإشعارات المباشرة (قضية جديدة، طلب شرطة، أمر جديد...) ═════
+RegisterNetEvent('RespectJustice:client:tabletEvent', function(event)
+    if type(event) ~= 'table' then return end
+    if type(event.coords) == 'table' and tonumber(event.coords.x) then
+        JC.TempBlip({ x = tonumber(event.coords.x), y = tonumber(event.coords.y), z = tonumber(event.coords.z) }, tostring(event.label or event.title or 'موقع'), Panel.LocateBlipTime, 280, 1)
+    end
+    if isOpen then
+        SendNUIMessage({ action = 'event', event = event })
+    else
+        JC.Notify(('%s\n%s'):format(tostring(event.title or ''), tostring(event.text or '')), 'primary', 9000)
+        PlaySoundFrontend(-1, 'Event_Message_Purple', 'GTAO_FM_Events_Soundset', false)
+    end
+end)
 
 -- إغلاق تلقائي إذا مات اللاعب أو تغيرت وظيفته
 CreateThread(function()
     while true do
         Wait(1000)
-        if isOpen and (IsEntityDead(PlayerPedId()) or not JC.IsJustice()) then
+        if isOpen and (IsEntityDead(PlayerPedId()) or not JC.GuessRole()) then
             JC.Tablet.Close()
         end
     end

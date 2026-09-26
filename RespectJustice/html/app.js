@@ -1,6 +1,6 @@
 'use strict';
 /* ════════════════════════════════════════════════════════════════════════════
-   RespectJustice - واجهة نظام معلومات المواطنين
+   RespectJustice - واجهة نظام الدولة
    كل النصوص تنضاف كنص (textContent) وليس HTML: ما يمكن حقن كود من البيانات
    ════════════════════════════════════════════════════════════════════════════ */
 
@@ -214,7 +214,8 @@ function pager(page, pages, onPage) {
 }
 
 // ═════ التنقل ═════
-const NAV = [
+const NAV_BY_ROLE = {};
+NAV_BY_ROLE.justice = [
     { page: 'home', icon: '🏠', label: 'الرئيسية' },
     { page: 'online', icon: '🟢', label: 'المتصلين' },
     { page: 'citizens', icon: '👥', label: 'جميع المواطنين' },
@@ -224,12 +225,29 @@ const NAV = [
     { page: 'city', icon: '🏙️', label: 'المدينة', perm: 'city' },
     { page: 'summons', icon: '📜', label: 'الاستدعاءات', perm: 'summon' },
     { page: 'suspended', icon: '⛔', label: 'الموقوفين', badge: () => S.info.suspended },
+    { page: 'suspects', icon: '🕵️', label: 'المشبوهين', badge: () => S.info.suspects },
+    { page: 'warrants', icon: '🚨', label: 'أوامر القبض والتفتيش' },
+    { page: 'policeRequests', icon: '🚓', label: 'قسم الشرطة', perm: 'policeRequests', badge: () => S.info.policeRequests },
+    { page: 'stats', icon: '📊', label: 'الإحصائيات', perm: 'stats' },
     { page: 'logs', icon: '🗂️', label: 'سجل العمليات', perm: 'logs' },
 ];
+NAV_BY_ROLE.police = [
+    { page: 'phome', icon: '🏠', label: 'الرئيسية' },
+    { page: 'psearch', icon: '🔎', label: 'البحث عن مواطن', perm: 'search' },
+    { page: 'pwarrants', icon: '🚨', label: 'الأوامر السارية', perm: 'warrants', badge: () => S.info.warrants },
+    { page: 'psuspects', icon: '🕵️', label: 'المشبوهين', perm: 'suspects' },
+    { page: 'prequests', icon: '📨', label: 'طلباتي للعدل', perm: 'requests', badge: () => S.info.myPending },
+];
+NAV_BY_ROLE.lawyer = [
+    { page: 'lcases', icon: '💼', label: 'قضاياي' },
+];
+const currentNav = () => NAV_BY_ROLE[S.role] || [];
+const homePage = () => ({ justice: 'home', police: 'phome', lawyer: 'lcases' })[S.role] || 'home';
 
 function renderNav() {
-    const root = S.stack.length ? S.stack[0].page : 'home';
-    const active = S.current ? S.current.page : 'home';
+    const NAV = currentNav();
+    const root = S.stack.length ? S.stack[0].page : homePage();
+    const active = S.current ? S.current.page : homePage();
     $('nav').replaceChildren(...NAV.filter((n) => !n.perm || S.perms[n.perm]).map((n) => {
         const count = n.badge ? Number(n.badge()) || 0 : 0;
         return h('button', {
@@ -297,6 +315,9 @@ PAGES.home = {
                 stat('العدل في الدوام', info.justiceOnDuty, 'blue', () => go('jobs')),
                 S.perms.reports ? stat('قضايا جديدة', info.newReports, 'yellow', () => go('reports')) : null,
                 stat('خدمات موقوفة', info.suspended, 'red', () => go('suspended')),
+                stat('أوامر سارية', info.warrants, 'red', () => go('warrants')),
+                stat('المشبوهين', info.suspects, 'purple', () => go('suspects')),
+                S.perms.policeRequests ? stat('طلبات الشرطة', info.policeRequests, 'blue', () => go('policeRequests')) : null,
             ),
             h('div', { style: 'height:14px' }),
             card('🔎 بحث سريع', h('div', { class: 'searchbar' }, quick, btn('بحث', () => quick.value.trim() && go('search', quick.value.trim()), 'primary'))),
@@ -396,7 +417,9 @@ PAGES.profile = {
             ),
         );
 
-        const alert = p.suspension ? h('div', { class: 'alert red' }, `⛔ الخدمات موقوفة: ${val(p.suspension.reason)} (بواسطة ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null;
+        const alert = h('div', null,
+            p.suspension ? h('div', { class: 'alert red' }, `⛔ الخدمات موقوفة والحساب البنكي مجمّد: ${val(p.suspension.reason)} (بواسطة ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null,
+            courtAlerts(p.court));
 
         const actions = h('div', { class: 'actions', style: 'margin-bottom:14px' }, profileActions(p, perms, reload));
 
@@ -405,6 +428,7 @@ PAGES.profile = {
             ['licenses', '📄 التراخيص'], ['vehicles', `🚗 المركبات${p.vehicles ? ` (${arr(p.vehicles).length})` : ''}`],
             ['houses', `🏠 العقارات${p.houses ? ` (${arr(p.houses).length})` : ''}`], ['items', `📦 الممتلكات (${arr(p.items).length})`],
             ['reports', `⚖️ القضايا (${arr(p.reports).length})`], ['summons', `📜 الاستدعاءات (${arr(p.summons).length})`],
+            ['court', `🔨 الأحكام والأوامر (${arr(p.court && p.court.verdicts).length})`],
             perms.logs ? ['logs', '🗂️ السجل'] : null,
         ].filter(Boolean);
 
@@ -472,6 +496,17 @@ function profileActions(p, perms, reload) {
     if (!self && perms.jobs) list.push(btn('💼 الوظيفة والرتبة', async () => { if (await changeJob(p.citizenid, p.name)) reload(); }, 'blue'));
     if (!self && perms.jobs && p.job.name !== S.config.unemployed) list.push(btn('❌ فصل', async () => { if (await fire(p.citizenid, p.name)) reload(); }, 'red'));
     if (!self && perms.gangs) list.push(btn('🎭 العصابة', async () => { if (await changeGang(p.citizenid, p.name)) reload(); }));
+
+    if (!self && perms.verdicts) list.push(btn('🔨 إصدار حكم', async () => { if (await verdictFlow({ citizenid: p.citizenid, name: p.name })) reload(); }, 'red'));
+    if (!self && perms.warrants) list.push(btn('🚨 أمر قبض / تفتيش', async () => { if (await warrantFlow(p.citizenid, p.name)) reload(); }, 'red'));
+    if (!self && perms.suspects) {
+        const suspect = p.court && p.court.suspect;
+        list.push(suspect
+            ? btn('🕵️ إزالة من المشبوهين', async () => {
+                if (await confirmBox('إزالة من المشبوهين', `إزالة ${p.name} من قائمة المشبوهين؟`) && await call('removeSuspect', suspect.id)) { toast('تمت الإزالة', 'success'); reload(); }
+            })
+            : btn('🕵️ إضافة للمشبوهين', async () => { if (await suspectFlow(p.citizenid, p.name)) reload(); }, 'yellow'));
+    }
 
     if (!self && perms.edit) list.push(btn('✏️ تعديل البيانات', async () => {
         const v = await modal({ title: `تعديل بيانات ${p.name}`, okText: 'حفظ', fields: [
@@ -547,6 +582,8 @@ async function profileTab(tab, p, perms, reload) {
             }))) : empty('لا توجد قضايا', '⚖️'));
         case 'summons':
             return card(null, arr(p.summons).length ? h('div', { class: 'list' }, arr(p.summons).map((s) => summonItem(s, reload))) : empty('لا توجد استدعاءات', '📜'));
+        case 'court':
+            return courtView(p.court || {}, perms, reload, { citizenid: p.citizenid, name: p.name });
         case 'logs':
             return logsView(p.citizenid, S.logsPage || 0, reload);
     }
@@ -727,6 +764,9 @@ PAGES.report = {
                     if (v && await call('addReportNote', r.id, v.note)) { toast('تمت إضافة الملاحظة', 'success'); reload(); }
                 }),
                 sub.coords ? btn('📍 موقع التقديم', () => { nui('waypoint', { coords: sub.coords, label: `دعوى #${r.id}` }); toast('تم وضع علامة على الخريطة', 'success'); }) : null,
+                perms.verdicts ? btn('🔨 إصدار حكم', async () => {
+                    if (await verdictFlow({ reportId: r.id, citizenid: r.defendantCitizenid, name: r.defendantName, plaintiff: r.citizenid })) reload();
+                }, 'red') : null,
                 perms.deleteReport ? btn('🗑️ حذف القضية', async () => {
                     if (await confirmBox('حذف القضية', `حذف القضية #${r.id} وكل ملاحظاتها نهائياً؟`, true) && await call('deleteReport', r.id)) { toast('تم حذف القضية', 'success'); back(); }
                 }, 'red') : null,
@@ -746,6 +786,9 @@ PAGES.report = {
             card('📄 تفاصيل الدعوى', h('div', { class: 'textblock' }, r.report)),
             r.witnesses ? card('👥 الشهود', h('div', { class: 'textblock' }, r.witnesses)) : null,
             r.evidence ? card('🔍 الأدلة', h('div', { class: 'textblock' }, r.evidence)) : null,
+            caseLawyersCard(r, perms, reload),
+            caseDocumentsCard(r, reload, true),
+            arr(r.verdicts).length ? card(`🔨 الأحكام في القضية (${arr(r.verdicts).length})`, h('div', { class: 'list' }, arr(r.verdicts).map(verdictItem))) : null,
             card(`🗒️ ملاحظات الموظفين (${arr(r.notes).length})`, arr(r.notes).length ? h('div', { class: 'list' }, arr(r.notes).map((n) => h('div', { class: 'note' },
                 h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('لا توجد ملاحظات', '🗒️')),
         );
@@ -914,13 +957,521 @@ PAGES.logs = {
     },
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+// القضاء: الأحكام، الأوامر، المشبوهين، المحامين والمستندات
+// ════════════════════════════════════════════════════════════════════════════
+const DANGER = { high: ['خطورة عالية', 'red'], medium: ['خطورة متوسطة', 'yellow'], low: ['خطورة منخفضة', 'gray'] };
+const WSTATUS = { active: 'red', executed: 'green', cancelled: 'gray', expired: 'gray' };
+
+function courtAlerts(court) {
+    if (!court) return null;
+    const active = arr(court.warrants).filter((w) => w.status === 'active');
+    return h('div', null,
+        court.suspect ? h('div', { class: 'alert yellow' }, `🕵️ في قائمة المشبوهين (${(DANGER[court.suspect.danger] || [court.suspect.dangerLabel])[0]}): ${court.suspect.reason}`) : null,
+        active.map((w) => h('div', { class: 'alert red' }, `🚨 ${w.typeLabel} ساري #${w.id}: ${w.reason}${w.place ? ' | المكان: ' + w.place : ''} (ينتهي ${val(w.expires)})`)),
+    );
+}
+
+function verdictItem(v) {
+    const details = [
+        v.amount > 0 ? money(v.amount) : null,
+        v.target ? `للمتضرر ${v.target}` : null,
+        v.plate ? `المركبة ${v.plate}` : null,
+        v.months > 0 ? `${v.months} شهر` : null,
+        v.reportId ? `القضية #${v.reportId}` : null,
+    ].filter(Boolean).join(' | ');
+    return item({
+        icon: v.status === 'cancelled' ? '↩️' : '🔨',
+        title: `#${v.id} | ${v.typeLabel}${details ? ' | ' + details : ''}`,
+        sub: `${v.text}\nالقاضي: ${v.judge} - ${val(v.date)}`,
+        side: badge(v.statusLabel, v.status === 'cancelled' ? 'gray' : 'red'),
+    });
+}
+
+function warrantItem(w, opts = {}) {
+    return item({
+        icon: w.type === 'search' ? '🔍' : '🚨',
+        title: `#${w.id} | ${w.typeLabel} | ${w.name} (${w.citizenid})`,
+        sub: `${w.reason}${w.place ? '\nالمكان: ' + w.place : ''}\nأصدره: ${w.issuedBy}${w.requestedBy ? ' | بطلب: ' + w.requestedBy : ''} - ${val(w.date)}${w.status === 'active' ? '\nينتهي: ' + val(w.expires) : ''}${w.executedBy ? '\nنفذه: ' + w.executedBy : ''}${w.citizenStatus ? '\n' + w.citizenStatus.text : ''}`,
+        side: [
+            badge(w.statusLabel, WSTATUS[w.status]),
+            opts.profile ? btn('الملف', () => go(opts.profile, w.citizenid), 'small') : null,
+            opts.cancel && w.status === 'active' ? btn('إلغاء', async () => {
+                if (await confirmBox('إلغاء الأمر', `إلغاء ${w.typeLabel} #${w.id}؟`, true) && await call('cancelWarrant', w.id)) { toast('تم إلغاء الأمر', 'success'); opts.reload(); }
+            }, 'small red') : null,
+            opts.execute && w.status === 'active' ? btn('✅ تم التنفيذ', async () => {
+                if (await confirmBox('تنفيذ الأمر', `تأكيد تنفيذ ${w.typeLabel} #${w.id} على ${w.name}؟`) && await call('executeWarrant', w.id)) { toast('تم تسجيل التنفيذ', 'success'); opts.reload(); }
+            }, 'small green') : null,
+        ],
+    });
+}
+
+function suspectItem(s, profilePage, onRemove) {
+    const d = DANGER[s.danger] || [s.dangerLabel, 'yellow'];
+    return item({
+        icon: '🕵️',
+        title: `${s.status && s.status.online ? '🟢 ' : '⚫ '}${s.name} (${s.citizenid})`,
+        sub: `${s.reason}\nأضافه: ${s.addedBy} - ${val(s.date)}`,
+        side: [badge(d[0], d[1]), btn('الملف', () => go(profilePage, s.citizenid), 'small'), onRemove ? btn('إزالة', () => onRemove(s), 'small red') : null],
+        onclick: () => go(profilePage, s.citizenid),
+    });
+}
+
+function courtView(court, perms, reload, who) {
+    return h('div', null,
+        court.suspect ? card('🕵️ قائمة المشبوهين', suspectItem(court.suspect, 'profile')) : null,
+        card(`🚨 أوامر القبض والتفتيش (${arr(court.warrants).length})`, arr(court.warrants).length
+            ? h('div', { class: 'list' }, arr(court.warrants).map((w) => warrantItem(w, { cancel: perms.warrants, reload })))
+            : empty('لا توجد أوامر', '🚨')),
+        card(`🔨 أرشيف الأحكام (${arr(court.verdicts).length})`, arr(court.verdicts).length
+            ? h('div', { class: 'list' }, arr(court.verdicts).map(verdictItem))
+            : empty('لا توجد أحكام', '🔨'),
+            h('div', { class: 'item-sub', style: 'margin-top:8px' }, 'لإلغاء حكم: سجل العمليات ← "إصدار حكم" ← ↩️ تراجع (يرجّع الفلوس والمركبة تلقائياً)')),
+    );
+}
+
+const VERDICT_TYPES = [
+    { value: 'fine', label: '💸 غرامة مالية (تنسحب من بنكه)' },
+    { value: 'compensation', label: '🤝 تعويض للمتضرر (من بنكه لبنك المتضرر)' },
+    { value: 'impound', label: '🔒 حجز مركبة' },
+    { value: 'jail', label: '⛓️ سجن' },
+    { value: 'suspend', label: '⛔ إيقاف خدمات وتجميد الحساب' },
+    { value: 'acquittal', label: '✅ براءة' },
+];
+
+async function verdictFlow({ reportId, citizenid, name, plaintiff }) {
+    const first = await modal({ title: 'إصدار حكم', okText: 'التالي', fields: [
+        { name: 'cid', label: 'الرقم الوطني للمحكوم عليه', required: true, value: citizenid || '', max: 50 },
+        { name: 'type', label: 'نوع الحكم', type: 'select', options: VERDICT_TYPES },
+    ] });
+    if (!first) return false;
+    const type = first.type;
+    const fields = [];
+    if (type === 'fine' || type === 'compensation') fields.push({ name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue: S.config.maxFine });
+    if (type === 'compensation') fields.push({ name: 'target', label: 'الرقم الوطني للمتضرر', required: true, value: plaintiff || '', max: 50 });
+    if (type === 'impound') fields.push({ name: 'plate', label: 'رقم لوحة المركبة', required: true, max: 12 });
+    if (type === 'jail') fields.push({ name: 'months', label: 'مدة السجن (شهر)', type: 'number', required: true, min: 1, maxValue: S.config.maxJail });
+    fields.push({ name: 'text', label: 'نص الحكم', type: 'textarea', required: true, max: 400 });
+
+    const label = VERDICT_TYPES.find((t) => t.value === type).label;
+    const second = await modal({ title: `${label}${name ? ' - ' + name : ''}`, okText: 'متابعة', fields });
+    if (!second) return false;
+    const summary = [label, `المحكوم عليه: ${first.cid}`, second.amount ? `المبلغ: ${money(second.amount)}` : '', second.target ? `المتضرر: ${second.target}` : '',
+        second.plate ? `المركبة: ${second.plate}` : '', second.months ? `المدة: ${second.months} شهر` : '', `\n${second.text}`].filter(Boolean).join('\n');
+    if (!await confirmBox('تأكيد إصدار الحكم', `${summary}\n\nالحكم يتنفذ فوراً (ويمكن التراجع عنه من سجل العمليات)`, true)) return false;
+
+    const r = await call('issueVerdict', { reportId: reportId || null, citizenid: first.cid, type, amount: second.amount, target: second.target, plate: second.plate, months: second.months, text: second.text });
+    if (r) toast(`تم إصدار الحكم #${r.id} وتنفيذه`, 'success');
+    return !!r;
+}
+
+async function warrantFlow(citizenid, name) {
+    const v = await modal({ title: `أمر ضد ${name}`, okText: 'إصدار', danger: true, text: `يوصل للشرطة في الدوام فوراً، وصلاحيته ${S.config.warrantHours || 72} ساعة`, fields: [
+        { name: 'type', label: 'نوع الأمر', type: 'select', options: [{ value: 'arrest', label: '🚨 أمر قبض' }, { value: 'search', label: '🔍 أمر تفتيش' }] },
+        { name: 'reason', label: 'السبب', required: true, max: 200 },
+        { name: 'place', label: 'المكان (للتفتيش: بيت / مركبة / عنوان)', max: 150 },
+    ] });
+    if (!v) return false;
+    const r = await call('issueWarrant', citizenid, v.type, v.reason, v.place || '');
+    if (r) toast(`تم إصدار الأمر #${r.id} وإرساله للشرطة`, 'success');
+    return !!r;
+}
+
+async function suspectFlow(citizenid, name) {
+    const v = await modal({ title: `إضافة ${name || citizenid} للمشبوهين`, okText: 'إضافة', fields: [
+        citizenid ? null : { name: 'cid', label: 'الرقم الوطني', required: true, max: 50 },
+        { name: 'danger', label: 'درجة الخطورة', type: 'select', value: 'medium', options: [
+            { value: 'low', label: 'منخفضة' }, { value: 'medium', label: 'متوسطة' }, { value: 'high', label: 'عالية (تنبيه فوري للشرطة)' }] },
+        { name: 'reason', label: 'السبب', required: true, max: 200 },
+    ].filter(Boolean) });
+    if (!v) return false;
+    const r = await call('addSuspect', citizenid || v.cid, v.reason, v.danger);
+    if (r) toast('تمت الإضافة لقائمة المشبوهين', 'success');
+    return !!r;
+}
+
+function caseLawyersCard(r, perms, reload) {
+    const lawyers = arr(r.lawyers);
+    return card(h('span', null, `⚖️ المحامين (${lawyers.length})`),
+        perms.lawyers ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ تعيين محامي', async () => {
+            const v = await modal({ title: 'تعيين محامي للقضية', text: 'لازم يكون عنده رخصة محاماة (تُمنح من تبويب التراخيص)', fields: [
+                { name: 'cid', label: 'الرقم الوطني للمحامي', required: true, max: 50 },
+                { name: 'side', label: 'يمثّل', type: 'select', options: [{ value: 'plaintiff', label: `المدعي (${r.name})` }, { value: 'defendant', label: `المدعى عليه (${r.defendantName || 'غير محدد'})` }] },
+            ] });
+            if (v && await call('assignLawyer', r.id, v.cid, v.side)) { toast('تم تعيين المحامي', 'success'); reload(); }
+        }, 'small')) : null,
+        lawyers.length ? h('div', { class: 'list' }, lawyers.map((l) => item({
+            icon: '⚖️', title: `${l.name} (${l.citizenid})`, sub: `${l.sideLabel}\n${l.status ? l.status.text : ''}`,
+            side: perms.lawyers ? btn('إزالة', async () => {
+                if (await confirmBox('إزالة المحامي', `إزالة ${l.name} من القضية؟`, true) && await call('removeLawyer', l.id)) { toast('تمت الإزالة', 'success'); reload(); }
+            }, 'small red') : null,
+        }))) : empty('لا يوجد محامين معيّنين', '⚖️'));
+}
+
+function caseDocumentsCard(r, reload, canAdd) {
+    const docs = arr(r.documents);
+    return card(h('span', null, `📎 المستندات (${docs.length})`),
+        canAdd ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ إضافة مستند', async () => {
+            const v = await modal({ title: 'مستند جديد', fields: [
+                { name: 'title', label: 'العنوان', required: true, max: 120 },
+                { name: 'content', label: 'المحتوى (نص، روابط صور أو فيديو...)', type: 'textarea', required: true, max: S.config.documentMax || 2000 },
+            ] });
+            if (v && await call('addDocument', r.id, v.title, v.content)) { toast('تمت إضافة المستند', 'success'); reload(); }
+        }, 'small')) : null,
+        docs.length ? h('div', { class: 'list' }, docs.map((d) => h('div', { class: 'note' },
+            h('div', { class: 'meta' }, `📎 ${d.title} | ${d.author} (${d.role}) - ${val(d.date)}`), h('div', { class: 'textblock', style: 'margin-top:6px' }, d.content)))) : empty('لا توجد مستندات', '📎'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// صفحات العدل الجديدة
+// ════════════════════════════════════════════════════════════════════════════
+PAGES.suspects = {
+    title: 'قائمة المشبوهين',
+    async render() {
+        const res = await call('getSuspects');
+        if (!res) return null;
+        const list = arr(res.suspects);
+        S.info.suspects = list.length;
+        const remove = async (s) => {
+            if (await confirmBox('إزالة من المشبوهين', `إزالة ${s.name} من القائمة؟`) && await call('removeSuspect', s.id)) { toast('تمت الإزالة', 'success'); render(); }
+        };
+        return card(h('span', null, `🕵️ المشبوهين (${list.length})`),
+            S.perms.suspects ? h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ إضافة مشبوه', async () => { if (await suspectFlow()) render(); }, 'primary')) : null,
+            list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'profile', S.perms.suspects ? remove : null))) : empty('القائمة فاضية', '🕵️'));
+    },
+};
+
+PAGES.warrants = {
+    title: 'أوامر القبض والتفتيش',
+    async render(activeOnly) {
+        const onlyActive = activeOnly !== false;
+        const res = await call('getWarrants', null, onlyActive);
+        if (!res) return null;
+        const list = arr(res.warrants);
+        const chip = (v, label) => h('button', { class: 'chip' + (onlyActive === v ? ' active' : ''), onclick: () => { S.current.arg = v; render(); } }, label);
+        return h('div', null,
+            h('div', { class: 'chips' }, chip(true, '🚨 السارية'), chip(false, 'كل الأوامر')),
+            card(null, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'profile', cancel: S.perms.warrants, reload: render }))) : empty('لا توجد أوامر', '🚨')));
+    },
+};
+
+PAGES.policeRequests = {
+    title: 'قسم الشرطة: الطلبات',
+    async render(filter) {
+        const res = await call('getPoliceRequests', filter || null);
+        if (!res) return null;
+        S.info.policeRequests = res.pending;
+        const list = arr(res.requests);
+        const chip = (f, label) => h('button', { class: 'chip' + ((filter || null) === f ? ' active' : ''), onclick: () => { S.current.arg = f; render(); } }, label);
+        const answer = async (q, approve) => {
+            const v = await modal({ title: `${approve ? 'موافقة على' : 'رفض'} الطلب #${q.id}`, okText: approve ? 'موافقة' : 'رفض', danger: !approve,
+                text: `${q.typeLabel} على ${q.name}\nمن ${q.officer.name} (${q.officer.grade})\nالسبب: ${q.reason}`,
+                fields: [{ name: 'note', label: 'ملاحظة للشرطي (اختياري)', max: 200 }] });
+            if (!v) return;
+            const r = await call('answerPoliceRequest', q.id, approve, v.note || '');
+            if (r) { toast(r.message, 'success', 6000); render(); }
+        };
+        return h('div', null,
+            h('div', { class: 'chips' }, chip(null, 'الكل'), chip('pending', `⏳ بانتظار الرد (${res.pending})`), chip('approved', '✅ المقبولة'), chip('rejected', '❌ المرفوضة')),
+            card(null, list.length ? h('div', { class: 'list' }, list.map((q) => item({
+                icon: q.status === 'pending' ? '⏳' : q.status === 'approved' ? '✅' : '❌',
+                title: `#${q.id} | ${q.typeLabel} | على: ${q.name} (${q.citizenid})`,
+                sub: `👮 ${q.officer.name} - ${q.officer.job} - ${q.officer.grade}${q.officer.callsign ? ' [' + q.officer.callsign + ']' : ''} ${q.officer.status && q.officer.status.online ? '🟢' : '⚫'}\nالسبب: ${q.reason}${q.details ? '\nالتفاصيل: ' + q.details : ''}\n${val(q.date)}${q.answeredBy ? `\nالرد: ${q.statusLabel} بواسطة ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
+                side: [
+                    btn('الملف', () => go('profile', q.citizenid), 'small'),
+                    q.status === 'pending' ? btn('✅ موافقة', () => answer(q, true), 'small green') : null,
+                    q.status === 'pending' ? btn('❌ رفض', () => answer(q, false), 'small red') : null,
+                ],
+            }))) : empty('لا توجد طلبات', '🚓')));
+    },
+};
+
+// ═════ الرسوم البيانية: عمود/شريط بلون واحد، القيمة عند طرف الشريط، تلميح عند المرور، وجدول بديل ═════
+function barChart({ title, data, unit = '', vertical = false }) {
+    const rows = arr(data);
+    const max = Math.max(1, ...rows.map((d) => Number(d.value) || 0));
+    const fmt = (v) => `${Number(v).toLocaleString('en-US')}${unit}`;
+    let showTable = false;
+    const body = h('div');
+    const tip = h('div', { class: 'chart-tip hidden' });
+
+    const bind = (el, d) => {
+        el.addEventListener('mousemove', (e) => {
+            tip.textContent = `${d.label}: ${fmt(d.value)}`;
+            tip.classList.remove('hidden');
+            const box = body.getBoundingClientRect();
+            tip.style.left = `${e.clientX - box.left}px`;
+            tip.style.top = `${e.clientY - box.top - 34}px`;
+        });
+        el.addEventListener('mouseleave', () => tip.classList.add('hidden'));
+    };
+
+    const draw = () => {
+        if (!rows.length) return body.replaceChildren(empty('لا توجد بيانات', '📊'));
+        if (showTable) {
+            return body.replaceChildren(h('table', { class: 'chart-table' },
+                h('tr', null, h('th', null, 'البند'), h('th', null, 'القيمة')),
+                rows.map((d) => h('tr', null, h('td', null, d.label), h('td', null, fmt(d.value))))));
+        }
+        if (vertical) {
+            const cols = rows.map((d) => {
+                const hit = h('div', { class: 'col-hit' },
+                    h('div', { class: 'col-value' }, Number(d.value) > 0 ? fmt(d.value) : ''),
+                    h('div', { class: 'col-bar', style: `height:${(Number(d.value) / max) * 100}%` }));
+                bind(hit, d);
+                return h('div', { class: 'col' }, hit, h('div', { class: 'col-label' }, d.label));
+            });
+            return body.replaceChildren(h('div', { class: 'cols' }, cols), tip);
+        }
+        const bars = rows.map((d) => {
+            const row = h('div', { class: 'hbar' },
+                h('div', { class: 'hbar-label' }, d.label),
+                h('div', { class: 'hbar-track' }, h('div', { class: 'hbar-fill', style: `width:${Math.max(1, (Number(d.value) / max) * 100)}%` }),
+                    h('span', { class: 'hbar-value' }, fmt(d.value))));
+            bind(row, d);
+            return row;
+        });
+        body.replaceChildren(h('div', { class: 'hbars' }, bars), tip);
+    };
+    draw();
+    const toggle = btn('جدول', () => { showTable = !showTable; toggle.textContent = showTable ? 'رسم' : 'جدول'; draw(); }, 'small');
+    return h('div', { class: 'card chart' }, h('div', { class: 'card-title' }, title, h('span', { class: 'spacer' }), toggle), body);
+}
+
+PAGES.stats = {
+    title: 'الإحصائيات',
+    async render() {
+        const res = await call('getStats');
+        if (!res) return null;
+        const t = res.totals || {};
+        return h('div', null,
+            h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
+                stat('إجمالي القضايا', t.cases), stat('أحكام نافذة', t.verdicts, 'red'),
+                stat('أوامر سارية', t.warrants, 'yellow'), stat('مشبوهين', t.suspects, 'purple')),
+            barChart({ title: '📈 القضايا الجديدة بالأسبوع (آخر 8 أسابيع)', data: res.casesPerWeek, vertical: true }),
+            h('div', { class: 'grid two' },
+                barChart({ title: '📂 أكثر أنواع القضايا', data: res.caseTypes }),
+                barChart({ title: '🔨 الأحكام النافذة حسب النوع', data: res.verdictTypes })),
+            h('div', { class: 'grid two' },
+                barChart({ title: '👥 أداء الموظفين: عدد الإجراءات (30 يوم)', data: res.officers }),
+                barChart({ title: '🕒 ساعات الدوام (آخر 7 أيام)', data: res.dutyHours, unit: ' ساعة' })),
+        );
+    },
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// صفحات الشرطة
+// ════════════════════════════════════════════════════════════════════════════
+const REQUEST_TYPES = [
+    { value: 'locate', label: '📍 تحديد موقع المواطن الآن' },
+    { value: 'bank', label: `🏦 كشف حساب بنكي (تصريح ${30} دقيقة)` },
+    { value: 'arrest_warrant', label: '🚨 طلب أمر قبض' },
+    { value: 'search_warrant', label: '🔍 طلب أمر تفتيش' },
+    { value: 'other', label: '📝 طلب آخر' },
+];
+
+async function policeRequestFlow(citizenid, name) {
+    const v = await modal({ title: `طلب تصريح من وزارة العدل${name ? ' - ' + name : ''}`, okText: 'إرسال الطلب',
+        text: 'الطلب يوصل لوزارة العدل مع اسمك ورتبتك ورمز النداء، وتوصلك النتيجة فوراً', fields: [
+            citizenid ? null : { name: 'cid', label: 'الرقم الوطني للمواطن', required: true, max: 50 },
+            { name: 'type', label: 'نوع الطلب', type: 'select', options: REQUEST_TYPES.map((t) => t.value === 'bank' ? { ...t, label: `🏦 كشف حساب بنكي (تصريح ${S.config.grantMinutes || 30} دقيقة)` } : t) },
+            { name: 'reason', label: 'السبب', required: true, max: 200 },
+            { name: 'details', label: 'تفاصيل إضافية (للتفتيش: المكان)', max: 200 },
+        ].filter(Boolean) });
+    if (!v) return false;
+    const r = await call('policeRequest', citizenid || v.cid, v.type, v.reason, v.details || '');
+    if (r) { toast(`تم إرسال الطلب #${r.id} لوزارة العدل`, 'success'); S.info.myPending = (S.info.myPending || 0) + 1; renderNav(); }
+    return !!r;
+}
+
+PAGES.phome = {
+    title: 'قسم الشرطة',
+    async render() {
+        const info = await call('tabletInfo');
+        if (!info) return null;
+        S.info = info;
+        const quick = h('input', { placeholder: 'الاسم / الرقم الوطني / الجوال / رقم السيرفر' });
+        const search = () => quick.value.trim() && go('psearch', quick.value.trim());
+        quick.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
+        return h('div', null,
+            h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
+                stat('أوامر سارية', info.warrants, 'red', S.perms.warrants ? () => go('pwarrants') : null),
+                stat('المشبوهين', info.suspects, 'yellow', S.perms.suspects ? () => go('psuspects') : null),
+                stat('طلباتي بانتظار الرد', info.myPending, 'blue', S.perms.requests ? () => go('prequests') : null)),
+            S.perms.search ? card('🔎 البحث عن مواطن', h('div', { class: 'searchbar', style: 'margin:0' }, quick, btn('بحث', search, 'primary'))) : null,
+            card('ℹ️ صلاحيات الشرطة', h('div', { class: 'item-sub' },
+                'تقدر تشوف: المعلومات الأساسية، التراخيص، المركبات، سجل القضايا والأحكام، الأوامر والمشبوهين.\nتحديد الموقع وكشف الحساب وأوامر القبض والتفتيش تحتاج طلب تصريح من وزارة العدل.')),
+        );
+    },
+};
+
+PAGES.psearch = {
+    title: 'البحث عن مواطن',
+    async render(query) {
+        const input = h('input', { placeholder: 'الاسم / الرقم الوطني / الجوال / رقم السيرفر', value: query || '' });
+        const doSearch = () => { const q = input.value.trim(); if (q) { S.current.arg = q; render(); } };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+        setTimeout(() => input.focus(), 50);
+        let results = null;
+        if (query) {
+            const res = await call('policeSearch', query);
+            const list = res ? arr(res.results) : [];
+            results = res ? card(`النتائج (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
+                icon: dot(c.online), title: `${c.serverId ? `[${c.serverId}] ` : ''}${c.name}`,
+                sub: `الرقم الوطني: ${c.citizenid} | ${val(c.job)}`, onclick: () => go('pprofile', c.citizenid),
+            }))) : empty('لا توجد نتائج', '🔍')) : null;
+        }
+        return h('div', null, h('div', { class: 'searchbar' }, input, btn('بحث', doSearch, 'primary')), results || empty('اكتب في خانة البحث', '🔎'));
+    },
+};
+
+PAGES.pprofile = {
+    title: (cid) => `ملف المواطن ${cid}`,
+    async render(cid) {
+        const res = await call('policeProfile', cid);
+        if (!res) return null;
+        const p = res.profile;
+        const court = { suspect: p.suspect, warrants: p.warrants, verdicts: p.verdicts };
+        return h('div', null,
+            h('div', { class: 'profile-head' }, h('div', { class: 'avatar' }, (p.name || '?').slice(0, 1)),
+                h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'profile-name' }, p.name),
+                    h('div', { class: 'profile-meta' }, badge(p.status ? p.status.text : '-', p.status && p.status.online ? 'green' : 'gray'), badge(`الرقم الوطني: ${p.citizenid}`), badge(`${p.job.label} - ${p.job.grade}`, 'blue')))),
+            p.suspended ? h('div', { class: 'alert red' }, '⛔ خدمات هذا المواطن موقوفة بقرار من وزارة العدل') : null,
+            courtAlerts(court),
+            S.perms.requests ? h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📨 طلب تصريح من العدل', () => policeRequestFlow(p.citizenid, p.name), 'primary')) : null,
+            card('🪪 المعلومات الأساسية', kv([['الاسم', p.name], ['الرقم الوطني', p.citizenid], ['تاريخ الميلاد', p.birthdate], ['الجنس', gender(p.gender)], ['الجنسية', p.nationality], ['الجوال', p.phone], ['الوظيفة', `${p.job.label} - ${p.job.grade}`]])),
+            p.bank ? card(`🏦 كشف الحساب (تصريح ساري ${p.bank.remaining} دقيقة)`, h('div', { class: 'grid stats' }, stat('البنك', money(p.bank.bank), 'green'), stat('الكاش', money(p.bank.cash)))) : null,
+            card('📄 التراخيص', arr(p.licenses).length ? h('div', { class: 'list' }, arr(p.licenses).map((l) => item({ icon: l.active ? '✅' : '❌', title: l.label, sub: l.active ? 'فعالة' : 'غير فعالة' }))) : empty('لا توجد تراخيص')),
+            p.vehicles ? card(`🚗 المركبات (${arr(p.vehicles).length})`, arr(p.vehicles).length ? h('div', { class: 'list' }, arr(p.vehicles).map((v) => item({ icon: '🚗', title: `${v.plate} | ${v.label}`, sub: v.state }))) : empty('لا توجد مركبات')) : null,
+            card(`⚖️ سجل القضايا (${arr(p.cases).length})`, arr(p.cases).length ? h('div', { class: 'list' }, arr(p.cases).map((c) => item({ icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `${c.role} | ${val(c.caseType)} | ${c.status} | ${val(c.date)}` }))) : empty('لا توجد قضايا', '⚖️')),
+            card(`🔨 الأحكام (${arr(p.verdicts).length})`, arr(p.verdicts).length ? h('div', { class: 'list' }, arr(p.verdicts).map(verdictItem)) : empty('لا توجد أحكام', '🔨')),
+            card(`🚨 الأوامر (${arr(p.warrants).length})`, arr(p.warrants).length ? h('div', { class: 'list' }, arr(p.warrants).map((w) => warrantItem(w, { execute: S.perms.executeWarrant, reload: render }))) : empty('لا توجد أوامر', '🚨')),
+        );
+    },
+};
+
+PAGES.pwarrants = {
+    title: 'الأوامر السارية',
+    async render() {
+        const res = await call('policeWarrants');
+        if (!res) return null;
+        const list = arr(res.warrants);
+        S.info.warrants = list.length;
+        return card(`🚨 السارية (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'pprofile', execute: S.perms.executeWarrant, reload: render }))) : empty('لا توجد أوامر سارية', '✅'));
+    },
+};
+
+PAGES.psuspects = {
+    title: 'المشبوهين',
+    async render() {
+        const res = await call('policeSuspects');
+        if (!res) return null;
+        const list = arr(res.suspects);
+        return card(`🕵️ المشبوهين (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'pprofile'))) : empty('القائمة فاضية', '🕵️'));
+    },
+};
+
+PAGES.prequests = {
+    title: 'طلباتي لوزارة العدل',
+    async render() {
+        const res = await call('policeMyRequests');
+        if (!res) return null;
+        const list = arr(res.requests);
+        S.info.myPending = list.filter((q) => q.status === 'pending').length;
+        return card(h('span', null, `📨 طلباتي (${list.length})`),
+            h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ طلب جديد', async () => { if (await policeRequestFlow()) render(); }, 'primary')),
+            list.length ? h('div', { class: 'list' }, list.map((q) => item({
+                icon: q.status === 'pending' ? '⏳' : q.status === 'approved' ? '✅' : '❌',
+                title: `#${q.id} | ${q.typeLabel} | ${q.name} (${q.citizenid})`,
+                sub: `السبب: ${q.reason}\n${val(q.date)}${q.answeredBy ? `\nالرد: ${q.statusLabel} بواسطة ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
+                side: [badge(q.statusLabel, q.status === 'pending' ? 'yellow' : q.status === 'approved' ? 'green' : 'red'), btn('الملف', () => go('pprofile', q.citizenid), 'small')],
+            }))) : empty('ما أرسلت أي طلب', '📨'));
+    },
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// صفحات المحامي
+// ════════════════════════════════════════════════════════════════════════════
+PAGES.lcases = {
+    title: 'قضاياي',
+    async render() {
+        const res = await call('lawyerCases');
+        if (!res) return null;
+        const list = arr(res.cases);
+        return card(`💼 القضايا المعيّن فيها (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
+            icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `موكلي: ${c.client} (${c.sideLabel}) | ${val(c.caseType)} | ${c.date}`,
+            side: badge(c.statusLabel, STATUS[c.status] ? STATUS[c.status][1] : ''), onclick: () => go('lcase', c.id),
+        }))) : empty('ما تم تعيينك في أي قضية بعد', '💼'));
+    },
+};
+
+PAGES.lcase = {
+    title: (id) => `القضية #${id}`,
+    async render(id) {
+        const res = await call('lawyerCase', id);
+        if (!res) return null;
+        const c = res.case;
+        return h('div', null,
+            h('div', { class: 'profile-head' }, h('div', { class: 'avatar' }, '⚖️'),
+                h('div', null, h('div', { class: 'profile-name' }, c.title),
+                    h('div', { class: 'profile-meta' }, badge(c.statusLabel, STATUS[c.status] ? STATUS[c.status][1] : ''), badge(val(c.caseType), 'blue'), badge(c.date, 'gray')))),
+            h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📝 إضافة ملاحظة', async () => {
+                const v = await modal({ title: 'ملاحظة المحامي', fields: [{ name: 'note', label: 'الملاحظة', type: 'textarea', required: true, max: S.config.noteMax || 500 }] });
+                if (v && await call('lawyerNote', c.id, v.note)) { toast('تمت إضافة الملاحظة', 'success'); render(); }
+            })),
+            card('👥 الأطراف', kv([['المدعي', c.plaintiff], ['المدعى عليه', c.defendant]])),
+            card('📄 تفاصيل الدعوى', h('div', { class: 'textblock' }, c.report)),
+            c.witnesses && c.witnesses !== '' ? card('👥 الشهود', h('div', { class: 'textblock' }, c.witnesses)) : null,
+            c.evidence && c.evidence !== '' ? card('🔍 الأدلة', h('div', { class: 'textblock' }, c.evidence)) : null,
+            caseDocumentsCard(c, () => render(), true),
+            arr(c.verdicts).length ? card('🔨 الأحكام', h('div', { class: 'list' }, arr(c.verdicts).map(verdictItem))) : null,
+            card(`🗒️ الملاحظات (${arr(c.notes).length})`, arr(c.notes).length ? h('div', { class: 'list' }, arr(c.notes).map((n) => h('div', { class: 'note' }, h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('لا توجد ملاحظات')),
+        );
+    },
+};
+
+// ═════ الإشعارات المباشرة (صوت + تنبيه) ═════
+function chime() {
+    try {
+        const ctx = S.audio || (S.audio = new (window.AudioContext || window.webkitAudioContext)());
+        [[880, 0], [1320, 0.13]].forEach(([freq, delay]) => {
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = 'sine';
+            o.frequency.value = freq;
+            g.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+            g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + delay + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.35);
+            o.connect(g).connect(ctx.destination);
+            o.start(ctx.currentTime + delay);
+            o.stop(ctx.currentTime + delay + 0.4);
+        });
+    } catch (e) { /* الصوت اختياري */ }
+}
+
+function onLiveEvent(ev) {
+    if (!ev || typeof ev !== 'object') return;
+    chime();
+    toast(`${ev.title || ''}${ev.text ? '\n' + ev.text : ''}`, 'info', 8000);
+    if (ev.type === 'new_case') S.info.newReports = (Number(S.info.newReports) || 0) + 1;
+    if (ev.type === 'police_request') S.info.policeRequests = (Number(S.info.policeRequests) || 0) + 1;
+    if (ev.type === 'warrant' && S.role === 'police') S.info.warrants = (Number(S.info.warrants) || 0) + 1;
+    if (ev.type === 'request_answered' && S.role === 'police') S.info.myPending = Math.max(0, (Number(S.info.myPending) || 0) - 1);
+    renderNav();
+    const page = S.current && S.current.page;
+    const refreshOn = { new_case: ['reports', 'home'], police_request: ['policeRequests'], warrant: ['pwarrants', 'phome'], request_answered: ['prequests'], document: ['report'] };
+    if ((refreshOn[ev.type] || []).includes(page) && !$('modal-root').children.length) render();
+}
+
 // ═════ الفتح والإغلاق ═════
 function renderMe() {
-    $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`));
+    const roleLabel = { justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي' }[S.role] || '';
+    $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 
 function openTablet(data) {
     S.open = true;
+    S.role = data.role || (data.info && data.info.role) || 'justice';
     S.info = data.info || {};
     S.perms = (data.info && data.info.perms) || {};
     S.me = data.me || {};
@@ -930,7 +1481,8 @@ function openTablet(data) {
     S.profileTab = null;
     renderMe();
     $('app').classList.remove('hidden');
-    const start = data.page && PAGES[data.page] ? data.page : 'home';
+    const allowed = currentNav().map((n) => n.page);
+    const start = data.page && PAGES[data.page] && (S.role === 'justice' || allowed.includes(data.page)) ? data.page : homePage();
     S.current = null;
     go(start, data.arg, true);
 }
@@ -948,6 +1500,7 @@ window.addEventListener('message', (e) => {
     if (d.action === 'open') openTablet(d);
     else if (d.action === 'close') { S.open = false; closeModal(); $('app').classList.add('hidden'); }
     else if (d.action === 'toast') toast(d.text, d.type);
+    else if (d.action === 'event' && S.open) onLiveEvent(d.event);
 });
 
 document.addEventListener('keydown', (e) => {

@@ -214,7 +214,7 @@ local PointOptions = {
     CitizenPanel = {
         {
             icon = 'fas fa-address-card',
-            label = 'نظام معلومات المواطنين',
+            label = 'نظام الدولة',
             job = JOB,
             action = function() JC.Panel.Open() end,
         },

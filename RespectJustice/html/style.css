@@ -285,3 +285,37 @@ select option { background: var(--panel); }
 }
 .toast.success { border-right-color: var(--green); }
 .toast.error { border-right-color: var(--red); }
+
+/* ═════ إضافات: تنبيهات، أدوار، رسوم بيانية ═════ */
+.alert.yellow { background: rgba(226, 184, 81, .12); color: var(--yellow); border: 1px solid rgba(226, 184, 81, .3); }
+.btn.yellow:hover { border-color: var(--yellow); color: var(--yellow); }
+.role-tag { color: var(--gold) !important; font-weight: 700; }
+.toast { white-space: pre-line; }
+
+.chart { position: relative; }
+.chart > div:last-child { position: relative; }
+.chart-tip {
+    position: absolute; z-index: 5; pointer-events: none; transform: translateX(-50%);
+    background: #0b0a0a; border: 1px solid var(--border); color: var(--text);
+    font-size: 12px; padding: 4px 9px; border-radius: 7px; white-space: nowrap;
+}
+
+/* أعمدة (القيمة فوق العمود، زوايا مدورة 4px عند الطرف وخط أساس مربع) */
+.cols { display: flex; align-items: flex-end; gap: 10px; height: 190px; padding-top: 20px; border-bottom: 1px solid var(--border); }
+.col { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.col-hit { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: default; }
+.col-bar { width: 100%; max-width: 24px; min-height: 2px; background: var(--gold); border-radius: 4px 4px 0 0; }
+.col-value { font-size: 12px; color: var(--text); margin-bottom: 4px; font-weight: 700; }
+.col-label { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* أشرطة أفقية (تبدأ من اليمين، القيمة عند طرف الشريط) */
+.hbars { display: flex; flex-direction: column; gap: 8px; }
+.hbar { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
+.hbar-label { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hbar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hbar-fill { height: 18px; background: var(--gold); border-radius: 4px 0 0 4px; min-width: 2px; }
+.hbar-value { font-size: 12px; color: var(--muted); font-weight: 700; white-space: nowrap; }
+
+.chart-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.chart-table th, .chart-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.chart-table th { color: var(--muted); font-weight: 500; }

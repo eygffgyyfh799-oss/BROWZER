@@ -38,6 +38,23 @@ function JC.IsBoss()
     return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
 end
 
+-- الدور المتوقع من بيانات اللاعب (السيرفر هو اللي يقرر فعلياً)
+function JC.GuessRole()
+    local pd = RTCore.Functions.GetPlayerData()
+    local job = pd.job or {}
+    if job.name == JC.Job then return 'justice' end
+    for _, name in ipairs(JC.Settings.Police.Jobs or {}) do
+        if job.name == name then return 'police' end
+    end
+    local md = pd.metadata or {}
+    local licenses = md.licences or md.licenses or {}
+    if licenses[JC.Settings.Lawyers.License] == true then return 'lawyer' end
+    for _, name in ipairs(JC.Settings.Lawyers.Jobs or {}) do
+        if job.name == name then return 'lawyer' end
+    end
+    return nil
+end
+
 -- ينتظر نتيجة callback من السيرفر (بحد أقصى 10 ثواني عشان ما تعلق القائمة)
 function JC.Await(name, ...)
     local p = promise.new()

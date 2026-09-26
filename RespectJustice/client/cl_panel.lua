@@ -116,7 +116,7 @@ function JC.Panel.Open()
         }
     end
 
-    lib.registerContext({ id = 'justice_panel_main', title = 'نظام معلومات المواطنين', options = options, rt_logo = true })
+    lib.registerContext({ id = 'justice_panel_main', title = 'نظام الدولة', options = options, rt_logo = true })
     lib.showContext('justice_panel_main')
 end
 
@@ -631,7 +631,7 @@ if Panel.Command and Panel.Command ~= '' then
         JC.Panel.Open()
     end, false)
 
-    TriggerEvent('chat:addSuggestion', '/' .. Panel.Command, 'نظام معلومات المواطنين - وزارة العدل')
+    TriggerEvent('chat:addSuggestion', '/' .. Panel.Command, 'نظام الدولة - وزارة العدل')
 end
 
 RegisterNetEvent('RespectJustice:client:openPanel', function()
