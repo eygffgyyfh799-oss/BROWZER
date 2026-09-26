@@ -2,6 +2,16 @@
 -- أدوات مشتركة لملفات السيرفر (يُحمّل أولاً)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
+-- [أمان] أي رقم يجي من اللاعب يمر على tonumber: نرفض NaN و inf
+-- (math.floor(NaN) = NaN ويعدّي شرط "amount <= 0" فيوصل للفلوس)
+local rawtonumber = tonumber
+function tonumber(value, base)
+    local n
+    if base then n = rawtonumber(value, base) else n = rawtonumber(value) end
+    if n and (n ~= n or n == math.huge or n == -math.huge) then return nil end
+    return n
+end
+
 JS = {}
 JS.Config = LoadConfig()
 JS.Settings = JS.Config.Settings
@@ -337,22 +347,32 @@ function JS.GetBank(citizenid)
     local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then return math.floor(tonumber(target.PlayerData.money.bank) or 0) end
     local row = JS.GetPlayerRow(citizenid)
-    return row and math.floor(tonumber(JS.Decode(row.money).bank) or 0) or nil
+    return row and math.floor(tonumber(JS.OfflineMoney(row).bank) or 0) or nil
 end
 
 -- يسحب من بنك المواطن (يرفض إذا الرصيد ما يكفي)
+-- خصم من بنك لاعب متصل بقرار العدل: يتجاوز تجميد الحساب (الغرامات والسحب تمشي حتى لو الحساب مجمّد)
+JS.BankBypass = {}
+function JS.RemoveBank(target, amount, reason)
+    local cid = target.PlayerData.citizenid
+    JS.BankBypass[cid] = true
+    local ok, removed = pcall(target.Functions.RemoveMoney, 'bank', amount, reason)
+    JS.BankBypass[cid] = nil
+    return ok and removed ~= false
+end
+
 function JS.TakeMoney(citizenid, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return false, 'مبلغ غير صحيح' end
     local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         if (tonumber(target.PlayerData.money.bank) or 0) < amount then return false, 'الرصيد غير كافٍ' end
-        if not target.Functions.RemoveMoney('bank', amount, reason) then return false, 'تعذر السحب' end
+        if not JS.RemoveBank(target, amount, reason) then return false, 'تعذر السحب' end
         return true
     end
     local row = JS.GetPlayerRow(citizenid)
     if not row then return false, 'المواطن غير موجود' end
-    local money = JS.Decode(row.money)
+    local money = JS.OfflineMoney(row)
     local bank = tonumber(money.bank) or 0
     if bank < amount then return false, 'الرصيد غير كافٍ' end
     money.bank = bank - amount
@@ -371,7 +391,7 @@ function JS.GiveMoney(citizenid, amount, reason)
     end
     local row = JS.GetPlayerRow(citizenid)
     if not row then return false, 'المواطن غير موجود' end
-    local money = JS.Decode(row.money)
+    local money = JS.OfflineMoney(row)
     money.bank = (tonumber(money.bank) or 0) + amount
     if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'تغيرت بيانات المواطن، حاول مرة أخرى' end
     return true
@@ -594,9 +614,40 @@ end
 -- يتأكد إن البيانات ما تغيرت أثناء العملية، ويعتبر العملية ناجحة إذا القيمة الجديدة نفس القديمة
 local PlayerJsonColumns = { money = true, charinfo = true, job = true, gang = true, metadata = true }
 
+-- ═════ RespectBanking: رصيد اللاعب غير المتصل ═════
+-- RespectBanking يحفظ رصيد البنك في جدوله الخاص، ولما اللاعب يدخل ياخذ الأعلى بين الرصيدين.
+-- عشان كذا: نقرأ الأعلى، وأي تعديل وهو غير متصل نكتبه في الجدولين (وإلا ترجع الغرامة لما يدخل)
+local BankAccounts, BankMembers = 'banking_advanced_banking_accounts', 'banking_advanced_banking_accounts_members'
+
+local function BankLinked()
+    return JS.TableExists(BankAccounts) and JS.TableExists(BankMembers)
+end
+
+function JS.GetBankAccountBalance(citizenid)
+    if not BankLinked() then return nil end
+    local ok, balance = pcall(MySQL.scalar.await, ([[SELECT a.balance FROM `%s` a INNER JOIN `%s` m ON m.account_id = a.id
+        WHERE a.type = 'personal' AND m.identifier = ? AND m.is_owner = 1 LIMIT 1]]):format(BankAccounts, BankMembers), { citizenid })
+    return ok and tonumber(balance) or nil
+end
+
+function JS.SyncBankAccount(citizenid, bank)
+    if not BankLinked() or tonumber(bank) == nil then return end
+    pcall(MySQL.update.await, ([[UPDATE `%s` a INNER JOIN `%s` m ON m.account_id = a.id SET a.balance = ?
+        WHERE a.type = 'personal' AND m.identifier = ? AND m.is_owner = 1]]):format(BankAccounts, BankMembers), { math.floor(bank), citizenid })
+end
+
+-- فلوس لاعب غير متصل (من صف قاعدة البيانات) مع رصيد البنك الصحيح
+function JS.OfflineMoney(row)
+    local money = JS.Decode(row.money)
+    local banking = JS.GetBankAccountBalance(row.citizenid)
+    if banking and banking > (tonumber(money.bank) or 0) then money.bank = banking end
+    return money
+end
+
 function JS.UpdatePlayerJson(citizenid, column, newValue, oldRaw)
     if not PlayerJsonColumns[column] then return false end
     local encoded = json.encode(newValue)
+    if column == 'money' and type(newValue) == 'table' then JS.SyncBankAccount(citizenid, newValue.bank) end
     if encoded == oldRaw then return true end
 
     local tableName = Settings.Database.Players
@@ -639,7 +690,7 @@ function JS.GetCitizen(citizenid)
     return {
         citizenid = row.citizenid,
         charinfo = JS.Decode(row.charinfo),
-        money = JS.Decode(row.money),
+        money = JS.OfflineMoney(row),
         job = JS.Decode(row.job),
         gang = JS.Decode(row.gang),
         metadata = JS.Decode(row.metadata),

@@ -25,7 +25,7 @@ local function Refund(citizenid, amount)
 
     local row = JS.GetPlayerRow(citizenid)
     if not row then return { ok = false, err = 'المواطن غير موجود' } end
-    local money = JS.Decode(row.money)
+    local money = JS.OfflineMoney(row)
     money.bank = (tonumber(money.bank) or 0) + amount
     if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then
         return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' }

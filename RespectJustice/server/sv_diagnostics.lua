@@ -28,7 +28,13 @@ local function RunDiagnostics()
     -- البنك
     local bankRes = Settings.Banking and Settings.Banking.Resource or 'RespectBanking'
     if GetResourceState(bankRes) == 'started' then
-        line('ok', ('%s: شغال - تجميد حسابات الموقوفين يحتاج سطر التحقق داخله (README)'):format(bankRes))
+        -- النسخة المعدّلة فيها export isJusticeFrozen
+        local patched = pcall(function() return exports[bankRes]:isJusticeFrozen(0) end)
+        if patched then
+            line('ok', ('%s: مربوط - تجميد حسابات الموقوفين شغّال'):format(bankRes))
+        else
+            line('warn', ('%s: نسخة غير معدّلة - التجميد ما يشتغل، استخدم النسخة المرفقة'):format(bankRes))
+        end
     else
         line('warn', ('%s غير شغال: تجميد الحسابات ما يشتغل'):format(bankRes))
     end

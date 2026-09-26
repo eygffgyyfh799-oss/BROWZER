@@ -468,7 +468,7 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
         if bank < amount then
             return fail(('رصيد البنك غير كافٍ (الرصيد: $%d)'):format(math.floor(bank)))
         end
-        if not target.Functions.RemoveMoney('bank', amount, 'justice-withdraw') then
+        if not JS.RemoveBank(target, amount, 'justice-withdraw') then
             return fail('تعذر سحب المبلغ')
         end
         targetName = JS.PlayerName(target)
@@ -480,7 +480,7 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
         local row = JS.GetPlayerRow(citizenid)
         if not row then return fail('لا يوجد مواطن بهذا الرقم الوطني') end
 
-        local money = JS.Decode(row.money)
+        local money = JS.OfflineMoney(row)
         local bank = tonumber(money.bank) or 0
         if bank < amount then
             return fail(('رصيد البنك غير كافٍ (الرصيد: $%d)'):format(math.floor(bank)))

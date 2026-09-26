@@ -11,6 +11,15 @@ local Notify = JS.Notify
 local function Bank() return exports[Finance.Resource] end
 
 local Providers = {
+    respect = {
+        label = 'RespectBanking (حسابات القطاعات)',
+        balance = function(job)
+            local account = Bank():getBusinessAccount(job)
+            return type(account) == 'table' and tonumber(account.balance) or nil
+        end,
+        add = function(job, amount, reason) return Bank():AddMoney(job, amount, reason) == true end,
+        remove = function(job, amount, reason) return Bank():RemoveMoney(job, amount, reason) == true end,
+    },
     qb = {
         label = 'RespectBanking (GetAccountBalance)',
         balance = function(job) return tonumber(Bank():GetAccountBalance(job)) end,
@@ -46,14 +55,14 @@ local function Provider() return Providers[JS.FinanceProvider] end
 
 local function DetectProvider()
     local wanted = Finance.Provider
-    if wanted == 'qb' or wanted == 'renewed' or wanted == 'internal' then
+    if Providers[wanted] then
         JS.FinanceProvider = wanted
         return
     end
     -- auto: نجرب دوال RespectBanking
     local job = next(Finance.Sectors or {})
     if job and GetResourceState(Finance.Resource) == 'started' then
-        for _, name in ipairs({ 'qb', 'renewed' }) do
+        for _, name in ipairs({ 'respect', 'qb', 'renewed' }) do
             local ok, balance = pcall(Providers[name].balance, job)
             if ok and type(balance) == 'number' then
                 JS.FinanceProvider = name
@@ -63,6 +72,7 @@ local function DetectProvider()
     end
     JS.FinanceProvider = 'internal'
 end
+JS.DetectFinanceProvider = DetectProvider
 
 -- ═════ من يقدر يستخدم القسم المالي ═════
 function JS.SectorList()

@@ -137,7 +137,8 @@ return {
             RequireDuty = true,          -- لازم يكون في الدوام
             MaxPerTransaction = 1000000, -- أعلى مبلغ بالعملية الوحدة
             -- وين رصيد القطاع:
-            --   'auto'     = يتعرف تلقائياً على RespectBanking (إذا فيه دوال حسابات القطاعات) وإلا يستخدم خزينة داخلية
+            --   'auto'     = يتعرف تلقائياً على RespectBanking (حسابات القطاعات الحقيقية) وإلا يستخدم خزينة داخلية
+            --   'respect'  = RespectBanking: حساب الوظيفة نفسه (getBusinessAccount / AddMoney / RemoveMoney)
             --   'qb'       = exports[Resource]:GetAccountBalance / AddMoney / RemoveMoney
             --   'renewed'  = exports[Resource]:getAccountMoney / addAccountMoney / removeAccountMoney
             --   'internal' = خزينة داخلية في قاعدة البيانات (justice_sector_funds)
@@ -174,7 +175,7 @@ return {
         -- ════════════════════════════════════════════════════════
         Banking = {
             Resource = 'RespectBanking', -- اسم سكربت البنك (للفحص)
-            FreezeSuspended = true,      -- الموقوف حسابه مجمّد (يحتاج السطر المذكور في README داخل RespectBanking)
+            FreezeSuspended = true,      -- الموقوف حسابه مجمّد: ما يسحب ولا يحوّل ولا يدفع من البنك (يحتاج RespectBanking المعدّل)
         },
 
         -- نظام المدينة

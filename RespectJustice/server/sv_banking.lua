@@ -6,7 +6,7 @@
 --   exports['RespectJustice']:CanUseBank(source)        -> false + سبب إذا مجمّد
 --   Player(source).state.justiceFrozen                  -> (StateBag) يقراه السيرفر والعميل
 --
--- لازم يتضاف سطر التحقق داخل RespectBanking (السحب / التحويل / الإيداع) - موجود في README
+-- RespectBanking (النسخة المعدّلة) يستدعي CanUseBank في السحب والتحويل وأي خصم من البنك
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JS.Settings
@@ -23,6 +23,8 @@ end)
 exports('CanUseBank', function(source)
     local Player = RTCore.Functions.GetPlayer(tonumber(source) or -1)
     if not Player then return true end
+    -- خصم بقرار العدل نفسه (غرامة/سحب) يمشي حتى لو الحساب مجمّد
+    if JS.BankBypass[Player.PlayerData.citizenid] then return true end
     if Frozen(Player.PlayerData.citizenid) then
         local s = JS.Suspended[Player.PlayerData.citizenid]
         return false, ('حسابك البنكي مجمّد بقرار من وزارة العدل. السبب: %s'):format(s and s.reason or '-')
