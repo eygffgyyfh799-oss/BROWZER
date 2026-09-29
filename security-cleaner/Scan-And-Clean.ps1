@@ -61,7 +61,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.3'
+$Version = '3.4'
 
 # ---------------------------------------------------------------- setup
 
@@ -209,7 +209,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
         if (-not $pr -or -not $pr.DisplayName) { continue }
         $cands = @()
         if ($pr.InstallLocation) { $cands += ([string]$pr.InstallLocation).Trim().Trim('"') }
-        if ($pr.DisplayIcon) { $ic = ([string]$pr.DisplayIcon).Trim() -replace ',\s*-?\d+$', ''; $cands += Split-Path $ic.Trim('"') -Parent }
+        if ($pr.DisplayIcon) { $ic = ([string]$pr.DisplayIcon).Trim() -replace ',\s*-?[0-9]+$', ''; $cands += Split-Path $ic.Trim('"') -Parent }
         foreach ($c in $cands) {
             $n = Get-NormPath $c
             if (-not $n -or $n.Length -lt 8 -or $tooBroad -contains $n -or $n -match '(?i)\\(Temp|Downloads|Desktop)(\\|$)') { continue }
@@ -967,7 +967,7 @@ try {
         if ($m.PrincipalSource -ne 'Local' -or $m.SID.Value -eq $me -or $m.SID.Value -like '*-500') { continue }
         $u = Get-LocalUser -SID $m.SID -ErrorAction SilentlyContinue
         if ($u -and $u.Enabled) {
-            $sev = 'Medium'; if ($u.Name -match '\$$' -or $u.Name -match '(?i)^(support|admin|sys|help|defaultuser|user)\d*$') { $sev = 'High' }
+            $sev = 'Medium'; if ($u.Name -match '\$$' -or $u.Name -match '(?i)^(support|admin|sys|help|defaultuser|user)[0-9]*$') { $sev = 'High' }
             Add-Finding 'Admin account' $sev "Extra administrator account: $($m.Name)" 'If you did not create this account, someone may have remote access. Remove it in Settings > Accounts > Other users.'
         }
     }
@@ -1092,7 +1092,8 @@ $resRoots = @($ScanPaths) + @($Downloads, $Desktop, $Documents, 'C:\txData', 'C:
 $resourceDirs = @{}
 foreach ($root in $resRoots) {
     Write-Host "  Looking for FiveM resources in $root"
-    Get-ChildItem -LiteralPath $root -Recurse -File -Force -Include 'fxmanifest.lua','__resource.lua' -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ieq 'fxmanifest.lua' -or $_.Name -ieq '__resource.lua' } |
         ForEach-Object { $resourceDirs[$_.DirectoryName.ToLowerInvariant()] = $_.DirectoryName }
 }
 Write-Host "  Found $($resourceDirs.Count) resource(s)"
@@ -1103,17 +1104,17 @@ $loadRx   = '(?i)(?<![\w.:])(load|loadstring)\s*\(|assert\s*\(\s*load|\beval\s*\
 $hiddenKw = '(?i)\b(loadstring|load|PerformHttpRequest|os\.execute|io\.popen|eval|child_process|require)\b|https?://'
 $execRx   = '(?i)os\.execute\s*\(|io\.popen\s*\(|child_process'
 $b64Rx    = '(?i)Buffer\.from\s*\([^)]*base64|\batob\s*\('
-$charRx   = '(string\.char|String\.fromCharCode)\s*\(\s*\d+\s*(,\s*\d+\s*){20,}\)'
+$charRx   = '(string\.char|String\.fromCharCode)\s*\(\s*[0-9]+\s*(,\s*[0-9]+\s*){20,}\)'
 $stealRx  = '(?i)GetConvar\s*\(\s*[''"](sv_licenseKey|sv_licenseKeyToken|rcon_password|steam_webApiKey|mysql_connection_string)[''"]'
 $webhookRx = '(?i)discord(app)?\.com/api/webhooks/'
 
 # Decode \xNN, \ddd, string.char(...) and String.fromCharCode(...) so hidden code is visible
 function Expand-Obfuscation([string]$Text) {
     $d = [regex]::Replace($Text, '\\x([0-9a-fA-F]{2})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) })
-    $d = [regex]::Replace($d, '\\(\d{2,3})', { param($m) $n = [int]$m.Groups[1].Value; if ($n -lt 256) { [string][char]$n } else { $m.Value } })
-    $d = [regex]::Replace($d, '(string\.char|String\.fromCharCode)\s*\(([\d\s,]+)\)', {
+    $d = [regex]::Replace($d, '\\([0-9]{2,3})', { param($m) $n = [int]$m.Groups[1].Value; if ($n -lt 256) { [string][char]$n } else { $m.Value } })
+    $d = [regex]::Replace($d, '(string\.char|String\.fromCharCode)\s*\(([0-9\s,]+)\)', {
         param($m)
-        $chars = foreach ($v in ($m.Groups[2].Value -split ',')) { $v = $v.Trim(); if ($v -match '^\d+$' -and [int]$v -lt 256) { [char][int]$v } }
+        $chars = foreach ($v in ($m.Groups[2].Value -split ',')) { $v = $v.Trim(); if ($v -match '^[0-9]+$' -and [int]$v -lt 256) { [char][int]$v } }
         '"' + (-join $chars) + '"'
     })
     return $d
@@ -1121,8 +1122,8 @@ function Expand-Obfuscation([string]$Text) {
 
 $scannedFiles = @{}
 foreach ($dir in $resourceDirs.Values) {
-    Get-ChildItem -LiteralPath $dir -Recurse -File -Force -Include '*.lua','*.js' -ErrorAction SilentlyContinue |
-        Where-Object { $_.Length -lt 5MB } | ForEach-Object {
+    Get-ChildItem -LiteralPath $dir -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { ($_.Extension -ieq '.lua' -or $_.Extension -ieq '.js') -and $_.Length -lt 5MB } | ForEach-Object {
             $fp = $_.FullName
             if ($scannedFiles.ContainsKey($fp.ToLowerInvariant())) { return }
             $scannedFiles[$fp.ToLowerInvariant()] = $true
