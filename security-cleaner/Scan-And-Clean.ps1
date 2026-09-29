@@ -55,12 +55,13 @@ param(
     [switch]$SecondOpinion,
     [switch]$CleanJunk,
     [switch]$JunkOnly,
-    [switch]$Restore
+    [switch]$Restore,
+    [string[]]$Trust = @()
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.1'
+$Version = '3.2'
 
 # ---------------------------------------------------------------- setup
 
@@ -165,12 +166,52 @@ function Test-ProtectedPath([string]$Path) {
     return $null
 }
 
+# ---- allowlist: things the user trusts are reported as Info and never touched
+$AllowFile = Join-Path $BaseDir 'allowlist.txt'
+if (-not (Test-Path -LiteralPath $AllowFile)) {
+    @(
+        '# Security Cleaner allowlist - one entry per line. Lines starting with # are ignored.'
+        '# Any finding whose path, name or command line CONTAINS an entry is trusted:'
+        '# it is shown as Info and never stopped, disabled or quarantined.'
+        '# Add your own:  .\Scan-And-Clean.ps1 -Trust "D:\Games\MyGame"'
+        '# Note: crypto miners, fake system processes, FiveM backdoors and Defender detections are never trusted.'
+        'C:\DeepCool\'
+        '%LOCALAPPDATA%\Discord\'
+        '%ProgramData%\SquirrelMachineInstalls\'
+        '%LOCALAPPDATA%\Medal\'
+        '%LOCALAPPDATA%\Roblox\'
+        '%LOCALAPPDATA%\Programs\HeidiSQL\'
+        '%ProgramData%\CPUID Software\'
+        '%SystemRoot%\temp\cpuz'
+        'B9ECED6F.ArmouryCrate'
+        '%ProgramFiles%\ASUS\'
+        '%ProgramFiles%\SteelSeries\'
+        '\downloads\server\fxserver.exe'
+    ) | Set-Content -LiteralPath $AllowFile -Encoding UTF8
+}
+if ($Trust.Count -gt 0) {
+    foreach ($t in $Trust) { if ($t.Trim()) { Add-Content -LiteralPath $AllowFile -Value $t.Trim() -Encoding UTF8; Write-Host "Trusted: $($t.Trim())" -ForegroundColor Green } }
+}
+$Allow = @(Get-Content -LiteralPath $AllowFile -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } |
+    ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) } | Where-Object { $_.Length -ge 4 })
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*)$'
+
+function Test-Trusted([string]$Text) {
+    if (-not $Text) { return $false }
+    foreach ($a in $Allow) { if ($Text.IndexOf($a, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true } }
+    return $false
+}
+
 function Add-Finding {
     param(
         [string]$Category, [ValidateSet('High','Medium','Info')][string]$Severity,
         [string]$Item, [string]$Detail,
         [string]$Action = '', [hashtable]$Data = @{}, [string]$FixText = ''
     )
+    if ($Severity -ne 'Info' -and $Category -notmatch $NeverTrust -and (Test-Trusted ("$Item`n$Detail`n" + [string]$Data.Path))) {
+        $Severity = 'Info'; $Detail = "$Detail [trusted by your allowlist - not touched]"; $Action = ''; $FixText = ''
+    }
     $f = [pscustomobject]@{
         Id = $Findings.Count + 1; Category = $Category; Severity = $Severity
         Item = $Item; Detail = $Detail; Action = $Action; Data = $Data; FixText = $FixText
@@ -438,6 +479,13 @@ if ($Restore) {
     try { Stop-Transcript | Out-Null } catch { }
     return
 }
+
+if ($Trust.Count -gt 0 -and -not ($FullScan -or $Clean -or $CleanJunk -or $SecondOpinion)) {
+    Write-Host "Saved to $AllowFile. Run the scan again and these will not be touched."
+    try { Stop-Transcript | Out-Null } catch { }
+    return
+}
+Write-Host "Allowlist: $($Allow.Count) trusted entries ($AllowFile)" -ForegroundColor DarkGray
 
 if ($JunkOnly) {
     Clear-JunkFiles
