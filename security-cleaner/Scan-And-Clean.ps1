@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Security Cleaner v2 - scans a Windows PC for malware, stealers and crypto miners left
+    Security Cleaner v3 - scans a Windows PC for malware, stealers and crypto miners left
     behind by cracked games, fake "Steam tools" and backdoored FiveM resources, then
     (optionally) cleans what it found.
 
@@ -20,6 +20,11 @@
       - Steam: DLL hijacks (SteamTools / GreenLuma / malware)
       - FiveM: injected client plugins and backdoored .lua/.js resources, including code
         hidden with \x / \ddd / string.char / String.fromCharCode encoding
+      - Firewall off, inbound firewall rules for unsigned user-folder programs, UAC off,
+        extra admin accounts, remote-access tools / RATs
+    -SecondOpinion also runs Kaspersky Virus Removal Tool (signature-verified download).
+    -CleanJunk / -JunkOnly delete temp and cache files (temp, crash dumps, error reports,
+    shader/browser/Discord/FiveM caches, Windows Update downloads). Nothing else.
 
     Safety (-Clean):
       - every fix is confirmed by you (or -AutoFixHigh for High only)
@@ -35,6 +40,8 @@
     .\Scan-And-Clean.ps1
     .\Scan-And-Clean.ps1 -FullScan -ScanPaths "D:\Games","D:\FiveM-Server"
     .\Scan-And-Clean.ps1 -FullScan -Clean -AutoFixHigh
+    .\Scan-And-Clean.ps1 -FullScan -SecondOpinion -Clean -AutoFixHigh -CleanJunk
+    .\Scan-And-Clean.ps1 -JunkOnly
     .\Scan-And-Clean.ps1 -Restore
 #>
 [CmdletBinding()]
@@ -45,20 +52,23 @@ param(
     [switch]$Clean,
     [switch]$AutoFixHigh,
     [switch]$OfflineScan,
+    [switch]$SecondOpinion,
+    [switch]$CleanJunk,
+    [switch]$JunkOnly,
     [switch]$Restore
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '2.0'
+$Version = '3.0'
 
 # ---------------------------------------------------------------- setup
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host 'Run this as Administrator (right-click Scan.bat -> Run as administrator).' -ForegroundColor Red
-    exit 1
+    Write-Host 'Run this as Administrator (open PowerShell with "Run as administrator").' -ForegroundColor Red
+    return
 }
 
 $Stamp     = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
@@ -277,13 +287,138 @@ function Move-ToQuarantine([string]$Path) {
     Add-Content -LiteralPath $Manifest -Value ("{0}`t{1}" -f $full, $dest)
 }
 
+# Lists files under a folder without following junctions/symlinks (so cleanup can never escape the folder)
+function Get-FilesNoLinks([string]$Root, [switch]$Directories) {
+    $stack = New-Object System.Collections.Stack
+    $stack.Push($Root)
+    while ($stack.Count -gt 0) {
+        $dir = $stack.Pop()
+        try {
+            $di = New-Object IO.DirectoryInfo $dir
+            if (-not $Directories) { foreach ($f in $di.GetFiles()) { $f } }
+            foreach ($sub in $di.GetDirectories()) {
+                if (-not ($sub.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    if ($Directories) { $sub }
+                    $stack.Push($sub.FullName)
+                }
+            }
+        } catch { }
+    }
+}
+
+function Format-Size([double]$Bytes) {
+    if ($Bytes -ge 1GB) { return '{0:N2} GB' -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return '{0:N1} MB' -f ($Bytes / 1MB) }
+    return '{0:N0} KB' -f ($Bytes / 1KB)
+}
+
+# Deletes temp/cache/junk files only. Every target is a cache or temp folder that Windows and apps rebuild.
+function Clear-JunkFiles {
+    Write-Section 'Cleaning temporary / junk files'
+    $targets = New-Object System.Collections.Generic.List[object]
+    $add = { param($name, $path, $hours) if ($path) { $targets.Add([pscustomobject]@{ Name = $name; Path = $path; Hours = $hours }) } }
+
+    if ($env:TEMP -match '(?i)\\(Temp|Tmp)$') { & $add 'User temp files' $env:TEMP 24 }
+    & $add 'Windows temp files'         "$env:SystemRoot\Temp" 24
+    & $add 'Windows Update downloads'   "$env:SystemRoot\SoftwareDistribution\Download" 72
+    & $add 'Crash dumps'                "$env:LOCALAPPDATA\CrashDumps" 0
+    & $add 'System minidumps'           "$env:SystemRoot\Minidump" 0
+    & $add 'Error reports (archive)'    "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" 0
+    & $add 'Error reports (queue)'      "$env:ProgramData\Microsoft\Windows\WER\ReportQueue" 0
+    & $add 'DirectX shader cache'       "$env:LOCALAPPDATA\D3DSCache" 0
+    & $add 'NVIDIA shader cache'        "$env:LOCALAPPDATA\NVIDIA\DXCache" 0
+    & $add 'NVIDIA GL cache'            "$env:LOCALAPPDATA\NVIDIA\GLCache" 0
+    & $add 'AMD shader cache'           "$env:LOCALAPPDATA\AMD\DxCache" 0
+    & $add 'FiveM cache'                "$env:LOCALAPPDATA\FiveM\FiveM.app\data\cache" 0
+    & $add 'FiveM server cache'         "$env:LOCALAPPDATA\FiveM\FiveM.app\data\server-cache" 0
+    & $add 'FiveM server cache (priv)'  "$env:LOCALAPPDATA\FiveM\FiveM.app\data\server-cache-priv" 0
+    & $add 'Discord cache'              "$env:APPDATA\discord\Cache" 0
+    & $add 'Discord code cache'         "$env:APPDATA\discord\Code Cache" 0
+    foreach ($b in @(
+        @{ N = 'Chrome'; P = "$env:LOCALAPPDATA\Google\Chrome\User Data" },
+        @{ N = 'Edge';   P = "$env:LOCALAPPDATA\Microsoft\Edge\User Data" },
+        @{ N = 'Brave';  P = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data" },
+        @{ N = 'Opera';  P = "$env:LOCALAPPDATA\Opera Software" })) {
+        if (-not (Test-Path -LiteralPath $b.P)) { continue }
+        Get-ChildItem -LiteralPath $b.P -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            foreach ($c in 'Cache', 'Code Cache', 'GPUCache') {
+                $cp = Join-Path $_.FullName $c
+                if (Test-Path -LiteralPath $cp) { & $add "$($b.N) cache ($($_.Name))" $cp 0 }
+            }
+        }
+    }
+    Get-ChildItem -LiteralPath "$env:LOCALAPPDATA\Mozilla\Firefox\Profiles" -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        & $add "Firefox cache ($($_.Name))" (Join-Path $_.FullName 'cache2') 0
+    }
+
+    # hard safety: never clean a folder that resolves to anything important
+    $forbidden = @($env:SystemDrive + '\', $env:SystemRoot, "$env:SystemRoot\System32", $env:ProgramFiles, ${env:ProgramFiles(x86)},
+        $env:ProgramData, $env:USERPROFILE, $env:APPDATA, $env:LOCALAPPDATA, $Desktop, $Documents, $Downloads, $BaseDir) |
+        Where-Object { $_ } | ForEach-Object { Get-NormPath $_ }
+
+    $total = 0.0
+    foreach ($t in $targets) {
+        $root = Get-NormPath $t.Path
+        if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        if ($forbidden -contains $root -or $root.Length -lt 12) { Write-Host "  skipped (unsafe path): $root" -ForegroundColor Yellow; continue }
+        $cutoff = (Get-Date).AddHours(-$t.Hours)
+        $freed = 0.0; $count = 0
+        foreach ($f in Get-FilesNoLinks $root) {
+            if ($t.Hours -gt 0 -and $f.LastWriteTime -gt $cutoff) { continue }
+            $len = $f.Length
+            try {
+                if ($f.Attributes -band [IO.FileAttributes]::ReadOnly) { $f.Attributes = 'Normal' }
+                $f.Delete(); $freed += $len; $count++
+            } catch { }   # file in use - skip it
+        }
+        # remove now-empty sub folders (never the root itself)
+        @(Get-FilesNoLinks $root -Directories) | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+            try { if (-not $_.EnumerateFileSystemInfos().GetEnumerator().MoveNext()) { $_.Delete() } } catch { }
+        }
+        if ($count -gt 0) { Write-Host ("  {0,-34} {1,6} files  {2}" -f $t.Name, $count, (Format-Size $freed)) }
+        $total += $freed
+    }
+    try { Delete-DeliveryOptimizationCache -Force -ErrorAction Stop; Write-Host '  Delivery Optimization cache cleared' } catch { }
+    $rb = Read-Host '  Also empty the Recycle Bin? (y/n)'
+    if ($rb -match '^[yY]') { try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Host '  Recycle Bin emptied' } catch { } }
+    Write-Host ("  Total freed: {0}" -f (Format-Size $total)) -ForegroundColor Green
+}
+
+# Second, independent engine: Kaspersky Virus Removal Tool (free, portable, different detections than Defender)
+function Invoke-SecondOpinion {
+    Write-Section 'Second opinion: Kaspersky Virus Removal Tool'
+    $dir  = Join-Path $BaseDir 'KVRT'
+    $data = Join-Path $dir 'data'
+    $exe  = Join-Path $dir 'KVRT.exe'
+    New-Item -ItemType Directory -Path $data -Force | Out-Null
+    try {
+        Write-Host '  Downloading the latest KVRT (about 150 MB)...'
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri 'https://devbuilds.s.kaspersky-labs.com/devbuilds/KVRT/latest/full/KVRT.exe' -OutFile $exe -UseBasicParsing -ErrorAction Stop
+    } catch { Write-Host "  Download failed: $_" -ForegroundColor Yellow; return }
+    $sig = Get-SigInfo $exe
+    if ($sig.Status -ne 'Valid' -or $sig.Signer -notmatch '(?i)Kaspersky') {
+        Write-Host "  Downloaded file is not validly signed by Kaspersky ($($sig.Status)). Deleted, not run." -ForegroundColor Red
+        Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
+        return
+    }
+    $kArgs = @('-accepteula', '-silent', '-adinsilent', '-processlevel', '2', '-d', $data)
+    if ($FullScan) { $kArgs += '-allvolumes' }
+    Write-Host '  Scanning with KVRT (memory, startup, system and disks). This can take a long time...'
+    try {
+        $p = Start-Process -FilePath $exe -ArgumentList $kArgs -Wait -PassThru -ErrorAction Stop
+        Write-Host "  KVRT finished (exit code $($p.ExitCode)). It quarantines what it finds itself." -ForegroundColor Green
+        Write-Host "  KVRT reports: $data\Reports   (run $exe normally to see or restore its quarantine)"
+    } catch { Write-Host "  KVRT failed to run: $_" -ForegroundColor Yellow }
+}
+
 # ---------------------------------------------------------------- restore mode
 
 if ($Restore) {
     $last = Get-ChildItem -LiteralPath $QRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'manifest.tsv') } |
         Sort-Object Name -Descending | Select-Object -First 1
-    if (-not $last) { Write-Host 'Nothing to restore.' -ForegroundColor Yellow; exit 0 }
+    if (-not $last) { Write-Host 'Nothing to restore.' -ForegroundColor Yellow; try { Stop-Transcript | Out-Null } catch { }; return }
     Write-Host "Restoring from $($last.FullName)" -ForegroundColor Cyan
     foreach ($line in Get-Content -LiteralPath (Join-Path $last.FullName 'manifest.tsv')) {
         $parts = $line.Split("`t")
@@ -301,7 +436,13 @@ if ($Restore) {
     Write-Host 'Double-click a .reg file to restore it. Disabled tasks/services can be re-enabled in Task Scheduler / services.msc.'
     Write-Host 'You can also use System Restore (rstrui.exe) and pick the "SecurityCleaner" restore point.'
     try { Stop-Transcript | Out-Null } catch { }
-    exit 0
+    return
+}
+
+if ($JunkOnly) {
+    Clear-JunkFiles
+    try { Stop-Transcript | Out-Null } catch { }
+    return
 }
 
 Write-Host "Security Cleaner v$Version - scan started. Nothing is changed during the scan." -ForegroundColor Green
@@ -682,6 +823,73 @@ if ($wuPol -and $wuPol.NoAutoUpdate -eq 1) {
     Add-KeyFinding 'Windows Update' 'Medium' 'NoAutoUpdate policy = 1' 'Automatic updates are turned off by policy.' 'RegDeleteValue' @{ Key = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'; Name = 'NoAutoUpdate' } 'Delete policy value'
 }
 
+# ---------------------------------------------------------------- 6b. Security settings / remote access
+
+Write-Section 'Firewall, UAC, accounts, remote access'
+try {
+    foreach ($fp in Get-NetFirewallProfile -ErrorAction Stop) {
+        if (-not $fp.Enabled) {
+            Add-KeyFinding 'Firewall' 'High' "Windows Firewall is OFF ($($fp.Name) profile)" 'Malware turns the firewall off so it can be controlled remotely.' `
+                'FirewallEnable' @{ Profile = $fp.Name } 'Turn the firewall back on'
+        }
+    }
+} catch { }
+try {
+    $appFilters = @(Get-NetFirewallApplicationFilter -All -ErrorAction Stop | Where-Object { $_.Program -and $_.Program -ne 'Any' })
+    foreach ($af in $appFilters) {
+        $prog = [Environment]::ExpandEnvironmentVariables($af.Program)
+        if ($prog -notmatch $UserDirPattern) { continue }
+        $rule = $af | Get-NetFirewallRule -ErrorAction SilentlyContinue
+        if (-not $rule -or $rule.Enabled -ne 'True' -or $rule.Direction -ne 'Inbound' -or $rule.Action -ne 'Allow') { continue }
+        $sig = Get-SigStatus $prog
+        if ($sig -eq 'Valid') { continue }
+        Add-KeyFinding 'Firewall rule' 'Medium' "$($rule.DisplayName)" "Allows incoming connections to $prog (signature: $sig). Remote-access malware adds rules like this." `
+            'FirewallRuleDisable' @{ Name = $rule.Name } 'Disable this firewall rule'
+    }
+} catch { }
+
+$uacKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+$uac = Get-ItemProperty -LiteralPath $uacKey -ErrorAction SilentlyContinue
+if ($uac) {
+    if ($uac.EnableLUA -eq 0) {
+        Add-KeyFinding 'UAC' 'High' 'User Account Control is OFF' 'Any program can get admin rights silently. (Takes effect after restart.)' `
+            'RegSetValue' @{ Key = $uacKey; Name = 'EnableLUA'; Value = 1 } 'Turn UAC back on'
+    }
+    if ($uac.ConsentPromptBehaviorAdmin -eq 0) {
+        Add-KeyFinding 'UAC' 'Medium' 'UAC never asks for permission' 'Programs get admin rights without a prompt.' `
+            'RegSetValue' @{ Key = $uacKey; Name = 'ConsentPromptBehaviorAdmin'; Value = 5 } 'Restore default UAC prompt'
+    }
+}
+
+try {
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($m in Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop) {
+        if ($m.PrincipalSource -ne 'Local' -or $m.SID.Value -eq $me -or $m.SID.Value -like '*-500') { continue }
+        $u = Get-LocalUser -SID $m.SID -ErrorAction SilentlyContinue
+        if ($u -and $u.Enabled) {
+            $sev = 'Medium'; if ($u.Name -match '\$$' -or $u.Name -match '(?i)^(support|admin|sys|help|defaultuser|user)\d*$') { $sev = 'High' }
+            Add-Finding 'Admin account' $sev "Extra administrator account: $($m.Name)" 'If you did not create this account, someone may have remote access. Remove it in Settings > Accounts > Other users.'
+        }
+    }
+} catch { }
+
+$rdp = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -ErrorAction SilentlyContinue
+if ($rdp -and $rdp.fDenyTSConnections -eq 0) {
+    Add-Finding 'Remote Desktop' 'Info' 'Remote Desktop is enabled' 'If you do not use it, turn it off: Settings > System > Remote Desktop.'
+}
+$remoteTools = '(?i)^(anydesk|teamviewer|tv_w32|tv_x64|rustdesk|screenconnect|connectwise|ammyy|aa_v3|remcos|splashtop|supremo|radmin|rserver3|rutserv|rfusclient|ultraviewer|dwagent|atera|meshagent|netsupport|client32|tightvnc|tvnserver|winvnc|vncserver)'
+foreach ($p in $procs) {
+    $b = [IO.Path]::GetFileNameWithoutExtension([string]$p.Name)
+    if ($b -match $remoteTools) {
+        $sev = 'Info'; $extra = 'Remote-control program running. Fine if YOU installed it; otherwise someone can control your PC.'
+        if ($b -match '(?i)^(remcos|rutserv|rfusclient|client32|meshagent)' -or ([string]$p.ExecutablePath -match $UserDirPattern -and (Get-SigStatus $p.ExecutablePath) -ne 'Valid')) {
+            $sev = 'High'; $extra = 'Remote-control tool commonly abused by attackers (RAT), running from an unusual place.'
+        }
+        Add-Finding 'Remote access' $sev "$($p.Name) (PID $($p.ProcessId))" "$($p.ExecutablePath) - $extra"
+        if ($sev -eq 'High' -and $p.ExecutablePath) { Add-FileFinding 'Remote access' 'High' $p.ExecutablePath 'Abused remote-control tool' }
+    }
+}
+
 # ---------------------------------------------------------------- 7. Files
 
 Write-Section 'Suspicious files in user folders'
@@ -968,6 +1176,8 @@ function Invoke-Fix($f) {
             if ($LASTEXITCODE -ne 0) { throw "sc.exe: $o" }
         }
         'ServiceEnable'     { Set-Service -Name $d.Name -StartupType Manual -ErrorAction Stop }
+        'FirewallEnable'    { Set-NetFirewallProfile -Name $d.Profile -Enabled True -ErrorAction Stop }
+        'FirewallRuleDisable' { Disable-NetFirewallRule -Name $d.Name -ErrorAction Stop }
         'WmiRemove'         {
             Get-CimInstance -Namespace root\subscription -ClassName __FilterToConsumerBinding -ErrorAction SilentlyContinue |
                 Where-Object { $_.Consumer.Name -eq $d.Name } | Remove-CimInstance -ErrorAction Stop
@@ -1066,6 +1276,9 @@ if ($Clean -and $fixable.Count -gt 0) {
     if (Test-Path -LiteralPath $QDir) { Write-Host "  Quarantine and backups: $QDir  (undo with Restore.bat)" }
     Write-Host '  Restart the PC, then run the scan again to confirm it is clean.' -ForegroundColor Cyan
 }
+
+if ($SecondOpinion) { Invoke-SecondOpinion }
+if ($CleanJunk) { Clear-JunkFiles }
 
 if ($mpOk) {
     $doOffline = $OfflineScan
