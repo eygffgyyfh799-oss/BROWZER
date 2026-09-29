@@ -60,7 +60,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.0'
+$Version = '3.1'
 
 # ---------------------------------------------------------------- setup
 
@@ -657,7 +657,14 @@ Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\I
     $dbg = (Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue).Debugger
     if ($dbg) {
         $k = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\' + $_.PSChildName
-        Add-KeyFinding 'IFEO hijack' 'High' "$($_.PSChildName) -> $dbg" 'Launching this program runs something else instead (often used to block antivirus).' `
+        $img = $_.PSChildName.Trim("'").ToLowerInvariant()
+        $sev = 'High'; $why = 'Launching this program runs something else instead (often used to block antivirus).'
+        $blocksSecurity = $img -match '(?i)^(msmpeng|mpcmdrun|msascui|securityhealth\w*|smartscreen|mrt|mbam\w*|avp\w*|kvrt|esets\w*|egui|avast\w*|avg\w*|bdagent|norton\w*|mcafee\w*|hijackthis|autoruns\w*|procexp\w*|procmon\w*|taskmgr|regedit|rstrui|cmd|powershell|msert|mpsigstub)(\.exe)?$'
+        if (-not $blocksSecurity -and $dbg -match '(?i)^("?C:\\WINDOWS\\System32\\)?(taskkill|systray|dllhost)\.exe') {
+            $sev = 'Medium'; $why = 'Blocks a Windows telemetry/background program. Usually done by "optimizer"/privacy tweak tools, not malware. Removing it is harmless.'
+        }
+        if ($blocksSecurity) { $why = 'Blocks a SECURITY or system tool from starting - typical malware trick.' }
+        Add-KeyFinding 'IFEO hijack' $sev "$($_.PSChildName) -> $dbg" $why `
             'RegDeleteValue' @{ Key = $k; Name = 'Debugger' } 'Remove Debugger hijack'
     }
 }
@@ -704,14 +711,17 @@ foreach ($t in Get-ScheduledTask -ErrorAction SilentlyContinue) {
     $isMs = $t.TaskPath -like '\Microsoft\*'
     foreach ($a in @($t.Actions)) {
         if (-not $a.PSObject.Properties['Execute'] -or -not $a.Execute) { continue }
-        $cmd = "`"$($a.Execute)`" $($a.Arguments)"
+        $cmd = "`"$($a.Execute.Trim().Trim('"'))`" $($a.Arguments)"
         $reasons = @(Test-SuspiciousCommand $cmd)
         if ($reasons.Count -eq 0) { continue }
         # tasks under \Microsoft\ need a strong signal - malware hides there, but so do legit tasks
         if ($isMs -and ($reasons -match 'user folder|miner').Count -eq 0 -and $cmd -notmatch $RunningBadCmd) { continue }
         if ($t.Settings.Hidden) { $reasons += 'hidden task' }
-        $sev = 'Medium'; if (($reasons -match 'LOLBin|script-type|hidden|miner').Count -gt 0 -or $reasons.Count -gt 1 -or $isMs) { $sev = 'High' }
-        Add-KeyFinding 'Scheduled task' $sev "$($t.TaskPath)$($t.TaskName)" ("$cmd  <-- " + ($reasons -join '; ')) `
+        # a hidden PowerShell window alone is common for vendor tasks (Intel, ASUS...); High needs a stronger signal
+        $sev = 'Medium'
+        if (($reasons -match 'user folder|script-type|hidden task|miner').Count -gt 0 -or $cmd -match $RunningBadCmd -or $isMs) { $sev = 'High' }
+        $wd = ''; if ($a.WorkingDirectory) { $wd = "  (folder: $($a.WorkingDirectory))" }
+        Add-KeyFinding 'Scheduled task' $sev "$($t.TaskPath)$($t.TaskName)" ("$cmd$wd  <-- " + ($reasons -join '; ')) `
             'TaskDisable' @{ Path = $t.TaskPath; Name = $t.TaskName } 'Back up and disable task'
         Add-ReferencedFileFindings $cmd 'Task file' $sev "Started by task $($t.TaskName)"
     }
@@ -729,8 +739,13 @@ foreach ($d in Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue)
     $dp = [string]$d.PathName
     $dp = $dp -replace '^\\\?\?\\', '' -replace '(?i)^\\SystemRoot\\', "$env:SystemRoot\" -replace '(?i)^system32\\', "$env:SystemRoot\System32\"
     if ($dp -match $UserDirPattern) {
-        Add-KeyFinding 'Driver' 'High' "$($d.Name) ($($d.State))" "Kernel driver loaded from a user folder: $dp" 'ServiceDisable' @{ Name = $d.Name } 'Disable driver (takes effect after restart)'
-        Add-FileFinding 'Driver file' 'High' $dp "Driver $($d.Name)"
+        $dsig = Get-SigStatus $dp
+        if ($dsig -eq 'Valid') {
+            Add-Finding 'Driver' 'Info' "$($d.Name) ($($d.State))" "Signed driver loaded from $dp. Normal for hardware tools (CPU-Z, Armoury Crate, fan/RGB/monitoring software)."
+        } else {
+            Add-KeyFinding 'Driver' 'High' "$($d.Name) ($($d.State))" "UNSIGNED kernel driver loaded from a user folder: $dp (signature: $dsig)" 'ServiceDisable' @{ Name = $d.Name } 'Disable driver (takes effect after restart)'
+            Add-FileFinding 'Driver file' 'High' $dp "Driver $($d.Name)"
+        }
     } elseif ($d.Name -match '(?i)winring0' -or $dp -match '(?i)winring0') {
         Add-Finding 'Driver' 'Medium' "$($d.Name) ($($d.State)) $dp" 'WinRing0 is used by crypto miners (also by some fan/RGB/monitoring tools). If you do not use such a tool, it is suspicious.'
     }
@@ -802,6 +817,12 @@ if ($wsh) {
 Write-Section 'Hosts file, proxy, Windows Update'
 $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
 $hostsLines = @(Get-Content -LiteralPath $hostsPath -ErrorAction SilentlyContinue | Where-Object { $_.Trim() -and -not $_.Trim().StartsWith('#') })
+$devLine = '^\s*(127\.0\.0\.1|::1|0\.0\.0\.0)\s+[\w.-]+\.(local|test|localhost|lan|dev\.local|internal)(\s|#|$)'
+$realHosts = @($hostsLines | Where-Object { $_ -notmatch $devLine })
+if ($hostsLines.Count -gt 0 -and $realHosts.Count -eq 0) {
+    Add-Finding 'Hosts file' 'Info' "$($hostsLines.Count) local development entries" 'Only .local/.test sites pointing to this PC (XAMPP/Laragon etc.). Harmless.'
+}
+$hostsLines = $realHosts
 if ($hostsLines.Count -gt 0) {
     $sev = 'Medium'
     if ($hostsLines -match '(?i)microsoft|windowsupdate|defender|virustotal|malwarebytes|kaspersky|eset|avast|avg|bitdefender|norton|mcafee|steam|discord|google|github') { $sev = 'High' }
@@ -843,6 +864,10 @@ try {
         if (-not $rule -or $rule.Enabled -ne 'True' -or $rule.Direction -ne 'Inbound' -or $rule.Action -ne 'Allow') { continue }
         $sig = Get-SigStatus $prog
         if ($sig -eq 'Valid') { continue }
+        if ($sig -eq 'Missing') {
+            Add-Finding 'Firewall rule' 'Info' "$($rule.DisplayName)" "Leftover rule for a program that no longer exists: $prog"
+            continue
+        }
         Add-KeyFinding 'Firewall rule' 'Medium' "$($rule.DisplayName)" "Allows incoming connections to $prog (signature: $sig). Remote-access malware adds rules like this." `
             'FirewallRuleDisable' @{ Name = $rule.Name } 'Disable this firewall rule'
     }
