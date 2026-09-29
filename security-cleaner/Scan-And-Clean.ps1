@@ -24,7 +24,7 @@
         extra admin accounts, remote-access tools / RATs
     -SecondOpinion also runs Kaspersky Virus Removal Tool (signature-verified download).
     -CleanJunk / -JunkOnly delete temp and cache files (temp, crash dumps, error reports,
-    shader/browser/Discord/FiveM caches, Windows Update downloads). Nothing else.
+    shader/browser/Discord/FiveM caches). Nothing else.
 
     Safety (-Clean):
       - every fix is confirmed by you (or -AutoFixHigh for High only)
@@ -61,7 +61,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.2'
+$Version = '3.3'
 
 # ---------------------------------------------------------------- setup
 
@@ -152,6 +152,10 @@ function Test-ProtectedPath([string]$Path) {
     $isPsProfile = $leaf -match '(?i)^(Microsoft\.PowerShell_)?profile\.ps1$'
     if ($full.StartsWith($env:SystemRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and -not $isPsProfile -and
         -not $full.StartsWith($env:SystemRoot + '\Temp\', [StringComparison]::OrdinalIgnoreCase)) { return 'inside the Windows folder' }
+    $inSteam = $SteamPath -and $full.StartsWith((Get-NormPath $SteamPath) + '\', [StringComparison]::OrdinalIgnoreCase)
+    foreach ($sys in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, (Join-Path $env:ProgramData 'Microsoft')) | Where-Object { $_ }) {
+        if (-not $inSteam -and $full.StartsWith((Get-NormPath $sys) + '\', [StringComparison]::OrdinalIgnoreCase)) { return 'installed program / system folder' }
+    }
     if (Test-Path -LiteralPath $full -PathType Leaf) {
         $sig = Get-SigInfo $full
         if ($sig.Microsoft) { return 'file signed by Microsoft' }
@@ -195,7 +199,30 @@ if ($Trust.Count -gt 0) {
 $Allow = @(Get-Content -LiteralPath $AllowFile -ErrorAction SilentlyContinue |
     ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } |
     ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) } | Where-Object { $_.Length -ge 4 })
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*)$'
+# Every program installed on this PC (from the Windows uninstall list) is trusted automatically
+$InstalledDirs = @()
+$tooBroad = @($env:SystemDrive + '\', $env:SystemRoot, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:USERPROFILE,
+    $env:APPDATA, $env:LOCALAPPDATA, (Join-Path $env:LOCALAPPDATA 'Programs'), $env:TEMP, $env:PUBLIC) | Where-Object { $_ } | ForEach-Object { Get-NormPath $_ }
+foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall') {
+    foreach ($k in Get-ChildItem -LiteralPath $uk -ErrorAction SilentlyContinue) {
+        $pr = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+        if (-not $pr -or -not $pr.DisplayName) { continue }
+        $cands = @()
+        if ($pr.InstallLocation) { $cands += ([string]$pr.InstallLocation).Trim().Trim('"') }
+        if ($pr.DisplayIcon) { $ic = ([string]$pr.DisplayIcon).Trim() -replace ',\s*-?\d+$', ''; $cands += Split-Path $ic.Trim('"') -Parent }
+        foreach ($c in $cands) {
+            $n = Get-NormPath $c
+            if (-not $n -or $n.Length -lt 8 -or $tooBroad -contains $n -or $n -match '(?i)\\(Temp|Downloads|Desktop)(\\|$)') { continue }
+            if ($n.StartsWith($env:SystemRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }   # never trust Windows (powershell, rundll32...)
+            if ($SteamPath -and $n -ieq (Get-NormPath $SteamPath)) { continue }   # Steam folder stays checked for hijack DLLs
+            if (Test-Path -LiteralPath $n -PathType Container) { $InstalledDirs += ($n + '\') }
+        }
+    }
+}
+$InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
+$Allow += $InstalledDirs
+# These are never trusted, even inside a trusted folder (malware hides in legit folders)
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -209,7 +236,8 @@ function Add-Finding {
         [string]$Item, [string]$Detail,
         [string]$Action = '', [hashtable]$Data = @{}, [string]$FixText = ''
     )
-    if ($Severity -ne 'Info' -and $Category -notmatch $NeverTrust -and (Test-Trusted ("$Item`n$Detail`n" + [string]$Data.Path))) {
+    if ($Severity -ne 'Info' -and $Category -notmatch $NeverTrust -and "$Item`n$Detail" -notmatch $RunningBadCmd -and
+        (Test-Trusted ("$Item`n$Detail`n" + [string]$Data.Path))) {
         $Severity = 'Info'; $Detail = "$Detail [trusted by your allowlist - not touched]"; $Action = ''; $FixText = ''
     }
     $f = [pscustomobject]@{
@@ -361,9 +389,7 @@ function Clear-JunkFiles {
 
     if ($env:TEMP -match '(?i)\\(Temp|Tmp)$') { & $add 'User temp files' $env:TEMP 24 }
     & $add 'Windows temp files'         "$env:SystemRoot\Temp" 24
-    & $add 'Windows Update downloads'   "$env:SystemRoot\SoftwareDistribution\Download" 72
     & $add 'Crash dumps'                "$env:LOCALAPPDATA\CrashDumps" 0
-    & $add 'System minidumps'           "$env:SystemRoot\Minidump" 0
     & $add 'Error reports (archive)'    "$env:ProgramData\Microsoft\Windows\WER\ReportArchive" 0
     & $add 'Error reports (queue)'      "$env:ProgramData\Microsoft\Windows\WER\ReportQueue" 0
     & $add 'DirectX shader cache'       "$env:LOCALAPPDATA\D3DSCache" 0
@@ -485,7 +511,7 @@ if ($Trust.Count -gt 0 -and -not ($FullScan -or $Clean -or $CleanJunk -or $Secon
     try { Stop-Transcript | Out-Null } catch { }
     return
 }
-Write-Host "Allowlist: $($Allow.Count) trusted entries ($AllowFile)" -ForegroundColor DarkGray
+Write-Host "Protected, never touched: Windows, Program Files, $($InstalledDirs.Count) installed programs, $($Allow.Count - $InstalledDirs.Count) allowlist entries" -ForegroundColor Green
 
 if ($JunkOnly) {
     Clear-JunkFiles
@@ -538,7 +564,8 @@ foreach ($pc in $polChecks) {
                ($n -eq 'SubmitSamplesConsent' -and $p.$n -eq 2) -or ($n -eq 'ServiceKeepAlive' -and $p.$n -eq 0) -or
                ($n -eq 'EnableSmartScreen' -and $p.$n -eq 0)
         if ($bad) {
-            Add-KeyFinding 'Defender policy' 'High' "$($pc.Key)\$n = $($p.$n)" 'Policy that weakens Windows protection (typical malware change).' `
+            $psev = 'High'; if ($n -eq 'EnableSmartScreen') { $psev = 'Medium' }
+            Add-KeyFinding 'Defender policy' $psev "$($pc.Key)\$n = $($p.$n)" 'Policy that weakens Windows protection (malware or "optimizer" tools do this).' `
                 'RegDeleteValue' @{ Key = $pc.Key; Name = $n } 'Delete this policy value'
         }
     }
