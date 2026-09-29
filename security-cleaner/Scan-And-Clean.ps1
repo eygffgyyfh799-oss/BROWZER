@@ -61,7 +61,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.4'
+$Version = '3.5'
 
 # ---------------------------------------------------------------- setup
 
@@ -1133,7 +1133,10 @@ foreach ($dir in $resourceDirs.Values) {
 
             $isJs = $_.Extension -ieq '.js'
             # bundled UI code (NUI) legitimately contains eval/fetch - only strong signals count there
-            $isBundle = $isJs -and ($fp -match '(?i)\\(node_modules|html|ui|web|nui|dist|build)\\' -or $_.Name -match '(?i)\.min\.js$')
+            # official FXServer files and big bundles (yarn, webpack, oxmysql build.js...) contain every pattern legitimately
+            $isOfficial = $fp -match '(?i)\\citizen\\system_resources\\'
+            $isBundle = $isOfficial -or ($isJs -and ($fp -match '(?i)\\(node_modules|html|ui|web|nui|dist|build|yarn|webpack)\\' -or
+                        $_.Name -match '(?i)\.min\.js$' -or $_.Length -gt 300KB))
             $dec = Expand-Obfuscation $t
             # encoding that reveals new code keywords/URLs = someone is hiding what the script does
             $hidden = ($dec -ne $t) -and ([regex]::Matches($dec, $hiddenKw).Count -gt [regex]::Matches($t, $hiddenKw).Count)
@@ -1144,9 +1147,10 @@ foreach ($dir in $resourceDirs.Values) {
             $hasHttp = $all -match $httpRx
             $hasLoad = $all -match $loadRx
             if ($all -match $knownBad)                              { $reasons += 'known FiveM backdoor panel'; $sev = 'High' }
-            if ($hidden)                                            { $reasons += 'network/exec code HIDDEN with encoding'; $sev = 'High' }
-            if ($isJs -and $t -match '\beval\s*\(' -and $t -match $b64Rx) { $reasons += 'eval of base64 data'; $sev = 'High' }
-            if ($all -match $stealRx -and ($hasHttp -or $all -match $webhookRx)) { $reasons += 'reads server keys/passwords and sends them out'; $sev = 'High' }
+            # bundles: only a Discord webhook next to server secrets is strong enough
+            if ($all -match $stealRx -and ($all -match $webhookRx -or ($hasHttp -and -not $isBundle))) { $reasons += 'reads server keys/passwords and sends them out'; $sev = 'High' }
+            if (-not $isBundle -and $hidden)                        { $reasons += 'network/exec code HIDDEN with encoding'; $sev = 'High' }
+            if (-not $isBundle -and $isJs -and $t -match '\beval\s*\(' -and $t -match $b64Rx) { $reasons += 'eval of base64 data'; $sev = 'High' }
             if (-not $isBundle) {
                 if ($hasHttp -and $hasLoad)                         { $reasons += 'downloads code from the internet and runs it'; $sev = 'High' }
                 if ($hasLoad -and ($hex -gt 30 -or $t -match $charRx)) { $reasons += "runs obfuscated code (hex escapes: $hex)"; $sev = 'High' }
