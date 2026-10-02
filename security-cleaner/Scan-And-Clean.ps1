@@ -57,12 +57,13 @@ param(
     [switch]$JunkOnly,
     [switch]$Restore,
     [switch]$Auto,
+    [string[]]$Server = @(),
     [string[]]$Trust = @()
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '4.0'
+$Version = '4.1'
 
 # ---------------------------------------------------------------- setup
 
@@ -453,6 +454,311 @@ function Clear-JunkFiles([switch]$NoPrompt, [switch]$EmptyRecycleBin) {
     Write-Host ("  Total freed: {0}" -f (Format-Size $total)) -ForegroundColor Green
 }
 
+# ---- FiveM detection rules (shared by the normal scan and -Server mode)
+$knownBad = '(?i)cipher-panel|ciphercheats|blum-panel|\bcipher\.lua\b|fivem-backdoor|backdoor\.lua'
+$httpRx   = '(?i)PerformHttpRequest|https?\.(get|request)\s*\(|\bfetch\s*\(|XMLHttpRequest|http\.request|require\(\s*[''"]https?[''"]\s*\)'
+$loadRx   = '(?i)(?<![\w.:])(load|loadstring)\s*\(|assert\s*\(\s*load|\beval\s*\(|new\s+Function\s*\(|\bRunString\s*\(|_G\s*\[\s*[''"](load|loadstring|assert)[''"]\s*\]'
+$hiddenKw = '(?i)\b(loadstring|load|PerformHttpRequest|os\.execute|io\.popen|eval|child_process|require)\b|https?://'
+$execRx   = '(?i)os\.execute\s*\(|io\.popen\s*\(|child_process'
+$b64Rx    = '(?i)Buffer\.from\s*\([^)]*base64|\batob\s*\('
+$charRx   = '(string\.char|String\.fromCharCode)\s*\(\s*[0-9]+\s*(,\s*[0-9]+\s*){20,}\)'
+$stealRx  = '(?i)GetConvar\s*\(\s*[''"](sv_licenseKey|sv_licenseKeyToken|rcon_password|steam_webApiKey|mysql_connection_string)[''"]'
+$webhookRx = '(?i)discord(app)?\.com/api/webhooks/'
+
+# Decode \xNN, \ddd, string.char(...) and String.fromCharCode(...) so hidden code is visible
+function Expand-Obfuscation([string]$Text) {
+    $d = [regex]::Replace($Text, '\\x([0-9a-fA-F]{2})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+    $d = [regex]::Replace($d, '\\([0-9]{2,3})', { param($m) $n = [int]$m.Groups[1].Value; if ($n -lt 256) { [string][char]$n } else { $m.Value } })
+    $d = [regex]::Replace($d, '(string\.char|String\.fromCharCode)\s*\(([0-9\s,]+)\)', {
+        param($m)
+        $chars = foreach ($v in ($m.Groups[2].Value -split ',')) { $v = $v.Trim(); if ($v -match '^[0-9]+$' -and [int]$v -lt 256) { [char][int]$v } }
+        '"' + (-join $chars) + '"'
+    })
+    return $d
+}
+
+
+# ---- FiveM SERVER mode: find malicious code, remove only those lines, never touch clean files
+$ObfuscatorRx = '(?i)Luraph|MoonSec|IronBrew|Prometheus Obfuscator|wearedevs\.net/obfuscator|protected (with|using|by) \w+ ?obfuscator'
+$SignalRx     = '(?i)PerformHttpRequest|https?[:.]|\\x[0-9a-f]{2}|\\[0-9]{2,3}|string\.char|fromCharCode|\bload|\beval|Function\s*\(|child_process|_0x[0-9a-f]{4}|cipher|blum|GetConvar|webhooks|os\.execute|io\.popen|atob|base64|_G\s*\['
+
+# Why a single line is malicious ($null = not malicious)
+function Get-LineThreat([string]$Line, [bool]$IsJs) {
+    if ($Line -notmatch $SignalRx) { return $null }
+    $dec = Expand-Obfuscation $Line
+    $all = $Line + "`n" + $dec
+    $net  = ($all -match $httpRx) -or ($all -match 'https?://')
+    $exec = $all -match $loadRx
+    if ($all -match $knownBad) { return 'known FiveM backdoor panel' }
+    if ($net -and $exec) { return 'downloads code from the internet and runs it' }
+    if ($all -match $stealRx -and ($all -match $webhookRx -or $net)) { return 'steals server keys/passwords' }
+    if ($dec -ne $Line -and [regex]::Matches($dec, $hiddenKw).Count -gt [regex]::Matches($Line, $hiddenKw).Count -and
+        $dec -match '(?i)PerformHttpRequest|https?://|\bload|loadstring|\beval|child_process|os\.execute|io\.popen') { return 'network/exec code hidden with encoding' }
+    if ($IsJs -and $Line -match '\beval\s*\(' -and $Line -match $b64Rx) { return 'runs base64-encoded code' }
+    if ($IsJs -and [regex]::Matches($Line, '_0x[0-9a-fA-F]{4,}').Count -gt 15 -and $all -match '(?i)\beval|Function\s*\(|https?|child_process|require\s*\(') { return 'obfuscated JavaScript loader' }
+    if (-not $IsJs -and $Line.Length -gt 1000 -and [regex]::Matches($Line, '\\x[0-9a-fA-F]{2}').Count -gt 50 -and $exec) { return 'obfuscated Lua loader' }
+    return $null
+}
+
+# Bracket / Lua block balance of a piece of code (strings and comments removed). 0 = complete statement(s).
+function Get-CodeBalance([string]$Code, [bool]$IsJs) {
+    $c = $Code
+    $c = [regex]::Replace($c, '--\[(=*)\[[\s\S]*?\]\1\]', '')
+    $c = [regex]::Replace($c, '\[(=*)\[[\s\S]*?\]\1\]', '""')
+    $c = [regex]::Replace($c, '"(?:\\.|[^"\\\r\n])*"', '""')
+    $c = [regex]::Replace($c, "'(?:\\.|[^'\\\r\n])*'", "''")
+    $c = [regex]::Replace($c, '`(?:\\.|[^`\\])*`', '""')
+    $c = [regex]::Replace($c, '/\*[\s\S]*?\*/', '')
+    if ($IsJs) { $c = [regex]::Replace($c, '//[^\r\n]*', '') } else { $c = [regex]::Replace($c, '--[^\r\n]*', '') }
+    $b = 0; $p = 0; $k = 0
+    foreach ($ch in $c.ToCharArray()) {
+        switch ($ch) { '(' { $p++ } ')' { $p-- } '{' { $b++ } '}' { $b-- } '[' { $k++ } ']' { $k-- } }
+    }
+    $blocks = 0
+    if (-not $IsJs) {
+        $blocks = [regex]::Matches($c, '\b(function|if|do|repeat)\b').Count - [regex]::Matches($c, '\b(end|until)\b').Count
+    }
+    return [Math]::Abs($p) + [Math]::Abs($b) + [Math]::Abs($k) + [Math]::Abs($blocks)
+}
+
+# Analyse one file. Returns $null when clean.
+function Get-ServerFileVerdict([IO.FileInfo]$File) {
+    $fp = $File.FullName
+    $isJs = $File.Extension -ieq '.js'
+    $bytes = $null; try { $bytes = [IO.File]::ReadAllBytes($fp) } catch { return $null }
+    $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+    $text = [Text.Encoding]::UTF8.GetString($bytes)
+    if ($hasBom) { $text = $text.Substring(1) }
+    $isBundle = ($fp -match '(?i)\\citizen\\system_resources\\|\\node_modules\\') -or
+                ($isJs -and ($File.Name -match '(?i)\.min\.js$' -or $File.Length -gt 300KB -or $fp -match '(?i)\\(dist|build|yarn|webpack)\\'))
+    if ($isBundle) {
+        # bundled/official code: only a known panel or secrets sent to a webhook count
+        if ($text -notmatch $knownBad -and -not ($text -match $stealRx -and $text -match $webhookRx)) { return $null }
+    } elseif ($text -notmatch $SignalRx) {
+        return $null
+    }
+
+    $lines = [regex]::Split($text, '(?<=\n)')
+    $bad = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $why = Get-LineThreat $lines[$i] $isJs
+        if ($why) { $bad += [pscustomobject]@{ Index = $i; Why = $why; Need = $i }; continue }
+        # multi-line backdoor: code runner (load/eval) right after a web request a few lines above
+        if (-not $isBundle -and $lines[$i] -match $loadRx) {
+            for ($k = $i - 1; $k -ge [Math]::Max(0, $i - 6); $k--) {
+                $up = $lines[$k] + "`n" + (Expand-Obfuscation $lines[$k])
+                if ($up -match $httpRx -or $up -match 'https?://') {
+                    $bad += [pscustomobject]@{ Index = $i; Why = 'downloads code from the internet and runs it (multi-line)'; Need = $k }; break
+                }
+            }
+        }
+    }
+    $obf = (-not $isBundle) -and ($text -match $ObfuscatorRx)
+    if ($bad.Count -eq 0) {
+        if ($obf) { return [pscustomobject]@{ Path = $fp; Status = 'Obfuscated'; Reason = 'protected by an obfuscator - its code cannot be checked'; Ranges = @(); Lines = $lines; Bom = $hasBom; IsJs = $isJs } }
+        return $null
+    }
+
+    # find a removable range for each bad line: the line alone, or the smallest complete statement around it
+    $ranges = @(); $unsafe = @()
+    foreach ($bl in $bad) {
+        $found = $null
+        for ($size = 0; $size -le 12 -and -not $found; $size++) {
+            for ($up = 0; $up -le $size -and -not $found; $up++) {
+                $s = $bl.Index - $up; $e = $bl.Index + ($size - $up)
+                if ($s -lt 0 -or $e -ge $lines.Count -or $s -gt $bl.Need) { continue }   # must include the web request line
+                $chunk = -join $lines[$s..$e]
+                if ((Get-CodeBalance $chunk $isJs) -eq 0) { $found = [pscustomobject]@{ Start = $s; End = $e; Why = $bl.Why } }
+            }
+        }
+        if ($found) { $ranges += $found } else { $unsafe += $bl }
+    }
+
+    $status = 'Cleanable'; $reason = (($bad | ForEach-Object { $_.Why } | Select-Object -Unique) -join '; ')
+    if ($unsafe.Count -gt 0) {
+        $status = 'Infected'; $reason += " (malicious code is mixed into other code - cannot be removed safely)"
+    } else {
+        $remove = @{}
+        foreach ($r in $ranges) { for ($j = $r.Start; $j -le $r.End; $j++) { $remove[$j] = $true } }
+        $kept = for ($j = 0; $j -lt $lines.Count; $j++) { if (-not $remove.ContainsKey($j)) { $lines[$j] } }
+        $rest = -join @($kept)
+        $restCode = [regex]::Replace($rest, '(?m)^\s*(--|//).*$', '').Trim()
+        if ($restCode.Length -lt 30) {
+            $status = 'MaliciousFile'; $reason += ' (the whole file is malicious)'
+        } else {
+            # verify: the cleaned file must not contain anything malicious any more
+            $still = $false
+            $rl = [regex]::Split($rest, '(?<=\n)')
+            for ($q = 0; $q -lt $rl.Count -and -not $still; $q++) {
+                if (Get-LineThreat $rl[$q] $isJs) { $still = $true; break }
+                if ($rl[$q] -match $loadRx) {
+                    for ($k = $q - 1; $k -ge [Math]::Max(0, $q - 6); $k--) { if ($rl[$k] -match $httpRx) { $still = $true; break } }
+                }
+            }
+            if ($still -or (Get-CodeBalance $rest $isJs) -ne (Get-CodeBalance $text $isJs)) {
+                $status = 'Infected'; $reason += ' (could not verify the file after removing the code)'
+            }
+        }
+    }
+    return [pscustomobject]@{ Path = $fp; Status = $status; Reason = $reason; Ranges = $ranges; Lines = $lines; Bom = $hasBom; IsJs = $isJs }
+}
+
+function Repair-ServerFile($V) {
+    Initialize-Quarantine
+    $backup = Join-Path $QDir ('{0:D4}_{1}.original' -f ($script:QCount++), (Split-Path $V.Path -Leaf))
+    Copy-Item -LiteralPath $V.Path -Destination $backup -Force -ErrorAction Stop
+    Add-Content -LiteralPath $Manifest -Value ("{0}`t{1}" -f $V.Path, $backup)
+    $remove = @{}
+    foreach ($r in $V.Ranges) { for ($j = $r.Start; $j -le $r.End; $j++) { $remove[$j] = $r } }
+    $mark = '-- [SecurityCleaner] removed malicious code here'; if ($V.IsJs) { $mark = '// [SecurityCleaner] removed malicious code here' }
+    $sb = New-Object System.Text.StringBuilder
+    for ($j = 0; $j -lt $V.Lines.Count; $j++) {
+        if ($remove.ContainsKey($j)) {
+            if ($j -eq $remove[$j].Start) { $nl = "`n"; if ($V.Lines[$remove[$j].End] -match "`r`n$") { $nl = "`r`n" }; [void]$sb.Append($mark + $nl) }
+            continue
+        }
+        [void]$sb.Append($V.Lines[$j])
+    }
+    [IO.File]::WriteAllText($V.Path, $sb.ToString(), (New-Object System.Text.UTF8Encoding($V.Bom)))
+}
+
+function Invoke-ServerScan([string[]]$Roots) {
+    Write-Section 'FiveM server scan'
+    $files = New-Object System.Collections.Generic.List[object]
+    foreach ($root in $Roots) {
+        if (-not (Test-Path -LiteralPath $root -PathType Container)) { Write-Host "  Folder not found: $root" -ForegroundColor Red; continue }
+        Write-Host "  Reading $root ..."
+        Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { ($_.Extension -ieq '.lua' -or $_.Extension -ieq '.js') -and $_.Length -lt 5MB -and $_.FullName -notmatch '(?i)\\cache\\' } |
+            ForEach-Object { $files.Add($_) }
+    }
+    Write-Host "  Checking $($files.Count) script files..."
+    $verdicts = New-Object System.Collections.Generic.List[object]
+    $n = 0
+    foreach ($f in $files) {
+        $n++; if ($n % 250 -eq 0) { Write-Host "    $n / $($files.Count)" -ForegroundColor DarkGray }
+        $v = Get-ServerFileVerdict $f
+        if ($v) { $verdicts.Add($v) }
+    }
+
+    # server.cfg: resources allowed to run console commands (backdoors use this)
+    $aceNotes = @()
+    foreach ($root in $Roots) {
+        Get-ChildItem -LiteralPath $root -Recurse -File -Force -Filter 'server.cfg' -ErrorAction SilentlyContinue | ForEach-Object {
+            $cfg = $_.FullName
+            Select-String -LiteralPath $cfg -Pattern '^\s*add_ace\s+resource\.(\S+)\s+command\b.*allow' -ErrorAction SilentlyContinue |
+                ForEach-Object { $aceNotes += "$cfg line $($_.LineNumber): resource '$($_.Matches[0].Groups[1].Value)' may run ANY console command" }
+        }
+    }
+
+    $clean = @($verdicts | Where-Object Status -eq 'Cleanable')
+    $malf  = @($verdicts | Where-Object Status -eq 'MaliciousFile')
+    $inf   = @($verdicts | Where-Object Status -eq 'Infected')
+    $obf   = @($verdicts | Where-Object Status -eq 'Obfuscated')
+
+    Write-Section 'Result'
+    Write-Host ("  Scripts checked: {0}   Clean: {1}   Infected: {2}   Obfuscated (cannot check): {3}" -f $files.Count, ($files.Count - $verdicts.Count), ($clean.Count + $malf.Count + $inf.Count), $obf.Count)
+    if (($clean.Count + $malf.Count + $inf.Count) -eq 0) { Write-Host '  No malicious code found in the server files.' -ForegroundColor Green }
+
+    $plan = New-Object System.Collections.Generic.List[object]
+    foreach ($v in $clean) { $plan.Add([pscustomobject]@{ V = $v; Act = 'clean' }) }
+    foreach ($v in $malf)  { $plan.Add([pscustomobject]@{ V = $v; Act = 'quarantine' }) }
+
+    $done = @(); $failed = @()
+    foreach ($v in $inf) { $failed += [pscustomobject]@{ Path = $v.Path; Why = "INFECTED - could not be cleaned safely, NOT touched: $($v.Reason)" } }
+    if ($plan.Count -gt 0) {
+        Write-Section 'FINAL STEP - your approval is needed'
+        for ($i = 0; $i -lt $plan.Count; $i++) {
+            $x = $plan[$i]; $v = $x.V
+            Write-Host ''
+            if ($x.Act -eq 'clean') {
+                Write-Host ("  {0,2}. REMOVE MALICIOUS LINES (rest of the file is kept): {1}" -f ($i + 1), $v.Path) -ForegroundColor Red
+                foreach ($r in $v.Ranges) {
+                    $snip = ($v.Lines[$r.Start]).Trim(); if ($snip.Length -gt 110) { $snip = $snip.Substring(0, 110) + '...' }
+                    $lr = "line $($r.Start + 1)"; if ($r.End -gt $r.Start) { $lr = "lines $($r.Start + 1)-$($r.End + 1)" }
+                    Write-Host ("      {0}: {1}" -f $lr, $snip) -ForegroundColor DarkGray
+                    Write-Host ("      reason: {0}" -f $r.Why) -ForegroundColor DarkGray
+                }
+            } else {
+                Write-Host ("  {0,2}. MOVE WHOLE FILE TO QUARANTINE: {1}" -f ($i + 1), $v.Path) -ForegroundColor Red
+                Write-Host ("      reason: {0}" -f $v.Reason) -ForegroundColor DarkGray
+            }
+        }
+        Write-Host ''
+        Write-Host '  Originals are backed up first - everything can be undone with:  .\Scan-And-Clean.ps1 -Restore' -ForegroundColor Cyan
+        Write-Host '  y = approve all   n = nothing   numbers = all EXCEPT these (e.g. 2,4)' -ForegroundColor Cyan
+        $ans = (Read-Host '  Your choice').Trim()
+        $skip = @(); $go = $true
+        if ($ans -match '^[nN]') { $go = $false }
+        elseif ($ans -match '^[0-9 ,]+$') { $skip = @($ans -split '[ ,]+' | Where-Object { $_ } | ForEach-Object { [int]$_ }) }
+        elseif ($ans -notmatch '^[yY]') { $go = $false; Write-Host '  Not understood - nothing was changed.' -ForegroundColor Yellow }
+        if ($go) {
+            for ($i = 0; $i -lt $plan.Count; $i++) {
+                if ($skip -contains ($i + 1)) { $failed += [pscustomobject]@{ Path = $plan[$i].V.Path; Why = 'skipped by you - still infected' }; continue }
+                $x = $plan[$i]
+                try {
+                    if ($x.Act -eq 'clean') {
+                        Repair-ServerFile $x.V
+                        $re = Get-ServerFileVerdict (Get-Item -LiteralPath $x.V.Path)
+                        if ($re -and $re.Status -ne 'Obfuscated') { throw 'malicious code still detected after cleaning' }
+                        $done += "CLEANED      $($x.V.Path)"
+                    } else {
+                        Move-ToQuarantine $x.V.Path
+                        $done += "QUARANTINED  $($x.V.Path)"
+                    }
+                } catch { $failed += [pscustomobject]@{ Path = $x.V.Path; Why = "$_" } }
+            }
+        } else {
+            foreach ($x in $plan) { $failed += [pscustomobject]@{ Path = $x.V.Path; Why = "not approved - still infected ($($x.V.Reason))" } }
+        }
+    }
+
+    # ---- final report
+    $rep = New-Object System.Collections.Generic.List[string]
+    $rep.Add("Security Cleaner v$Version - FiveM server report - $Stamp")
+    $rep.Add("Folders: $($Roots -join ', ')")
+    $rep.Add("Scripts checked: $($files.Count)")
+    $rep.Add('')
+    Write-Section 'Summary'
+    foreach ($d in $done) { Write-Host "  $d" -ForegroundColor Green; $rep.Add($d) }
+    if ($failed.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  INFECTED FILES THAT WERE NOT CLEANED:' -ForegroundColor Red
+        $rep.Add(''); $rep.Add('INFECTED FILES THAT WERE NOT CLEANED:')
+        foreach ($f in $failed) {
+            Write-Host "    $($f.Path)" -ForegroundColor Red
+            Write-Host "      why: $($f.Why)" -ForegroundColor DarkGray
+            $rep.Add("  $($f.Path)"); $rep.Add("    why: $($f.Why)")
+        }
+        Write-Host ''
+        Write-Host '  Command to DELETE these files permanently (copy and paste it if you are sure):' -ForegroundColor Yellow
+        $cmd = ($failed | ForEach-Object { "Remove-Item -LiteralPath '" + ($_.Path -replace "'", "''") + "' -Force" }) -join '; '
+        Write-Host "  $cmd"
+        $rep.Add(''); $rep.Add('Delete command:'); $rep.Add($cmd)
+    }
+    if ($obf.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  OBFUSCATED SCRIPTS (code is hidden, cannot be checked - not touched):' -ForegroundColor Yellow
+        $rep.Add(''); $rep.Add('OBFUSCATED SCRIPTS (not touched):')
+        foreach ($v in $obf) { Write-Host "    $($v.Path)"; $rep.Add("  $($v.Path)") }
+        Write-Host '    Keep them only if they came from a trusted seller (Tebex/official). Leaked scripts like this are a common backdoor source.' -ForegroundColor DarkGray
+    }
+    if ($aceNotes.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  server.cfg - resources allowed to run console commands (check you trust each one):' -ForegroundColor Yellow
+        $rep.Add(''); $rep.Add('server.cfg command permissions:')
+        foreach ($a in $aceNotes) { Write-Host "    $a"; $rep.Add("  $a") }
+    }
+    $repFile = Join-Path $Desktop "ServerScan_$Stamp.txt"
+    $rep | Out-File -LiteralPath $repFile -Encoding UTF8
+    Write-Host ''
+    Write-Host "  Report saved to: $repFile" -ForegroundColor Green
+    if ($done.Count -gt 0) {
+        Write-Host '  IMPORTANT: a backdoor may already have stolen your keys. Regenerate your sv_licenseKey (keymaster.fivem.net),' -ForegroundColor Yellow
+        Write-Host '  change rcon/database passwords and Discord bot tokens, and remove admins you do not know.' -ForegroundColor Yellow
+    }
+}
+
 # Second, independent engine: Kaspersky Virus Removal Tool (free, portable, different detections than Defender)
 function Invoke-SecondOpinion {
     Write-Section 'Second opinion: Kaspersky Virus Removal Tool'
@@ -514,6 +820,12 @@ if ($Trust.Count -gt 0 -and -not ($FullScan -or $Clean -or $CleanJunk -or $Secon
     return
 }
 Write-Host "Protected, never touched: Windows, Program Files, $($InstalledDirs.Count) installed programs, $($Allow.Count - $InstalledDirs.Count) allowlist entries" -ForegroundColor Green
+
+if ($Server.Count -gt 0) {
+    Invoke-ServerScan $Server
+    try { Stop-Transcript | Out-Null } catch { }
+    return
+}
 
 if ($JunkOnly) {
     Clear-JunkFiles
@@ -1099,28 +1411,6 @@ foreach ($root in $resRoots) {
         ForEach-Object { $resourceDirs[$_.DirectoryName.ToLowerInvariant()] = $_.DirectoryName }
 }
 Write-Host "  Found $($resourceDirs.Count) resource(s)"
-
-$knownBad = '(?i)cipher-panel|ciphercheats|blum-panel|\bcipher\.lua\b|fivem-backdoor|backdoor\.lua'
-$httpRx   = '(?i)PerformHttpRequest|https?\.(get|request)\s*\(|\bfetch\s*\(|XMLHttpRequest|http\.request|require\(\s*[''"]https?[''"]\s*\)'
-$loadRx   = '(?i)(?<![\w.:])(load|loadstring)\s*\(|assert\s*\(\s*load|\beval\s*\(|new\s+Function\s*\(|\bRunString\s*\(|_G\s*\[\s*[''"](load|loadstring|assert)[''"]\s*\]'
-$hiddenKw = '(?i)\b(loadstring|load|PerformHttpRequest|os\.execute|io\.popen|eval|child_process|require)\b|https?://'
-$execRx   = '(?i)os\.execute\s*\(|io\.popen\s*\(|child_process'
-$b64Rx    = '(?i)Buffer\.from\s*\([^)]*base64|\batob\s*\('
-$charRx   = '(string\.char|String\.fromCharCode)\s*\(\s*[0-9]+\s*(,\s*[0-9]+\s*){20,}\)'
-$stealRx  = '(?i)GetConvar\s*\(\s*[''"](sv_licenseKey|sv_licenseKeyToken|rcon_password|steam_webApiKey|mysql_connection_string)[''"]'
-$webhookRx = '(?i)discord(app)?\.com/api/webhooks/'
-
-# Decode \xNN, \ddd, string.char(...) and String.fromCharCode(...) so hidden code is visible
-function Expand-Obfuscation([string]$Text) {
-    $d = [regex]::Replace($Text, '\\x([0-9a-fA-F]{2})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) })
-    $d = [regex]::Replace($d, '\\([0-9]{2,3})', { param($m) $n = [int]$m.Groups[1].Value; if ($n -lt 256) { [string][char]$n } else { $m.Value } })
-    $d = [regex]::Replace($d, '(string\.char|String\.fromCharCode)\s*\(([0-9\s,]+)\)', {
-        param($m)
-        $chars = foreach ($v in ($m.Groups[2].Value -split ',')) { $v = $v.Trim(); if ($v -match '^[0-9]+$' -and [int]$v -lt 256) { [char][int]$v } }
-        '"' + (-join $chars) + '"'
-    })
-    return $d
-}
 
 $scannedFiles = @{}
 foreach ($dir in $resourceDirs.Values) {
