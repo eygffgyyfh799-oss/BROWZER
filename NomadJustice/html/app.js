@@ -1,10 +1,10 @@
 'use strict';
 /* ════════════════════════════════════════════════════════════════════════════
-   RespectJustice - واجهة نظام الدولة
+   NomadJustice - واجهة نظام الدولة
    كل النصوص تنضاف كنص (textContent) وليس HTML: ما يمكن حقن كود من البيانات
    ════════════════════════════════════════════════════════════════════════════ */
 
-const RES = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'RespectJustice';
+const RES = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'NomadJustice';
 const $ = (id) => document.getElementById(id);
 
 const S = {
@@ -423,7 +423,7 @@ PAGES.profile = {
         );
 
         const alert = h('div', null,
-            p.suspension ? h('div', { class: 'alert red' }, `⛔ الخدمات موقوفة والحساب البنكي مجمّد: ${val(p.suspension.reason)} (بواسطة ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null,
+            p.suspension ? h('div', { class: 'alert red' }, `⛔ الخدمات موقوفة: ${val(p.suspension.reason)} (بواسطة ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null,
             courtAlerts(p.court));
 
         const actions = h('div', { class: 'actions', style: 'margin-bottom:14px' }, profileActions(p, perms, reload));
@@ -1041,7 +1041,7 @@ const VERDICT_TYPES = [
     { value: 'compensation', label: '🤝 تعويض للمتضرر (من بنكه لبنك المتضرر)' },
     { value: 'impound', label: '🔒 حجز مركبة' },
     { value: 'jail', label: '⛓️ سجن' },
-    { value: 'suspend', label: '⛔ إيقاف خدمات وتجميد الحساب' },
+    { value: 'suspend', label: '⛔ إيقاف خدمات' },
     { value: 'acquittal', label: '✅ براءة' },
 ];
 

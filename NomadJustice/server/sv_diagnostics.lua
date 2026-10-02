@@ -14,40 +14,27 @@ local function RunDiagnostics()
     end
 
     -- السكربتات المطلوبة
-    for _, res in ipairs({ 'RespectCore', 'RespectLib', 'RespectTarget', 'oxmysql' }) do
+    for _, res in ipairs({ JCoreResource, 'ox_lib', Settings.TargetResource or 'deep-target', 'oxmysql' }) do
         local state = GetResourceState(res)
         line(state == 'started' and 'ok' or 'bad', ('%s: %s'):format(res, state == 'started' and 'شغال' or ('غير شغال (' .. state .. ') - مطلوب')))
     end
     -- السكربتات الاختيارية
-    for res, feature in pairs({ ['lb-phone'] = 'شرط وجود جوال عند تقديم الدعوى', RespectFuel = 'وقود مركبات العدل', RespectScripts = 'اسم علامة الخريطة' }) do
+    for res, feature in pairs({ ['lb-phone'] = 'شرط وجود جوال عند تقديم الدعوى' }) do
         if GetResourceState(res) ~= 'started' then
             line('warn', ('%s غير شغال: %s ما يشتغل (باقي السكربت طبيعي)'):format(res, feature))
         end
     end
 
-    -- البنك
-    local bankRes = Settings.Banking and Settings.Banking.Resource or 'RespectBanking'
-    if GetResourceState(bankRes) == 'started' then
-        -- النسخة المعدّلة فيها export isJusticeFrozen
-        local patched = pcall(function() return exports[bankRes]:isJusticeFrozen(0) end)
-        if patched then
-            line('ok', ('%s: مربوط - تجميد حسابات الموقوفين شغّال'):format(bankRes))
-        else
-            line('warn', ('%s: نسخة غير معدّلة - التجميد ما يشتغل، استخدم النسخة المرفقة'):format(bankRes))
-        end
-    else
-        line('warn', ('%s غير شغال: تجميد الحسابات ما يشتغل'):format(bankRes))
-    end
     line('ok', ('القسم المالي للقطاعات: %s'):format(JS.FinanceProvider == 'internal'
-        and 'خزينة داخلية (ما لقيت دوال حسابات القطاعات في RespectBanking)' or ('مربوط مع ' .. JS.FinanceProvider)))
+        and 'خزينة داخلية (ما لقيت دوال حسابات القطاعات في ' .. tostring(Settings.Finance.Resource) .. ')' or ('مربوط مع ' .. JS.FinanceProvider)))
     local police = {}
     for _, name in ipairs(Settings.Police.Jobs or {}) do
-        if not (RTCore.Shared.Jobs or {})[name] then police[#police + 1] = name end
+        if not (QBCore.Shared.Jobs or {})[name] then police[#police + 1] = name end
     end
     if #police > 0 then line('warn', ('وظائف الشرطة غير موجودة في الكور: %s - عدّل Settings.Police.Jobs'):format(table.concat(police, ', '))) end
 
     -- الوظيفة والرتب
-    local jobs = RTCore.Shared.Jobs or {}
+    local jobs = QBCore.Shared.Jobs or {}
     local job = jobs[Settings.Job]
     if not job then
         line('bad', ("الوظيفة '%s' غير موجودة في وظائف الكور - عدّل Settings.Job"):format(Settings.Job))
@@ -61,7 +48,7 @@ local function RunDiagnostics()
     if not jobs[Settings.Panel.UnemployedJob] then
         line('warn', ("وظيفة العاطل '%s' غير موجودة - الفصل ما يشتغل، عدّل UnemployedJob"):format(tostring(Settings.Panel.UnemployedJob)))
     end
-    if not RTCore.Shared.Gangs or not RTCore.Shared.Gangs[Settings.City.NoGang] then
+    if not QBCore.Shared.Gangs or not QBCore.Shared.Gangs[Settings.City.NoGang] then
         line('warn', ("العصابة '%s' (بدون عصابة) غير موجودة - إزالة العصابة قد لا تعمل"):format(tostring(Settings.City.NoGang)))
     end
 
@@ -77,12 +64,12 @@ local function RunDiagnostics()
         line('warn', 'أعمدة جدول العقارات (owner / id) غير صحيحة - راجع Settings.Database.Houses')
     end
     for _, t in ipairs({ 'justice_reports', 'justice_logs', 'justice_suspensions', 'justice_summons', 'justice_transactions' }) do
-        if not JS.TableExists(t) then line('bad', ('جدول `%s` غير موجود - شغّل RespectJustice.sql'):format(t)) end
+        if not JS.TableExists(t) then line('bad', ('جدول `%s` غير موجود - شغّل NomadJustice.sql'):format(t)) end
     end
 
     line('ok', GetConvar('justice_webhook', '') ~= '' and 'Discord: مفعّل' or 'Discord: غير مفعّل (اختياري)')
 
-    print('^5════════ RespectJustice - فحص الجاهزية ════════^7')
+    print('^5════════ NomadJustice - فحص الجاهزية ════════^7')
     for _, text in ipairs(lines) do print(text) end
     print(('^5════════ %s | سليم: %d | تنبيه: %d | مشكلة: %d ════════^7'):format(
         bad == 0 and '^2جاهز للعمل^5' or '^1يحتاج إصلاح^5', ok, warn, bad))
@@ -93,7 +80,7 @@ CreateThread(function()
     while not JS.Ready do Wait(500) end
     Wait(2000)
     local ok, err = pcall(RunDiagnostics)
-    if not ok then print('^1[RespectJustice] diagnostics: ' .. tostring(err) .. '^7') end
+    if not ok then print('^1[NomadJustice] diagnostics: ' .. tostring(err) .. '^7') end
 end)
 
 RegisterCommand('justicecheck', function(source)

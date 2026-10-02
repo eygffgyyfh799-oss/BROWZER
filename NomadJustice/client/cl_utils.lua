@@ -10,27 +10,27 @@ JC.Job = JC.Settings.Job
 
 local LibTypes = { primary = 'inform', success = 'success', error = 'error', inform = 'inform', warning = 'warning' }
 
--- إشعار: يستخدم إشعار الكور، ولو فشل يستخدم إشعار RespectLib
+-- إشعار: يستخدم إشعار الكور، ولو فشل يستخدم إشعار ox_lib
 function JC.Notify(msg, msgType, length)
     msgType, length = msgType or 'primary', length or 5000
-    local ok = pcall(RTCore.Functions.Notify, msg, msgType, length)
+    local ok = pcall(QBCore.Functions.Notify, msg, msgType, length)
     if not ok then
         pcall(lib.notify, { description = msg, type = LibTypes[msgType] or 'inform', duration = length })
     end
 end
 
 -- احتياطي: لو إشعار الكور في السيرفر ما اشتغل، السيرفر يرسل هنا
-RegisterNetEvent('RespectJustice:client:notify', function(msg, msgType, length)
+RegisterNetEvent('NomadJustice:client:notify', function(msg, msgType, length)
     if type(msg) == 'string' then JC.Notify(msg, msgType, length) end
 end)
 
 function JC.IsJustice()
-    local job = RTCore.Functions.GetPlayerData().job
+    local job = QBCore.Functions.GetPlayerData().job
     return job ~= nil and job.name == JC.Job
 end
 
 function JC.IsBoss()
-    local job = RTCore.Functions.GetPlayerData().job
+    local job = QBCore.Functions.GetPlayerData().job
     if not job or job.name ~= JC.Job then return false end
     if job.isboss == true then return true end
     local grade = type(job.grade) == 'table' and job.grade.level or job.grade
@@ -40,7 +40,7 @@ end
 
 -- الدور المتوقع من بيانات اللاعب (السيرفر هو اللي يقرر فعلياً)
 function JC.GuessRole()
-    local pd = RTCore.Functions.GetPlayerData()
+    local pd = QBCore.Functions.GetPlayerData()
     local job = pd.job or {}
     if job.name == JC.Job then return 'justice' end
     for _, name in ipairs(JC.Settings.Police.Jobs or {}) do
@@ -66,7 +66,7 @@ end
 function JC.Await(name, ...)
     local p = promise.new()
     local finished = false
-    RTCore.Functions.TriggerCallback(name, function(result)
+    QBCore.Functions.TriggerCallback(name, function(result)
         if finished then return end
         finished = true
         p:resolve(result)
@@ -89,7 +89,7 @@ function JC.Call(name, ...)
     inFlight[name] = nil
 
     if not ok then
-        print(('^1[RespectJustice] %s: %s^7'):format(name, tostring(result)))
+        print(('^1[NomadJustice] %s: %s^7'):format(name, tostring(result)))
         JC.Notify('حدث خطأ غير متوقع، حاول مرة ثانية', 'error')
         return nil
     end

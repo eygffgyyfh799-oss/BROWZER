@@ -314,20 +314,20 @@ local function InitDatabase()
     local db = Settings.Database
     for _, tableName in ipairs({ db.Players, db.Vehicles, db.Houses and db.Houses.table }) do
         if tableName and not JS.TableExists(tableName) then
-            print(('^3[RespectJustice]^7 Table `%s` not found, related info will be hidden. Check Settings.Database in config.lua'):format(tableName))
+            print(('^3[NomadJustice]^7 Table `%s` not found, related info will be hidden. Check Settings.Database in config.lua'):format(tableName))
         end
     end
 
-    print(('^2[RespectJustice]^7 Ready: %d duty records, %d active suspensions'):format(#DutyHistory, #suspensions))
+    print(('^2[NomadJustice]^7 Ready: %d duty records, %d active suspensions'):format(#DutyHistory, #suspensions))
 end
 
 CreateThread(function()
     local ok, err = pcall(InitDatabase)
     if not ok then
-        print(('^1[RespectJustice]^7 Database init error: %s'):format(tostring(err)))
+        print(('^1[NomadJustice]^7 Database init error: %s'):format(tostring(err)))
     end
     JS.Ready = true
-    TriggerEvent('RespectJustice:server:ready')
+    TriggerEvent('NomadJustice:server:ready')
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -336,9 +336,9 @@ end)
 -- لذلك حالة الدوام هنا هي الحالة الجديدة بعد التبديل
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-RegisterNetEvent('RespectJustice:server:updateDutyHistory', function()
+RegisterNetEvent('NomadJustice:server:updateDutyHistory', function()
     local src = source
-    local Player = RTCore.Functions.GetPlayer(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not JS.IsJustice(Player) then return end
 
     local citizenid = Player.PlayerData.citizenid
@@ -362,8 +362,8 @@ RegisterNetEvent('RespectJustice:server:updateDutyHistory', function()
     })
 end)
 
-RTCore.Functions.CreateCallback('RespectJustice:server:getDutyHistory', function(source, cb)
-    local Player = RTCore.Functions.GetPlayer(source)
+QBCore.Functions.CreateCallback('NomadJustice:server:getDutyHistory', function(source, cb)
+    local Player = QBCore.Functions.GetPlayer(source)
     if not JS.IsBoss(Player) then return cb({}) end
     cb(DutyHistory)
 end)
@@ -372,9 +372,9 @@ end)
 -- التعويض
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitizenid, amount)
+RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizenid, amount)
     local src = source
-    local Player = RTCore.Functions.GetPlayer(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not Player or not JS.Ready then return end
 
     local allowed, err = JS.Can(Player, 'compensation')
@@ -396,7 +396,7 @@ RegisterNetEvent('RespectJustice:server:giveMoneyToPlayer', function(targetCitiz
         return Notify(src, 'الرقم الوطني غير صحيح', 'error')
     end
 
-    local TargetPlayer = RTCore.Functions.GetPlayerByCitizenId(targetCitizenid)
+    local TargetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
     if not TargetPlayer then
         return Notify(src, 'اللاعب غير متصل أو الرقم الوطني غير صحيح', 'error')
     end
@@ -469,7 +469,7 @@ local function CleanupOldData()
     end
 
     if removed > 0 then
-        print(('^2[RespectJustice]^7 Cleanup removed %d old records'):format(removed))
+        print(('^2[NomadJustice]^7 Cleanup removed %d old records'):format(removed))
     end
 end
 
@@ -477,7 +477,7 @@ CreateThread(function()
     while not JS.Ready do Wait(1000) end
     while true do
         local ok, err = pcall(CleanupOldData)
-        if not ok then print(('^1[RespectJustice]^7 Cleanup failed: %s'):format(tostring(err))) end
+        if not ok then print(('^1[NomadJustice]^7 Cleanup failed: %s'):format(tostring(err))) end
         Wait(24 * 60 * 60 * 1000)
     end
 end)

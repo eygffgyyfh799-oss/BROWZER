@@ -30,7 +30,7 @@ local function ConfirmAndSet(citizenid, name, jobName, jobLabel, level, gradeNam
     })
     if confirm ~= 'confirm' then return false end
 
-    local result = JC.Call('RespectJustice:server:setCitizenJob', citizenid, jobName, level)
+    local result = JC.Call('NomadJustice:server:setCitizenJob', citizenid, jobName, level)
     if result then
         JC.Notify('تم التعيين: ' .. result.newJob, 'success', 8000)
         return true
@@ -47,7 +47,7 @@ end
 
 -- تغيير وظيفة مواطن من ملفه (أي قطاع وأي رتبة)
 function JC.Jobs.ChangeCitizenJob(citizenid, name)
-    local result = JC.Call('RespectJustice:server:getJobs')
+    local result = JC.Call('NomadJustice:server:getJobs')
     if not result then return end
 
     local options = {}
@@ -77,7 +77,7 @@ function JC.Jobs.Fire(citizenid, name)
     })
     if confirm ~= 'confirm' then return false end
 
-    local result = JC.Call('RespectJustice:server:setCitizenJob', citizenid, JC.Settings.Panel.UnemployedJob, 0)
+    local result = JC.Call('NomadJustice:server:setCitizenJob', citizenid, JC.Settings.Panel.UnemployedJob, 0)
     if result then JC.Notify('تم فصل المواطن', 'success') end
     return result ~= nil
 end
@@ -87,7 +87,7 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JC.Jobs.OpenList(parent)
-    local result = JC.Call('RespectJustice:server:getJobs')
+    local result = JC.Call('NomadJustice:server:getJobs')
     if not result then return end
 
     local options = {}
@@ -104,7 +104,7 @@ function JC.Jobs.OpenList(parent)
     end
     if #options == 0 then options[1] = { title = 'لا توجد قطاعات', disabled = true } end
 
-    lib.registerContext({ id = 'justice_jobs_list', title = ('القطاعات (%d)'):format(#result.jobs), menu = parent, options = options, rt_logo = true })
+    lib.registerContext({ id = 'justice_jobs_list', title = ('القطاعات (%d)'):format(#result.jobs), menu = parent, options = options })
     lib.showContext('justice_jobs_list')
 end
 
@@ -154,7 +154,7 @@ local function OpenMember(job, member, perms)
                 title = member.onduty and 'إنهاء دوامه' or 'تسجيل دخوله للدوام',
                 icon = member.onduty and 'fas fa-right-from-bracket' or 'fas fa-right-to-bracket',
                 onSelect = function()
-                    if JC.Call('RespectJustice:server:setCitizenDuty', member.citizenid, not member.onduty) then
+                    if JC.Call('NomadJustice:server:setCitizenDuty', member.citizenid, not member.onduty) then
                         JC.Notify('تم تغيير حالة الدوام', 'success')
                         return back()
                     end
@@ -178,7 +178,7 @@ local function OpenMember(job, member, perms)
 end
 
 function JC.Jobs.OpenJob(jobName)
-    local result = JC.Call('RespectJustice:server:getJobMembers', jobName)
+    local result = JC.Call('NomadJustice:server:getJobMembers', jobName)
     if not result then return end
 
     local job, perms = result.job, result.perms or {}
@@ -204,7 +204,7 @@ function JC.Jobs.OpenJob(jobName)
                 local input = lib.inputDialog('توظيف في ' .. job.label, {
                     { type = 'input', label = 'الرقم الوطني', required = true, max = 50, icon = 'id-card' },
                 })
-                local citizenid = input and _2rayan.Functions.trim(input[1])
+                local citizenid = input and JUtil.Functions.trim(input[1])
                 if not citizenid or citizenid == '' then return JC.Jobs.OpenJob(jobName) end
 
                 local level = PickGrade(job, 'رتبة الموظف الجديد')
@@ -229,6 +229,6 @@ function JC.Jobs.OpenJob(jobName)
     end
     if #result.members == 0 then options[#options + 1] = { title = 'لا يوجد موظفين', disabled = true } end
 
-    lib.registerContext({ id = 'justice_job_view', title = 'قطاع ' .. job.label, menu = 'justice_jobs_list', options = options, rt_logo = true })
+    lib.registerContext({ id = 'justice_job_view', title = 'قطاع ' .. job.label, menu = 'justice_jobs_list', options = options })
     lib.showContext('justice_job_view')
 end

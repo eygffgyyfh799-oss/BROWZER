@@ -20,7 +20,7 @@ local function GetVehicles(citizenid)
     local rows = MySQL.query.await(('SELECT * FROM `%s` WHERE citizenid = ?'):format(tableName), { citizenid }) or {}
     local vehicles = {}
     for i, row in ipairs(rows) do
-        local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[row.vehicle]
+        local shared = QBCore.Shared.Vehicles and QBCore.Shared.Vehicles[row.vehicle]
         local label = shared and (('%s %s'):format(shared.brand or '', shared.name or row.vehicle):gsub('^%s+', '')) or row.vehicle
         vehicles[i] = {
             label = label or 'غير معروف',
@@ -51,7 +51,7 @@ local function GetHouses(citizenid)
 end
 
 local function GetItems(items)
-    local shared = RTCore.Shared.Items or {}
+    local shared = QBCore.Shared.Items or {}
     local grouped, order = {}, {}
     for _, item in pairs(items or {}) do
         if type(item) == 'table' and item.name then
@@ -180,15 +180,15 @@ end
 -- الصفحة الرئيسية
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:panelInfo', 'view', function(src, Player)
+JS.RegisterCallback('NomadJustice:server:panelInfo', 'view', function(src, Player)
     local newReports = MySQL.scalar.await("SELECT COUNT(*) FROM justice_reports WHERE job = ? AND status = 'new'", { JS.Job }) or 0
     local suspended = 0
     for _ in pairs(JS.Suspended) do suspended = suspended + 1 end
 
-    local players = RTCore.Functions.GetPlayers()
+    local players = QBCore.Functions.GetPlayers()
     local justiceOnDuty = 0
     for _, playerId in pairs(players) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+        local target = QBCore.Functions.GetPlayer(playerId)
         if JS.IsJustice(target) and target.PlayerData.job.onduty then justiceOnDuty = justiceOnDuty + 1 end
     end
 
@@ -225,13 +225,13 @@ end)
 
 local PAGE_SIZE = 40
 
-JS.RegisterCallback('RespectJustice:server:getAllCitizens', 'view', function(src, Player, page, filter)
+JS.RegisterCallback('NomadJustice:server:getAllCitizens', 'view', function(src, Player, page, filter)
     page = math.max(0, math.floor(tonumber(page) or 0))
     if filter ~= 'online' and filter ~= 'offline' then filter = 'all' end
 
     local onlineIds = {}
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         if target then onlineIds[#onlineIds + 1] = target.PlayerData.citizenid end
     end
 
@@ -253,8 +253,8 @@ JS.RegisterCallback('RespectJustice:server:getAllCitizens', 'view', function(src
 
     if filter == 'online' then
         total = #onlineIds
-        for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-            local target = RTCore.Functions.GetPlayer(playerId)
+        for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+            local target = QBCore.Functions.GetPlayer(playerId)
             if target then
                 local pd = target.PlayerData
                 list[#list + 1] = entry(pd.citizenid, pd.charinfo, pd.job)
@@ -307,10 +307,10 @@ end)
 -- اللاعبين المتصلين
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getOnlinePlayers', 'view', function()
+JS.RegisterCallback('NomadJustice:server:getOnlinePlayers', 'view', function()
     local list = {}
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         if target then
             local pd = target.PlayerData
             list[#list + 1] = {
@@ -333,7 +333,7 @@ end)
 -- البحث (متصل وغير متصل): بالاسم أو الرقم الوطني أو رقم الجوال أو رقم السيرفر
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src, Player, query)
+JS.RegisterCallback('NomadJustice:server:searchCitizens', 'view', function(src, Player, query)
     query = JS.CleanText(query, 40, true)
     if not query or JS.Len(query) < 2 then
         return { ok = false, err = 'اكتب حرفين على الأقل للبحث' }
@@ -359,14 +359,14 @@ JS.RegisterCallback('RespectJustice:server:searchCitizens', 'view', function(src
     -- البحث برقم السيرفر
     local serverId = tonumber(query)
     if serverId then
-        local target = RTCore.Functions.GetPlayer(serverId)
+        local target = QBCore.Functions.GetPlayer(serverId)
         if target then add(target.PlayerData.citizenid, target.PlayerData.charinfo, target.PlayerData.job) end
     end
 
     -- المتصلين
     local lower = query:lower()
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         if target then
             local pd = target.PlayerData
             local charinfo = pd.charinfo or {}
@@ -401,7 +401,7 @@ end)
 -- ملف المواطن
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getProfile', 'view', function(src, Player, citizenid)
+JS.RegisterCallback('NomadJustice:server:getProfile', 'view', function(src, Player, citizenid)
     citizenid = JS.ValidCitizenId(citizenid)
     if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
 
@@ -420,9 +420,9 @@ end)
 -- تحديد الموقع
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:locateCitizen', 'locate', function(src, Player, citizenid)
+JS.RegisterCallback('NomadJustice:server:locateCitizen', 'locate', function(src, Player, citizenid)
     citizenid = JS.ValidCitizenId(citizenid)
-    local target = citizenid and RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = citizenid and QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if not target then return { ok = false, err = 'المواطن غير متصل حالياً' } end
 
     local ped = GetPlayerPed(target.PlayerData.source)
@@ -439,7 +439,7 @@ end)
 -- سحب أموال من البنك
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(src, Player, citizenid, amount, reason)
+JS.RegisterCallback('NomadJustice:server:withdrawBank', 'withdraw', function(src, Player, citizenid, amount, reason)
     citizenid = JS.ValidCitizenId(citizenid)
     amount = math.floor(tonumber(amount) or 0)
     reason = JS.CleanText(reason, 200, true)
@@ -461,7 +461,7 @@ JS.RegisterCallback('RespectJustice:server:withdrawBank', 'withdraw', function(s
     end
 
     local targetName, newBalance
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
 
     if target then
         local bank = tonumber(target.PlayerData.money.bank) or 0
@@ -508,7 +508,7 @@ end)
 -- إيقاف / رفع إيقاف الخدمات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:suspendCitizen', 'suspend', function(src, Player, citizenid, reason)
+JS.RegisterCallback('NomadJustice:server:suspendCitizen', 'suspend', function(src, Player, citizenid, reason)
     citizenid = JS.ValidCitizenId(citizenid)
     reason = JS.CleanText(reason, 200, true)
     if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
@@ -533,13 +533,13 @@ JS.RegisterCallback('RespectJustice:server:suspendCitizen', 'suspend', function(
         Notify(citizen.online.PlayerData.source, ('تم إيقاف خدماتك بقرار من وزارة العدل. السبب: %s'):format(reason), 'error', 10000)
     end
 
-    TriggerEvent('RespectJustice:server:suspensionChanged', citizenid, true, reason)
+    TriggerEvent('NomadJustice:server:suspensionChanged', citizenid, true, reason)
     JS.Log(Player, 'suspend', citizenid, name, { ['السبب'] = reason }, { reason = reason })
 
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:unsuspendCitizen', 'suspend', function(src, Player, citizenid)
+JS.RegisterCallback('NomadJustice:server:unsuspendCitizen', 'suspend', function(src, Player, citizenid)
     citizenid = JS.ValidCitizenId(citizenid)
     local suspension = citizenid and JS.Suspended[citizenid]
     if not suspension then return { ok = false, err = 'خدمات هذا المواطن غير موقوفة' } end
@@ -549,19 +549,19 @@ JS.RegisterCallback('RespectJustice:server:unsuspendCitizen', 'suspend', functio
     })
     JS.Suspended[citizenid] = nil
 
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         pcall(target.Functions.SetMetaData, 'justice_suspended', false)
         Notify(target.PlayerData.source, 'تم رفع إيقاف خدماتك من وزارة العدل', 'success', 8000)
     end
 
-    TriggerEvent('RespectJustice:server:suspensionChanged', citizenid, false)
+    TriggerEvent('NomadJustice:server:suspensionChanged', citizenid, false)
     JS.Log(Player, 'unsuspend', citizenid, suspension.name, { ['السبب السابق'] = suspension.reason }, { reason = suspension.reason })
 
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:getSuspended', 'view', function()
+JS.RegisterCallback('NomadJustice:server:getSuspended', 'view', function()
     local list = {}
     for cid, data in pairs(JS.Suspended) do
         list[#list + 1] = { citizenid = cid, name = data.name, reason = data.reason, officer = data.officer, date = data.date, id = data.id, status = JS.GetStatus(cid) }
@@ -598,7 +598,7 @@ local function ValidBirthdate(value)
     return value
 end
 
-JS.RegisterCallback('RespectJustice:server:editCitizen', 'edit', function(src, Player, citizenid, data)
+JS.RegisterCallback('NomadJustice:server:editCitizen', 'edit', function(src, Player, citizenid, data)
     citizenid = JS.ValidCitizenId(citizenid)
     if not citizenid or type(data) ~= 'table' then return { ok = false, err = 'بيانات غير صحيحة' } end
     if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'لا يمكنك تعديل بياناتك بنفسك' } end
@@ -649,7 +649,7 @@ end)
 -- سجل العمليات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getLogs', 'logs', function(src, Player, citizenid, page)
+JS.RegisterCallback('NomadJustice:server:getLogs', 'logs', function(src, Player, citizenid, page)
     citizenid = citizenid and JS.ValidCitizenId(citizenid)
     page = math.max(0, math.floor(tonumber(page) or 0))
     local pageSize = 50

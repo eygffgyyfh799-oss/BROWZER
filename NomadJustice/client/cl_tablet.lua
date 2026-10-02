@@ -74,10 +74,10 @@ function JC.Tablet.Open(page, arg)
     end
     if IsPauseMenuActive() or IsNuiFocused() then return end
 
-    local info = JC.Call('RespectJustice:server:tabletInfo')
+    local info = JC.Call('NomadJustice:server:tabletInfo')
     if not info then return end
 
-    local pd = RTCore.Functions.GetPlayerData()
+    local pd = QBCore.Functions.GetPlayerData()
     local job = pd.job or {}
     isOpen = true
     SetNuiFocus(true, true)
@@ -123,7 +123,7 @@ RegisterNUICallback('call', function(data, cb)
     end
 
     local args = type(data.args) == 'table' and data.args or {}
-    local result = JC.Await('RespectJustice:server:' .. data.name, table.unpack(args, 1, 6))
+    local result = JC.Await('NomadJustice:server:' .. data.name, table.unpack(args, 1, 6))
     if type(result) ~= 'table' then
         return cb({ ok = false, err = 'السيرفر ما رد، حاول مرة ثانية' })
     end
@@ -154,7 +154,7 @@ end)
 
 RegisterNUICallback('compensate', function(data, cb)
     if isOpen and type(data) == 'table' and type(data.citizenid) == 'string' and tonumber(data.amount) then
-        TriggerServerEvent('RespectJustice:server:giveMoneyToPlayer', data.citizenid, math.floor(tonumber(data.amount)))
+        TriggerServerEvent('NomadJustice:server:giveMoneyToPlayer', data.citizenid, math.floor(tonumber(data.amount)))
     end
     cb({ ok = true })
 end)
@@ -168,7 +168,7 @@ end, false)
 RegisterKeyMapping('justicetablet', 'فتح نظام الدولة (العدل / الشرطة / المحامين)', 'keyboard', Panel.Key or '9')
 
 -- ═════ الإشعارات المباشرة (قضية جديدة، طلب شرطة، أمر جديد...) ═════
-RegisterNetEvent('RespectJustice:client:tabletEvent', function(event)
+RegisterNetEvent('NomadJustice:client:tabletEvent', function(event)
     if type(event) ~= 'table' then return end
     if type(event.coords) == 'table' and tonumber(event.coords.x) then
         JC.TempBlip({ x = tonumber(event.coords.x), y = tonumber(event.coords.y), z = tonumber(event.coords.z) }, tostring(event.label or event.title or 'موقع'), Panel.LocateBlipTime, 280, 1)

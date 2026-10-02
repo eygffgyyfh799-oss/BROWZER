@@ -5,6 +5,7 @@ local JOB = JC.Job
 local created_blips = {}
 local created_zones = {}
 local created_peds = {}
+local Target = Settings.TargetResource or 'deep-target'
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- دوال مساعدة
@@ -21,7 +22,7 @@ end
 -- منطقة تفاعل حول الإحداثية (مربع بحجم ZoneSize وارتفاع 3 متر)
 local function AddZone(name, coords, options)
     local size = data.ZoneSize or 2.5
-    exports['RespectTarget']:AddBoxZone(name, vector3(coords.x, coords.y, coords.z), size, size, {
+    exports[Target]:AddBoxZone(name, vector3(coords.x, coords.y, coords.z), size, size, {
         name = name,
         heading = coords.w or 0.0,
         debugPoly = data.DebugZones == true,
@@ -39,7 +40,7 @@ local function SpawnPed(key, pedData, targetOptions)
     local model = type(pedData.model) == 'string' and joaat(pedData.model) or pedData.model
     pcall(lib.requestModel, model, 10000)
     if not HasModelLoaded(model) then
-        return print(('^1[RespectJustice]^7 Failed to load ped model: %s'):format(tostring(pedData.model)))
+        return print(('^1[NomadJustice]^7 Failed to load ped model: %s'):format(tostring(pedData.model)))
     end
 
     local c = pedData.coords
@@ -59,7 +60,7 @@ local function SpawnPed(key, pedData, targetOptions)
         TaskStartScenarioInPlace(ped, pedData.scenario, 0, true)
     end
 
-    exports['RespectTarget']:AddTargetEntity(ped, {
+    exports[Target]:AddTargetEntity(ped, {
         options = targetOptions,
         distance = 2.5,
     })
@@ -72,7 +73,7 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function OpenDutyHistory()
-    RTCore.Functions.TriggerCallback('RespectJustice:server:getDutyHistory', function(playersHistory)
+    QBCore.Functions.TriggerCallback('NomadJustice:server:getDutyHistory', function(playersHistory)
         if not playersHistory or not next(playersHistory) then
             return JC.Notify('لا يوجد سجل بالوقت الحالي', 'error', 5000)
         end
@@ -116,7 +117,7 @@ local Points = {}
 for i, entry in ipairs(JC.Coords) do
     local pointType = type(entry) == 'table' and TypeNames[entry.type]
     if not pointType or not entry.coords then
-        print(('^1[RespectJustice]^7 coords.lua سطر %d: نوع غير معروف "%s" (%s)'):format(i, tostring(entry and entry.type), tostring(entry and entry.name)))
+        print(('^1[NomadJustice]^7 coords.lua سطر %d: نوع غير معروف "%s" (%s)'):format(i, tostring(entry and entry.type), tostring(entry and entry.name)))
     else
         Points[pointType] = Points[pointType] or {}
         table.insert(Points[pointType], entry)
@@ -133,9 +134,7 @@ local function create_blips()
         SetBlipAsShortRange(blip, true)
         SetBlipScale(blip, entry.scale or style.scale or 0.45)
         BeginTextCommandSetBlipName("STRING")
-        local label = entry.name or 'وزارة العدل'
-        local ok, escaped = pcall(function() return exports['RespectScripts']:escape(label) end)
-        AddTextComponentString(ok and escaped or label)
+        AddTextComponentString(entry.name or 'وزارة العدل')
         EndTextCommandSetBlipName(blip)
         created_blips[#created_blips + 1] = blip
     end
@@ -156,7 +155,7 @@ local PointOptions = {
                 dutyCooldownEnd = GetGameTimer() + Settings.DutyCooldown * 1000
                 -- الترتيب مهم: نبدل الدوام أولاً ثم نسجل الحالة الجديدة
                 TriggerServerEvent('QBCore:ToggleDuty')
-                TriggerServerEvent('RespectJustice:server:updateDutyHistory')
+                TriggerServerEvent('NomadJustice:server:updateDutyHistory')
             end,
         },
         {
@@ -174,7 +173,7 @@ local PointOptions = {
             label = 'الخزنة الشخصية',
             job = JOB,
             action = function()
-                local stashId = 'justice_stash_' .. RTCore.Functions.GetPlayerData().citizenid
+                local stashId = 'justice_stash_' .. QBCore.Functions.GetPlayerData().citizenid
                 TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.PersonalStash)
                 TriggerEvent('inventory:client:SetCurrentStash', stashId)
             end,
@@ -302,7 +301,7 @@ local function create_zones()
             job = JOB,
             canInteract = IsJustice,
             action = function()
-                TriggerEvent('RespectJustice:client:spawnVehicleMenu', {
+                TriggerEvent('NomadJustice:client:spawnVehicleMenu', {
                     vehicles = data.Vehicles,
                     vehSpawns = spawns,
                 })
@@ -347,7 +346,7 @@ local function cleanup()
     created_blips = {}
 
     for _, name in ipairs(created_zones) do
-        pcall(function() exports['RespectTarget']:RemoveZone(name) end)
+        pcall(function() exports[Target]:RemoveZone(name) end)
     end
     created_zones = {}
 end
@@ -355,9 +354,9 @@ end
 -- كل جزء لحاله: لو فشل واحد ما يوقف الباقي
 CreateThread(function()
     local ok, err = pcall(create_blips)
-    if not ok then print('^1[RespectJustice]^7 create_blips: ' .. tostring(err)) end
+    if not ok then print('^1[NomadJustice]^7 create_blips: ' .. tostring(err)) end
     ok, err = pcall(create_zones)
-    if not ok then print('^1[RespectJustice]^7 create_zones: ' .. tostring(err)) end
+    if not ok then print('^1[NomadJustice]^7 create_zones: ' .. tostring(err)) end
 end)
 
 AddEventHandler('onResourceStop', function(resource)
@@ -383,7 +382,7 @@ end, false)
 -- التعويض
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-RegisterNetEvent('RespectJustice:client:giveMoney', function()
+RegisterNetEvent('NomadJustice:client:giveMoney', function()
     if not IsJustice() then
         return JC.Notify('يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error', 5000)
     end
@@ -413,11 +412,11 @@ RegisterNetEvent('RespectJustice:client:giveMoney', function()
     })
     if not input then return end
 
-    local citizenid = _2rayan.Functions.trim(input[1])
+    local citizenid = JUtil.Functions.trim(input[1])
     local amount = tonumber(input[2])
     if not citizenid or citizenid == '' or not amount or amount <= 0 then
         return JC.Notify('البيانات المدخلة غير صحيحة', 'error', 5000)
     end
 
-    TriggerServerEvent('RespectJustice:server:giveMoneyToPlayer', citizenid, math.floor(amount))
+    TriggerServerEvent('NomadJustice:server:giveMoneyToPlayer', citizenid, math.floor(amount))
 end)

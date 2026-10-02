@@ -15,7 +15,7 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JC.City.Open(parent)
-    local result = JC.Call('RespectJustice:server:getCityOverview')
+    local result = JC.Call('NomadJustice:server:getCityOverview')
     if not result then return end
     local o, perms = result.overview, result.perms or {}
 
@@ -82,7 +82,7 @@ function JC.City.Open(parent)
         }
     end
 
-    lib.registerContext({ id = 'justice_city', title = 'نظام المدينة', menu = parent, options = options, rt_logo = true })
+    lib.registerContext({ id = 'justice_city', title = 'نظام المدينة', menu = parent, options = options })
     lib.showContext('justice_city')
 end
 
@@ -105,7 +105,7 @@ function JC.City.Announce()
     })
     if not input or not input[1] then return JC.City.Open() end
     if Confirm('تأكيد الإعلان', ('سيظهر هذا الإعلان لكل اللاعبين:\n\n%s'):format(input[1]))
-        and JC.Call('RespectJustice:server:announce', input[1]) then
+        and JC.Call('NomadJustice:server:announce', input[1]) then
         JC.Notify('تم إرسال الإعلان', 'success')
     end
 end
@@ -120,7 +120,7 @@ function JC.City.SearchVehicles(parent)
     })
     if not input or not input[1] then return end
 
-    local result = JC.Call('RespectJustice:server:searchVehicles', input[1])
+    local result = JC.Call('NomadJustice:server:searchVehicles', input[1])
     if not result then return end
 
     local options = {}
@@ -138,7 +138,7 @@ function JC.City.SearchVehicles(parent)
 end
 
 function JC.City.OpenVehicle(plate, parent)
-    local result = JC.Call('RespectJustice:server:getVehicle', plate)
+    local result = JC.Call('NomadJustice:server:getVehicle', plate)
     if not result then return end
     local v, perms = result.vehicle, result.perms or {}
     local reopen = function() JC.City.OpenVehicle(plate, parent) end
@@ -158,7 +158,7 @@ function JC.City.OpenVehicle(plate, parent)
         options[#options + 1] = {
             title = 'تحديد موقع المركبة', icon = 'fas fa-location-crosshairs', iconColor = 'blue',
             onSelect = function()
-                local located = JC.Call('RespectJustice:server:getVehicle', plate, true)
+                local located = JC.Call('NomadJustice:server:getVehicle', plate, true)
                 if located and located.vehicle.coords then
                     JC.TempBlip(located.vehicle.coords, 'مركبة ' .. plate, JC.Settings.Panel.LocateBlipTime, 225, 1)
                     JC.Notify(('المركبة %s في: %s'):format(plate, JC.GetStreet(located.vehicle.coords)), 'success', 10000)
@@ -175,7 +175,7 @@ function JC.City.OpenVehicle(plate, parent)
                 title = 'فك الحجز', icon = 'fas fa-lock-open', iconColor = 'green',
                 onSelect = function()
                     if Confirm('فك الحجز', ('فك حجز المركبة **%s**؟'):format(plate)) then
-                        local r = JC.Call('RespectJustice:server:vehicleAction', plate, 'release')
+                        local r = JC.Call('NomadJustice:server:vehicleAction', plate, 'release')
                         if r then JC.Notify(r.message, 'success') end
                     end
                     reopen()
@@ -187,7 +187,7 @@ function JC.City.OpenVehicle(plate, parent)
                 icon = 'fas fa-lock', iconColor = 'red',
                 onSelect = function()
                     if Confirm('حجز المركبة', ('حجز المركبة **%s** للمالك **%s**؟'):format(plate, JC.Value(v.ownerName))) then
-                        local r = JC.Call('RespectJustice:server:vehicleAction', plate, 'impound')
+                        local r = JC.Call('NomadJustice:server:vehicleAction', plate, 'impound')
                         if r then JC.Notify(r.message, 'success') end
                     end
                     reopen()
@@ -201,7 +201,7 @@ function JC.City.OpenVehicle(plate, parent)
                     { type = 'input', label = 'الرقم الوطني للمالك الجديد', required = true, max = 50, icon = 'id-card' },
                 })
                 if input and input[1] and Confirm('نقل الملكية', ('نقل ملكية **%s** إلى الرقم الوطني **%s**؟'):format(plate, input[1])) then
-                    local r = JC.Call('RespectJustice:server:vehicleAction', plate, 'transfer', input[1])
+                    local r = JC.Call('NomadJustice:server:vehicleAction', plate, 'transfer', input[1])
                     if r then JC.Notify(r.message, 'success') end
                 end
                 reopen()
@@ -222,7 +222,7 @@ function JC.City.SearchProperties(parent)
     })
     if not input or not input[1] then return end
 
-    local result = JC.Call('RespectJustice:server:searchProperties', input[1])
+    local result = JC.Call('NomadJustice:server:searchProperties', input[1])
     if not result then return end
     local perms = result.perms or {}
 
@@ -250,7 +250,7 @@ function JC.City.SearchProperties(parent)
                                 { type = 'input', label = 'الرقم الوطني للمالك الجديد', required = true, max = 50 },
                             })
                             if nInput and nInput[1] and Confirm('نقل الملكية', ('نقل **%s** إلى **%s**؟'):format(p.label, nInput[1])) then
-                                local r = JC.Call('RespectJustice:server:transferProperty', p.id, nInput[1])
+                                local r = JC.Call('NomadJustice:server:transferProperty', p.id, nInput[1])
                                 if r then JC.Notify(r.message, 'success') end
                             end
                         end,
@@ -277,14 +277,14 @@ function JC.City.UpdateSummon(summon, after)
     local input = lib.inputDialog('تحديث الاستدعاء #' .. summon.id, {
         { type = 'select', label = 'الحالة', required = true, options = SummonActions },
     })
-    if input and input[1] and JC.Call('RespectJustice:server:setSummonStatus', summon.id, input[1]) then
+    if input and input[1] and JC.Call('NomadJustice:server:setSummonStatus', summon.id, input[1]) then
         JC.Notify('تم تحديث الاستدعاء', 'success')
     end
     if after then after() end
 end
 
 function JC.City.OpenSummons(parent)
-    local result = JC.Call('RespectJustice:server:getAllSummons')
+    local result = JC.Call('NomadJustice:server:getAllSummons')
     if not result then return end
 
     local options = {}
@@ -312,7 +312,7 @@ function JC.City.SendSummon(citizenid, name, after)
         { type = 'input', label = 'المكان', description = 'مثال: قاعة المحكمة الرئيسية', max = 100, icon = 'location-dot' },
     })
     if input and input[1] then
-        local r = JC.Call('RespectJustice:server:sendSummon', citizenid, input[1], input[2] or '', input[3] or '')
+        local r = JC.Call('NomadJustice:server:sendSummon', citizenid, input[1], input[2] or '', input[3] or '')
         if r then
             JC.Notify(r.delivered and 'تم إرسال الاستدعاء ووصله الآن' or 'تم حفظ الاستدعاء وبيوصله أول ما يدخل السيرفر', 'success', 8000)
         end
@@ -322,7 +322,7 @@ end
 
 -- للمواطن: استدعاءاتي
 function JC.City.OpenMySummons(parent)
-    local result = JC.Call('RespectJustice:server:getMySummons')
+    local result = JC.Call('NomadJustice:server:getMySummons')
     if not result then return end
     local options = {}
     for i, s in ipairs(result.summons) do

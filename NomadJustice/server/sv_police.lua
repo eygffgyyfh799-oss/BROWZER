@@ -8,7 +8,7 @@ local Settings = JS.Settings
 local Police = Settings.Police
 local Notify = JS.Notify
 
-local function H(name) return JS.Handlers['RespectJustice:server:' .. name] end
+local function H(name) return JS.Handlers['NomadJustice:server:' .. name] end
 
 JS.RequestTypes = {
     locate = 'تحديد موقع',
@@ -38,7 +38,7 @@ end
 -- معلومات التابلت حسب الدور (عدل / شرطة / محامي)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:tabletInfo', nil, function(src, Player)
+JS.RegisterCallback('NomadJustice:server:tabletInfo', nil, function(src, Player)
     local role = JS.GetRole(Player)
 
     if role == 'justice' then
@@ -85,7 +85,7 @@ end)
 -- البحث والملف (للشرطة)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:policeSearch', JS.PoliceOnly('search'), function(src, Player, query)
+JS.RegisterCallback('NomadJustice:server:policeSearch', JS.PoliceOnly('search'), function(src, Player, query)
     return H('searchCitizens')(src, Player, query)
 end)
 
@@ -103,7 +103,7 @@ local function PoliceVehicles(citizenid)
     if not tableName or not JS.TableExists(tableName) then return nil end
     local list = {}
     for i, row in ipairs(MySQL.query.await(('SELECT vehicle, plate, state FROM `%s` WHERE citizenid = ?'):format(tableName), { citizenid }) or {}) do
-        local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[row.vehicle]
+        local shared = QBCore.Shared.Vehicles and QBCore.Shared.Vehicles[row.vehicle]
         list[i] = {
             plate = row.plate,
             label = JS.Safe(shared and (('%s %s'):format(shared.brand or '', shared.name or row.vehicle)) or row.vehicle),
@@ -113,7 +113,7 @@ local function PoliceVehicles(citizenid)
     return list
 end
 
-JS.RegisterCallback('RespectJustice:server:policeProfile', JS.PoliceOnly('profile'), function(src, Player, citizenid)
+JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'), function(src, Player, citizenid)
     citizenid = JS.ValidCitizenId(citizenid)
     if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
     local citizen = JS.GetCitizen(citizenid)
@@ -169,11 +169,11 @@ end)
 -- الأوامر والمشبوهين (للشرطة)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:policeWarrants', JS.PoliceOnly('warrants'), function(src, Player)
+JS.RegisterCallback('NomadJustice:server:policeWarrants', JS.PoliceOnly('warrants'), function(src, Player)
     return { ok = true, warrants = JS.GetWarrants(nil, true), perms = JS.GetPolicePermissions(Player) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:executeWarrant', JS.PoliceOnly('executeWarrant'), function(src, Player, warrantId)
+JS.RegisterCallback('NomadJustice:server:executeWarrant', JS.PoliceOnly('executeWarrant'), function(src, Player, warrantId)
     warrantId = tonumber(warrantId)
     local row = warrantId and MySQL.single.await("SELECT * FROM justice_warrants WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())", { warrantId })
     if not row then return { ok = false, err = 'الأمر غير ساري' } end
@@ -188,7 +188,7 @@ JS.RegisterCallback('RespectJustice:server:executeWarrant', JS.PoliceOnly('execu
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:policeSuspects', JS.PoliceOnly('suspects'), function()
+JS.RegisterCallback('NomadJustice:server:policeSuspects', JS.PoliceOnly('suspects'), function()
     return { ok = true, suspects = JS.GetSuspects() }
 end)
 
@@ -219,7 +219,7 @@ local function MapRequest(row)
     }
 end
 
-JS.RegisterCallback('RespectJustice:server:policeRequest', JS.PoliceOnly('requests'), function(src, Player, citizenid, rType, reason, details)
+JS.RegisterCallback('NomadJustice:server:policeRequest', JS.PoliceOnly('requests'), function(src, Player, citizenid, rType, reason, details)
     citizenid = JS.ValidCitizenId(citizenid)
     reason = JS.CleanText(reason, 200, true)
     details = JS.CleanText(details, 200, false)
@@ -253,7 +253,7 @@ JS.RegisterCallback('RespectJustice:server:policeRequest', JS.PoliceOnly('reques
     return { ok = true, id = id }
 end)
 
-JS.RegisterCallback('RespectJustice:server:policeMyRequests', JS.PoliceOnly('requests'), function(src, Player)
+JS.RegisterCallback('NomadJustice:server:policeMyRequests', JS.PoliceOnly('requests'), function(src, Player)
     local list = {}
     for i, row in ipairs(MySQL.query.await('SELECT * FROM justice_police_requests WHERE officer_cid = ? ORDER BY id DESC LIMIT 30', { Player.PlayerData.citizenid }) or {}) do
         list[i] = MapRequest(row)
@@ -262,7 +262,7 @@ JS.RegisterCallback('RespectJustice:server:policeMyRequests', JS.PoliceOnly('req
 end)
 
 -- ═════ جهة العدل ═════
-JS.RegisterCallback('RespectJustice:server:getPoliceRequests', 'policeRequests', function(src, Player, status)
+JS.RegisterCallback('NomadJustice:server:getPoliceRequests', 'policeRequests', function(src, Player, status)
     local rows
     if JS.RequestStatus[status] then
         rows = MySQL.query.await('SELECT * FROM justice_police_requests WHERE status = ? ORDER BY id DESC LIMIT 100', { status })
@@ -275,7 +275,7 @@ JS.RegisterCallback('RespectJustice:server:getPoliceRequests', 'policeRequests',
     return { ok = true, requests = list, pending = pending }
 end)
 
-JS.RegisterCallback('RespectJustice:server:answerPoliceRequest', 'policeRequests', function(src, Player, requestId, approve, note)
+JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests', function(src, Player, requestId, approve, note)
     requestId = tonumber(requestId)
     approve = approve == true
     note = JS.CleanText(note, 200, false) or ''
@@ -288,12 +288,12 @@ JS.RegisterCallback('RespectJustice:server:answerPoliceRequest', 'policeRequests
     })
     if not claimed or claimed == 0 then return { ok = false, err = 'تم الرد على الطلب مسبقاً' } end
 
-    local officer = RTCore.Functions.GetPlayerByCitizenId(row.officer_cid)
+    local officer = QBCore.Functions.GetPlayerByCitizenId(row.officer_cid)
     local resultText = approve and 'تمت الموافقة' or 'تم الرفض'
 
     if approve then
         if row.type == 'locate' then
-            local target = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
+            local target = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
             local ped = target and GetPlayerPed(target.PlayerData.source) or 0
             if ped ~= 0 and officer then
                 local c = GetEntityCoords(ped)

@@ -7,27 +7,18 @@ local Settings = JS.Settings
 local Finance = Settings.Finance
 local Notify = JS.Notify
 
--- ═════ مزوّد الرصيد: RespectBanking (بصيغتين مشهورتين) أو خزينة داخلية ═════
+-- ═════ مزوّد الرصيد: سكربت البنك (qb-banking أو صيغة renewed) أو خزينة داخلية ═════
 local function Bank() return exports[Finance.Resource] end
 
 local Providers = {
-    respect = {
-        label = 'RespectBanking (حسابات القطاعات)',
-        balance = function(job)
-            local account = Bank():getBusinessAccount(job)
-            return type(account) == 'table' and tonumber(account.balance) or nil
-        end,
-        add = function(job, amount, reason) return Bank():AddMoney(job, amount, reason) == true end,
-        remove = function(job, amount, reason) return Bank():RemoveMoney(job, amount, reason) == true end,
-    },
     qb = {
-        label = 'RespectBanking (GetAccountBalance)',
+        label = Finance.Resource .. ' (GetAccountBalance)',
         balance = function(job) return tonumber(Bank():GetAccountBalance(job)) end,
         add = function(job, amount, reason) return Bank():AddMoney(job, amount, reason) ~= false end,
         remove = function(job, amount, reason) return Bank():RemoveMoney(job, amount, reason) ~= false end,
     },
     renewed = {
-        label = 'RespectBanking (getAccountMoney)',
+        label = Finance.Resource .. ' (getAccountMoney)',
         balance = function(job) return tonumber(Bank():getAccountMoney(job)) end,
         add = function(job, amount) return Bank():addAccountMoney(job, amount) ~= false end,
         remove = function(job, amount) return Bank():removeAccountMoney(job, amount) ~= false end,
@@ -59,10 +50,10 @@ local function DetectProvider()
         JS.FinanceProvider = wanted
         return
     end
-    -- auto: نجرب دوال RespectBanking
+    -- auto: نجرب دوال سكربت البنك
     local job = next(Finance.Sectors or {})
     if job and GetResourceState(Finance.Resource) == 'started' then
-        for _, name in ipairs({ 'respect', 'qb', 'renewed' }) do
+        for _, name in ipairs({ 'qb', 'renewed' }) do
             local ok, balance = pcall(Providers[name].balance, job)
             if ok and type(balance) == 'number' then
                 JS.FinanceProvider = name
@@ -152,11 +143,11 @@ local function Validate(amount, reason)
 end
 
 -- ═════ Callbacks ═════
-JS.RegisterCallback('RespectJustice:server:financeInfo', FinanceOnly, function(src, Player, requestedJob)
+JS.RegisterCallback('NomadJustice:server:financeInfo', FinanceOnly, function(src, Player, requestedJob)
     local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local ok, balance = pcall(Provider().balance, sector.job)
     if not ok then
-        print(('^1[RespectJustice] finance balance error (%s): %s^7'):format(JS.FinanceProvider, tostring(balance)))
+        print(('^1[NomadJustice] finance balance error (%s): %s^7'):format(JS.FinanceProvider, tostring(balance)))
         return { ok = false, err = 'تعذر قراءة رصيد القطاع' }
     end
     return {
@@ -168,7 +159,7 @@ JS.RegisterCallback('RespectJustice:server:financeInfo', FinanceOnly, function(s
     }
 end)
 
-JS.RegisterCallback('RespectJustice:server:financeDeposit', FinanceOnly, function(src, Player, amount, reason, requestedJob)
+JS.RegisterCallback('NomadJustice:server:financeDeposit', FinanceOnly, function(src, Player, amount, reason, requestedJob)
     local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local err
     amount, reason, err = Validate(amount, reason)
@@ -188,7 +179,7 @@ JS.RegisterCallback('RespectJustice:server:financeDeposit', FinanceOnly, functio
     return { ok = true, balance = math.floor(tonumber(balance) or 0) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:financeWithdraw', FinanceOnly, function(src, Player, amount, reason, requestedJob)
+JS.RegisterCallback('NomadJustice:server:financeWithdraw', FinanceOnly, function(src, Player, amount, reason, requestedJob)
     local sector = JS.GetFinanceSector(Player, false, requestedJob)
     local err
     amount, reason, err = Validate(amount, reason)
@@ -226,7 +217,7 @@ end
 
 CreateThread(function()
     while not JS.Ready do Wait(500) end
-    Wait(1500) -- نعطي RespectBanking وقت يشتغل
+    Wait(1500) -- نعطي سكربت البنك وقت يشتغل
     DetectProvider()
-    print(('^2[RespectJustice]^7 Finance provider: %s'):format(Provider().label))
+    print(('^2[NomadJustice]^7 Finance provider: %s'):format(Provider().label))
 end)

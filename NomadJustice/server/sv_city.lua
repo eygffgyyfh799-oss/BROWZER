@@ -27,7 +27,7 @@ end
 local function GetNames(citizenids)
     local names, missing = {}, {}
     for _, cid in ipairs(citizenids) do
-        local Player = RTCore.Functions.GetPlayerByCitizenId(cid)
+        local Player = QBCore.Functions.GetPlayerByCitizenId(cid)
         if Player then
             names[cid] = JS.PlayerName(Player)
         elseif not names[cid] then
@@ -85,7 +85,7 @@ local function HousesReady()
 end
 
 local function MapVehicle(row, names, worldPlates)
-    local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[row.vehicle]
+    local shared = QBCore.Shared.Vehicles and QBCore.Shared.Vehicles[row.vehicle]
     local label = shared and (('%s %s'):format(shared.brand or '', shared.name or row.vehicle):gsub('^%s+', '')) or row.vehicle
     local plate = (row.plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
     return {
@@ -123,8 +123,8 @@ local function GetEconomy()
 
     -- القيم الحية للمتصلين (قاعدة البيانات تتحدث كل عدة دقائق فقط)
     local online = {}
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local Player = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local Player = QBCore.Functions.GetPlayer(playerId)
         if Player then online[#online + 1] = Player end
     end
 
@@ -155,9 +155,9 @@ local function GetEconomy()
     return { bank = totalBank, cash = totalCash, total = totalBank + totalCash, richest = richest }
 end
 
-JS.RegisterCallback('RespectJustice:server:getCityOverview', 'city', function(src, Player)
+JS.RegisterCallback('NomadJustice:server:getCityOverview', 'city', function(src, Player)
     local perms = JS.GetPermissions(Player)
-    local overview = { online = #RTCore.Functions.GetPlayers() }
+    local overview = { online = #QBCore.Functions.GetPlayers() }
 
     if JS.TableExists(DB.Players) then
         overview.citizens = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s`'):format(DB.Players))) or 0
@@ -177,8 +177,8 @@ JS.RegisterCallback('RespectJustice:server:getCityOverview', 'city', function(sr
 
     -- القطاعات في الدوام
     local duty = {}
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         local job = target and target.PlayerData.job
         if job and job.onduty and job.name ~= Settings.Panel.UnemployedJob then
             duty[job.name] = duty[job.name] or { label = JS.Safe(job.label or job.name), count = 0 }
@@ -206,7 +206,7 @@ end)
 -- سجل المركبات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:searchVehicles', 'city', function(src, Player, query)
+JS.RegisterCallback('NomadJustice:server:searchVehicles', 'city', function(src, Player, query)
     if not VehiclesReady() then return { ok = false, err = 'جدول المركبات غير موجود، راجع Settings.Database' } end
 
     query = JS.CleanText(query, 20, true)
@@ -224,7 +224,7 @@ JS.RegisterCallback('RespectJustice:server:searchVehicles', 'city', function(src
     return { ok = true, vehicles = list, perms = JS.GetPermissions(Player) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:getVehicle', 'city', function(src, Player, plate, locate)
+JS.RegisterCallback('NomadJustice:server:getVehicle', 'city', function(src, Player, plate, locate)
     plate = NormalizePlate(plate)
     if not plate or not VehiclesReady() then return { ok = false, err = 'اللوحة غير صحيحة' } end
 
@@ -248,7 +248,7 @@ JS.RegisterCallback('RespectJustice:server:getVehicle', 'city', function(src, Pl
 end)
 
 -- action: 'impound' | 'release' | 'transfer'
-JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(src, Player, plate, action, extra)
+JS.RegisterCallback('NomadJustice:server:vehicleAction', 'vehicles', function(src, Player, plate, action, extra)
     plate = NormalizePlate(plate)
     if not plate or not VehiclesReady() then return { ok = false, err = 'اللوحة غير صحيحة' } end
 
@@ -268,7 +268,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
         local vehicle = FindWorldVehicle(plate)
         if vehicle then DeleteEntity(vehicle) end
 
-        local owner = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
+        local owner = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
         if owner then Notify(owner.PlayerData.source, ('تم حجز مركبتك %s بقرار من وزارة العدل'):format(plate), 'error', 10000) end
         JS.Log(Player, 'vehicle_impound', row.citizenid, ownerName, details, { plate = plate })
         return { ok = true, message = 'تم حجز المركبة' .. (vehicle and ' وسحبها من الشارع' or '') }
@@ -279,7 +279,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
         params[#params + 1] = row.plate
         MySQL.update.await(('UPDATE `%s` SET %s WHERE plate = ?'):format(DB.Vehicles, table.concat(sets, ', ')), params)
 
-        local owner = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
+        local owner = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
         if owner then Notify(owner.PlayerData.source, ('تم فك حجز مركبتك %s من وزارة العدل'):format(plate), 'success', 10000) end
         JS.Log(Player, 'vehicle_release', row.citizenid, ownerName, details, { plate = plate })
         return { ok = true, message = 'تم فك حجز المركبة' }
@@ -307,7 +307,7 @@ JS.RegisterCallback('RespectJustice:server:vehicleAction', 'vehicles', function(
         JS.Log(Player, 'vehicle_transfer', newOwner, newName, details, { plate = plate, from = row.citizenid })
 
         for _, cid in ipairs({ row.citizenid, newOwner }) do
-            local target = RTCore.Functions.GetPlayerByCitizenId(cid)
+            local target = QBCore.Functions.GetPlayerByCitizenId(cid)
             if target then Notify(target.PlayerData.source, ('تم نقل ملكية المركبة %s بقرار من وزارة العدل'):format(plate), 'primary', 10000) end
         end
         return { ok = true, message = 'تم نقل ملكية المركبة إلى ' .. newName }
@@ -320,7 +320,7 @@ end)
 -- سجل العقارات
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:searchProperties', 'city', function(src, Player, query)
+JS.RegisterCallback('NomadJustice:server:searchProperties', 'city', function(src, Player, query)
     if not HousesReady() then return { ok = false, err = 'جدول العقارات غير موجود، راجع Settings.Database.Houses' } end
     local h = DB.Houses
 
@@ -349,7 +349,7 @@ JS.RegisterCallback('RespectJustice:server:searchProperties', 'city', function(s
     return { ok = true, properties = list, perms = JS.GetPermissions(Player) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:transferProperty', 'properties', function(src, Player, propertyId, newOwner)
+JS.RegisterCallback('NomadJustice:server:transferProperty', 'properties', function(src, Player, propertyId, newOwner)
     if not HousesReady() then return { ok = false, err = 'جدول العقارات غير موجود' } end
     local h = DB.Houses
 
@@ -381,7 +381,7 @@ end)
 -- التراخيص
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:setLicense', 'licenses', function(src, Player, citizenid, key, state)
+JS.RegisterCallback('NomadJustice:server:setLicense', 'licenses', function(src, Player, citizenid, key, state)
     citizenid = JS.ValidCitizenId(citizenid)
     state = state == true
     if not citizenid or type(key) ~= 'string' or not key:match('^[%w_]+$') or #key > 30 then
@@ -427,9 +427,9 @@ local function GradeList(entry)
     return list
 end
 
-JS.RegisterCallback('RespectJustice:server:getGangs', 'view', function()
+JS.RegisterCallback('NomadJustice:server:getGangs', 'view', function()
     local list = {}
-    for name, gang in pairs(RTCore.Shared.Gangs or {}) do
+    for name, gang in pairs(QBCore.Shared.Gangs or {}) do
         list[#list + 1] = { name = name, label = JS.Safe(gang.label or name), grades = GradeList(gang) }
     end
     table.sort(list, function(a, b)
@@ -440,13 +440,13 @@ JS.RegisterCallback('RespectJustice:server:getGangs', 'view', function()
     return { ok = true, gangs = list }
 end)
 
-JS.RegisterCallback('RespectJustice:server:setGang', 'gangs', function(src, Player, citizenid, gangName, level)
+JS.RegisterCallback('NomadJustice:server:setGang', 'gangs', function(src, Player, citizenid, gangName, level)
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
     if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
     if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'لا يمكنك تغيير عصابتك بنفسك' } end
 
-    local gangs = RTCore.Shared.Gangs or {}
+    local gangs = QBCore.Shared.Gangs or {}
     local gang = type(gangName) == 'string' and gangs[gangName]
     if not gang then return { ok = false, err = 'العصابة غير موجودة' } end
     local grade = gang.grades and (gang.grades[tostring(level)] or gang.grades[level])
@@ -503,8 +503,8 @@ CreateThread(function()
     -- تسليم الاستدعاءات للي دخلوا السيرفر (يعمل مع أي نسخة من الكور)
     while true do
         if next(pendingSummons) then
-            for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-                local Player = RTCore.Functions.GetPlayer(playerId)
+            for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+                local Player = QBCore.Functions.GetPlayer(playerId)
                 if Player and pendingSummons[Player.PlayerData.citizenid] then
                     DeliverSummons(Player)
                 end
@@ -514,7 +514,7 @@ CreateThread(function()
     end
 end)
 
-JS.RegisterCallback('RespectJustice:server:sendSummon', 'summon', function(src, Player, citizenid, reason, appointment, location)
+JS.RegisterCallback('NomadJustice:server:sendSummon', 'summon', function(src, Player, citizenid, reason, appointment, location)
     citizenid = JS.ValidCitizenId(citizenid)
     reason = JS.CleanText(reason, City.SummonMaxLength, true)
     appointment = JS.CleanText(appointment, 100, false)
@@ -544,7 +544,7 @@ JS.RegisterCallback('RespectJustice:server:sendSummon', 'summon', function(src, 
     return { ok = true, delivered = citizen.online ~= nil }
 end)
 
-JS.RegisterCallback('RespectJustice:server:setSummonStatus', 'summon', function(src, Player, summonId, status)
+JS.RegisterCallback('NomadJustice:server:setSummonStatus', 'summon', function(src, Player, summonId, status)
     summonId = tonumber(summonId)
     if not summonId or not SummonStatus[status] or status == 'pending' then return { ok = false, err = 'بيانات غير صحيحة' } end
 
@@ -578,7 +578,7 @@ function JS.GetSummons(citizenid, limit)
     return list
 end
 
-JS.RegisterCallback('RespectJustice:server:getAllSummons', 'summon', function()
+JS.RegisterCallback('NomadJustice:server:getAllSummons', 'summon', function()
     local list = {}
     for i, row in ipairs(MySQL.query.await("SELECT * FROM justice_summons WHERE status IN ('pending', 'delivered') ORDER BY id DESC LIMIT 100") or {}) do
         list[i] = {
@@ -599,7 +599,7 @@ JS.RegisterCallback('RespectJustice:server:getAllSummons', 'summon', function()
 end)
 
 -- المواطن يشوف استدعاءاته
-JS.RegisterCallback('RespectJustice:server:getMySummons', nil, function(src, Player)
+JS.RegisterCallback('NomadJustice:server:getMySummons', nil, function(src, Player)
     return { ok = true, summons = JS.GetSummons(Player.PlayerData.citizenid, 10) }
 end)
 
@@ -607,7 +607,7 @@ end)
 -- إعلان لكل المدينة
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:announce', 'announce', function(src, Player, text)
+JS.RegisterCallback('NomadJustice:server:announce', 'announce', function(src, Player, text)
     text = JS.CleanText(text, City.AnnounceMaxLength, true)
     if not text or JS.Len(text) < 5 then
         return { ok = false, err = ('نص الإعلان بين 5 و %d حرف'):format(City.AnnounceMaxLength) }
@@ -616,7 +616,7 @@ JS.RegisterCallback('RespectJustice:server:announce', 'announce', function(src, 
     local blocked, remaining = JS.OnCooldown('announce', 'global', City.AnnounceCooldown)
     if blocked then return { ok = false, err = ('يمكن إرسال إعلان بعد %d ثانية'):format(remaining) } end
 
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
         Notify(playerId, '⚖️ إعلان من وزارة العدل\n' .. text, 'primary', 15000)
     end
     JS.Log(Player, 'announce', nil, nil, { ['الإعلان'] = text })

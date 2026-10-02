@@ -30,9 +30,9 @@ JS.StatusLabels = { new = 'جديدة', review = 'قيد النظر', closed = '
 
 function JS.Notify(src, msg, msgType, length)
     msgType, length = msgType or 'primary', length or 5000
-    local ok = pcall(RTCore.Functions.Notify, src, msg, msgType, length)
+    local ok = pcall(QBCore.Functions.Notify, src, msg, msgType, length)
     if not ok then
-        TriggerClientEvent('RespectJustice:client:notify', src, msg, msgType, length)
+        TriggerClientEvent('NomadJustice:client:notify', src, msg, msgType, length)
     end
 end
 
@@ -59,7 +59,7 @@ function JS.CleanText(value, maxLen, required)
     end
     if type(value) ~= 'string' and type(value) ~= 'number' then return nil end
 
-    local str = _2rayan.Functions.trim(tostring(value)) or ''
+    local str = JUtil.Functions.trim(tostring(value)) or ''
     if not utf8.len(str) then return nil end -- نص تالف (UTF-8 غير صالح)
     str = JS.Safe(str:gsub('[\0-\9\11-\31]', ''))
     if required and str == '' then return nil end
@@ -76,7 +76,7 @@ end
 
 function JS.ValidCitizenId(cid)
     if type(cid) ~= 'string' and type(cid) ~= 'number' then return nil end
-    cid = _2rayan.Functions.trim(tostring(cid))
+    cid = JUtil.Functions.trim(tostring(cid))
     if not cid or cid == '' or #cid > 50 or not cid:match('^[%w_%-]+$') then return nil end
     return cid
 end
@@ -120,7 +120,7 @@ end)
 AddEventHandler('playerDropped', function()
     local src = source
     joinTimes[src] = nil
-    local ok, Player = pcall(RTCore.Functions.GetPlayer, src)
+    local ok, Player = pcall(QBCore.Functions.GetPlayer, src)
     if ok and Player and Player.PlayerData then
         lastSeen[Player.PlayerData.citizenid] = os.time()
     end
@@ -151,7 +151,7 @@ end
 -- lastUpdated: قيمة last_updated من جدول players (ميلي ثانية) إن وجدت
 -- يرجع { online, serverId, text }
 function JS.GetStatus(citizenid, lastUpdated)
-    local Player = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local Player = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if Player then
         local src = Player.PlayerData.source
         local joined = joinTimes[src]
@@ -321,12 +321,12 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.TabletEvent(src, event)
-    TriggerClientEvent('RespectJustice:client:tabletEvent', src, event)
+    TriggerClientEvent('NomadJustice:client:tabletEvent', src, event)
 end
 
 function JS.BroadcastTablet(filter, event)
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         if target and filter(target) then JS.TabletEvent(playerId, event) end
     end
 end
@@ -344,27 +344,23 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.GetBank(citizenid)
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then return math.floor(tonumber(target.PlayerData.money.bank) or 0) end
     local row = JS.GetPlayerRow(citizenid)
     return row and math.floor(tonumber(JS.OfflineMoney(row).bank) or 0) or nil
 end
 
 -- يسحب من بنك المواطن (يرفض إذا الرصيد ما يكفي)
--- خصم من بنك لاعب متصل بقرار العدل: يتجاوز تجميد الحساب (الغرامات والسحب تمشي حتى لو الحساب مجمّد)
-JS.BankBypass = {}
+-- خصم من بنك لاعب متصل بقرار العدل
 function JS.RemoveBank(target, amount, reason)
-    local cid = target.PlayerData.citizenid
-    JS.BankBypass[cid] = true
     local ok, removed = pcall(target.Functions.RemoveMoney, 'bank', amount, reason)
-    JS.BankBypass[cid] = nil
     return ok and removed ~= false
 end
 
 function JS.TakeMoney(citizenid, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return false, 'مبلغ غير صحيح' end
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         if (tonumber(target.PlayerData.money.bank) or 0) < amount then return false, 'الرصيد غير كافٍ' end
         if not JS.RemoveBank(target, amount, reason) then return false, 'تعذر السحب' end
@@ -384,7 +380,7 @@ end
 function JS.GiveMoney(citizenid, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return false, 'مبلغ غير صحيح' end
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         if not target.Functions.AddMoney('bank', amount, reason) then return false, 'تعذر الإيداع' end
         return true
@@ -465,7 +461,7 @@ function JS.Flooding(src)
     end
     f.count = f.count + 1
     if f.count == 26 then
-        print(('^3[RespectJustice] ⚠ اللاعب [%d] أرسل طلبات كثيرة جداً (احتمال تلاعب)^7'):format(src))
+        print(('^3[NomadJustice] ⚠ اللاعب [%d] أرسل طلبات كثيرة جداً (احتمال تلاعب)^7'):format(src))
     end
     return f.count > 25
 end
@@ -497,7 +493,7 @@ JS.Handlers = {}
 
 function JS.RegisterCallback(name, action, handler)
     JS.Handlers[name] = handler
-    RTCore.Functions.CreateCallback(name, function(source, cb, ...)
+    QBCore.Functions.CreateCallback(name, function(source, cb, ...)
         local src = source
 
         if not JS.Ready then
@@ -510,7 +506,7 @@ function JS.RegisterCallback(name, action, handler)
             return cb({ ok = false, err = 'طلبات كثيرة، انتظر ثواني' })
         end
 
-        local Player = RTCore.Functions.GetPlayer(src)
+        local Player = QBCore.Functions.GetPlayer(src)
         if not Player then
             return cb({ ok = false, err = 'تعذر العثور على بياناتك' })
         end
@@ -525,7 +521,7 @@ function JS.RegisterCallback(name, action, handler)
             if not allowed then
                 -- محاولة من شخص ما له أي دور = غالباً تلاعب (Executor)
                 if not JS.GetRole(Player) then
-                    print(('^3[RespectJustice] ⚠ محاولة بدون صلاحية: %s [%d] (%s) → %s^7'):format(
+                    print(('^3[NomadJustice] ⚠ محاولة بدون صلاحية: %s [%d] (%s) → %s^7'):format(
                         JS.PlayerName(Player), src, Player.PlayerData.citizenid, name))
                 end
                 return cb({ ok = false, err = err or 'غير مسموح' })
@@ -534,7 +530,7 @@ function JS.RegisterCallback(name, action, handler)
 
         local success, result = pcall(handler, src, Player, ...)
         if not success then
-            print(('^1[RespectJustice] %s error: %s^7'):format(name, tostring(result)))
+            print(('^1[NomadJustice] %s error: %s^7'):format(name, tostring(result)))
             return cb({ ok = false, err = 'حدث خطأ غير متوقع' })
         end
 
@@ -578,7 +574,7 @@ end
 function JS.TryQuery(query, params)
     local ok, err = pcall(MySQL.query.await, query, params)
     if not ok then
-        print(('^3[RespectJustice]^7 DB step skipped: %s'):format(tostring(err)))
+        print(('^3[NomadJustice]^7 DB step skipped: %s'):format(tostring(err)))
     end
     return ok
 end
@@ -587,7 +583,7 @@ function JS.EnsureColumn(tableName, column, definition)
     if JS.ColumnExists(tableName, column) then return end
     if JS.TryQuery(('ALTER TABLE `%s` ADD COLUMN `%s` %s'):format(tableName, column, definition)) then
         schemaCache[('c:%s.%s'):format(tableName, column)] = true
-        print(('^3[RespectJustice]^7 Added column %s.%s'):format(tableName, column))
+        print(('^3[NomadJustice]^7 Added column %s.%s'):format(tableName, column))
     end
 end
 
@@ -614,40 +610,14 @@ end
 -- يتأكد إن البيانات ما تغيرت أثناء العملية، ويعتبر العملية ناجحة إذا القيمة الجديدة نفس القديمة
 local PlayerJsonColumns = { money = true, charinfo = true, job = true, gang = true, metadata = true }
 
--- ═════ RespectBanking: رصيد اللاعب غير المتصل ═════
--- RespectBanking يحفظ رصيد البنك في جدوله الخاص، ولما اللاعب يدخل ياخذ الأعلى بين الرصيدين.
--- عشان كذا: نقرأ الأعلى، وأي تعديل وهو غير متصل نكتبه في الجدولين (وإلا ترجع الغرامة لما يدخل)
-local BankAccounts, BankMembers = 'banking_advanced_banking_accounts', 'banking_advanced_banking_accounts_members'
-
-local function BankLinked()
-    return JS.TableExists(BankAccounts) and JS.TableExists(BankMembers)
-end
-
-function JS.GetBankAccountBalance(citizenid)
-    if not BankLinked() then return nil end
-    local ok, balance = pcall(MySQL.scalar.await, ([[SELECT a.balance FROM `%s` a INNER JOIN `%s` m ON m.account_id = a.id
-        WHERE a.type = 'personal' AND m.identifier = ? AND m.is_owner = 1 LIMIT 1]]):format(BankAccounts, BankMembers), { citizenid })
-    return ok and tonumber(balance) or nil
-end
-
-function JS.SyncBankAccount(citizenid, bank)
-    if not BankLinked() or tonumber(bank) == nil then return end
-    pcall(MySQL.update.await, ([[UPDATE `%s` a INNER JOIN `%s` m ON m.account_id = a.id SET a.balance = ?
-        WHERE a.type = 'personal' AND m.identifier = ? AND m.is_owner = 1]]):format(BankAccounts, BankMembers), { math.floor(bank), citizenid })
-end
-
--- فلوس لاعب غير متصل (من صف قاعدة البيانات) مع رصيد البنك الصحيح
+-- فلوس لاعب غير متصل (من صف قاعدة البيانات)
 function JS.OfflineMoney(row)
-    local money = JS.Decode(row.money)
-    local banking = JS.GetBankAccountBalance(row.citizenid)
-    if banking and banking > (tonumber(money.bank) or 0) then money.bank = banking end
-    return money
+    return JS.Decode(row.money)
 end
 
 function JS.UpdatePlayerJson(citizenid, column, newValue, oldRaw)
     if not PlayerJsonColumns[column] then return false end
     local encoded = json.encode(newValue)
-    if column == 'money' and type(newValue) == 'table' then JS.SyncBankAccount(citizenid, newValue.bank) end
     if encoded == oldRaw then return true end
 
     local tableName = Settings.Database.Players
@@ -670,7 +640,7 @@ end
 -- يرجع بيانات المواطن سواء كان متصلاً أو غير متصل
 -- { online = Player|nil, citizenid, charinfo, money, job, gang, metadata, items, lastUpdated }
 function JS.GetCitizen(citizenid)
-    local Player = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local Player = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if Player then
         local pd = Player.PlayerData
         return {
@@ -793,7 +763,7 @@ CreateThread(function()
         if embed then
             PerformHttpRequest(webhook, function(status)
                 if status == 429 then table.insert(webhookQueue, 1, embed) end
-            end, 'POST', json.encode({ username = 'RespectJustice', embeds = { embed } }), { ['Content-Type'] = 'application/json' })
+            end, 'POST', json.encode({ username = 'NomadJustice', embeds = { embed } }), { ['Content-Type'] = 'application/json' })
         end
         Wait(embed and 1500 or 1000)
     end
@@ -811,14 +781,14 @@ function JS.AddSocietyMoney(amount, reason)
         resource[society.func](resource, JS.Job, amount, reason)
     end)
     if not ok then
-        print(('^1[RespectJustice]^7 Society deposit failed: %s'):format(tostring(err)))
+        print(('^1[NomadJustice]^7 Society deposit failed: %s'):format(tostring(err)))
     end
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- إيقاف الخدمات - Exports لباقي السكربتات
--- exports['RespectJustice']:IsCitizenSuspended(citizenid) -> boolean
--- exports['RespectJustice']:GetCitizenSuspension(citizenid) -> { reason, officer, date } | nil
+-- exports['NomadJustice']:IsCitizenSuspended(citizenid) -> boolean
+-- exports['NomadJustice']:GetCitizenSuspension(citizenid) -> { reason, officer, date } | nil
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 exports('IsCitizenSuspended', function(citizenid)

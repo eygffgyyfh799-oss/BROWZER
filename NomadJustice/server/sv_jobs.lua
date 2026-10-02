@@ -15,7 +15,7 @@ end
 
 local function GetSharedJob(jobName)
     if type(jobName) ~= 'string' or not jobName:match('^[%w_%-]+$') then return nil end
-    local jobs = RTCore.Shared.Jobs or {}
+    local jobs = QBCore.Shared.Jobs or {}
     return jobs[jobName]
 end
 
@@ -66,10 +66,10 @@ end
 -- قائمة كل القطاعات مع عدد الموظفين
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getJobs', 'view', function(src, Player)
+JS.RegisterCallback('NomadJustice:server:getJobs', 'view', function(src, Player)
     local online, onduty = {}, {}
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         local job = target and target.PlayerData.job
         if job and job.name then
             online[job.name] = (online[job.name] or 0) + 1
@@ -87,7 +87,7 @@ JS.RegisterCallback('RespectJustice:server:getJobs', 'view', function(src, Playe
     end
 
     local list = {}
-    for name, job in pairs(RTCore.Shared.Jobs or {}) do
+    for name, job in pairs(QBCore.Shared.Jobs or {}) do
         if not IsBlacklisted(name) then
             list[#list + 1] = {
                 name = name,
@@ -112,7 +112,7 @@ end)
 -- أعضاء قطاع (متصلين + غير متصلين)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getJobMembers', 'view', function(src, Player, jobName)
+JS.RegisterCallback('NomadJustice:server:getJobMembers', 'view', function(src, Player, jobName)
     local job = GetSharedJob(jobName)
     if not job or IsBlacklisted(jobName) then return { ok = false, err = 'القطاع غير موجود' } end
 
@@ -135,8 +135,8 @@ JS.RegisterCallback('RespectJustice:server:getJobMembers', 'view', function(src,
         }
     end
 
-    for _, playerId in pairs(RTCore.Functions.GetPlayers()) do
-        local target = RTCore.Functions.GetPlayer(playerId)
+    for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
+        local target = QBCore.Functions.GetPlayer(playerId)
         if target and target.PlayerData.job and target.PlayerData.job.name == jobName then
             add(target.PlayerData.citizenid, target.PlayerData.charinfo, target.PlayerData.job, target)
         end
@@ -168,7 +168,7 @@ end)
 -- تغيير وظيفة ورتبة المواطن (توظيف / ترقية / تنزيل / فصل)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:setCitizenJob', 'jobs', function(src, Player, citizenid, jobName, level)
+JS.RegisterCallback('NomadJustice:server:setCitizenJob', 'jobs', function(src, Player, citizenid, jobName, level)
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
     if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
@@ -220,10 +220,10 @@ end)
 -- تشغيل / إيقاف دوام موظف (متصل فقط)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:setCitizenDuty', 'jobs', function(src, Player, citizenid, state)
+JS.RegisterCallback('NomadJustice:server:setCitizenDuty', 'jobs', function(src, Player, citizenid, state)
     citizenid = JS.ValidCitizenId(citizenid)
     state = state == true
-    local target = citizenid and RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = citizenid and QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if not target then return { ok = false, err = 'المواطن غير متصل' } end
     if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'استخدم البصمة لتغيير دوامك' } end
     if IsBlacklisted(target.PlayerData.job.name) then return { ok = false, err = 'القطاع غير مسموح' } end

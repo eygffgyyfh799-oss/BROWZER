@@ -6,7 +6,7 @@ local Settings = JS.Settings
 local V = Settings.Verdicts
 local Notify = JS.Notify
 
-local function H(name) return JS.Handlers['RespectJustice:server:' .. name] end
+local function H(name) return JS.Handlers['NomadJustice:server:' .. name] end
 
 JS.DangerLabels = { low = 'منخفض', medium = 'متوسط', high = 'عالي' }
 JS.WarrantTypes = { arrest = 'أمر قبض', search = 'أمر تفتيش' }
@@ -55,11 +55,11 @@ function JS.GetSuspect(citizenid)
     return row and MapSuspect(row) or nil
 end
 
-JS.RegisterCallback('RespectJustice:server:getSuspects', 'view', function()
+JS.RegisterCallback('NomadJustice:server:getSuspects', 'view', function()
     return { ok = true, suspects = JS.GetSuspects() }
 end)
 
-JS.RegisterCallback('RespectJustice:server:addSuspect', 'suspects', function(src, Player, citizenid, reason, danger)
+JS.RegisterCallback('NomadJustice:server:addSuspect', 'suspects', function(src, Player, citizenid, reason, danger)
     citizenid = JS.ValidCitizenId(citizenid)
     reason = JS.CleanText(reason, 200, true)
     if not JS.DangerLabels[danger] then danger = 'medium' end
@@ -82,7 +82,7 @@ JS.RegisterCallback('RespectJustice:server:addSuspect', 'suspects', function(src
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:removeSuspect', 'suspects', function(src, Player, suspectId)
+JS.RegisterCallback('NomadJustice:server:removeSuspect', 'suspects', function(src, Player, suspectId)
     suspectId = tonumber(suspectId)
     local row = suspectId and MySQL.single.await('SELECT * FROM justice_suspects WHERE id = ? AND active = 1', { suspectId })
     if not row then return { ok = false, err = 'غير موجود في القائمة' } end
@@ -156,15 +156,15 @@ function JS.IssueWarrant(Player, citizenid, wType, reason, place, requestedBy)
     return { ok = true, id = id }
 end
 
-JS.RegisterCallback('RespectJustice:server:getWarrants', 'view', function(src, Player, citizenid, activeOnly)
+JS.RegisterCallback('NomadJustice:server:getWarrants', 'view', function(src, Player, citizenid, activeOnly)
     return { ok = true, warrants = JS.GetWarrants(citizenid and JS.ValidCitizenId(citizenid) or nil, activeOnly == true) }
 end)
 
-JS.RegisterCallback('RespectJustice:server:issueWarrant', 'warrants', function(src, Player, citizenid, wType, reason, place)
+JS.RegisterCallback('NomadJustice:server:issueWarrant', 'warrants', function(src, Player, citizenid, wType, reason, place)
     return JS.IssueWarrant(Player, citizenid, wType, reason, place)
 end)
 
-JS.RegisterCallback('RespectJustice:server:cancelWarrant', 'warrants', function(src, Player, warrantId)
+JS.RegisterCallback('NomadJustice:server:cancelWarrant', 'warrants', function(src, Player, warrantId)
     warrantId = tonumber(warrantId)
     local row = warrantId and MySQL.single.await("SELECT * FROM justice_warrants WHERE id = ? AND status = 'active'", { warrantId })
     if not row then return { ok = false, err = 'الأمر غير ساري أو غير موجود' } end
@@ -202,7 +202,7 @@ function JS.GetCaseExtras(reportId)
     return { lawyers = lawyers, documents = documents, verdicts = JS.GetVerdicts(nil, reportId) }
 end
 
-JS.RegisterCallback('RespectJustice:server:assignLawyer', 'lawyers', function(src, Player, reportId, lawyerCid, side)
+JS.RegisterCallback('NomadJustice:server:assignLawyer', 'lawyers', function(src, Player, reportId, lawyerCid, side)
     reportId = tonumber(reportId)
     lawyerCid = JS.ValidCitizenId(lawyerCid)
     if side ~= 'defendant' then side = 'plaintiff' end
@@ -226,7 +226,7 @@ JS.RegisterCallback('RespectJustice:server:assignLawyer', 'lawyers', function(sr
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:removeLawyer', 'lawyers', function(src, Player, assignmentId)
+JS.RegisterCallback('NomadJustice:server:removeLawyer', 'lawyers', function(src, Player, assignmentId)
     assignmentId = tonumber(assignmentId)
     local row = assignmentId and MySQL.single.await('SELECT * FROM justice_case_lawyers WHERE id = ?', { assignmentId })
     if not row then return { ok = false, err = 'غير موجود' } end
@@ -236,7 +236,7 @@ JS.RegisterCallback('RespectJustice:server:removeLawyer', 'lawyers', function(sr
 end)
 
 -- إضافة مستند: موظف العدل أو المحامي المعيّن
-JS.RegisterCallback('RespectJustice:server:addDocument', nil, function(src, Player, reportId, title, content)
+JS.RegisterCallback('NomadJustice:server:addDocument', nil, function(src, Player, reportId, title, content)
     reportId = tonumber(reportId)
     title = JS.CleanText(title, 120, true)
     content = JS.CleanText(content, Settings.Lawyers.DocumentMax, true)
@@ -261,7 +261,7 @@ local function LawyerOnly(Player)
     return false, 'هذا القسم للمحامين فقط'
 end
 
-JS.RegisterCallback('RespectJustice:server:lawyerCases', LawyerOnly, function(src, Player)
+JS.RegisterCallback('NomadJustice:server:lawyerCases', LawyerOnly, function(src, Player)
     local rows = MySQL.query.await([[
         SELECT r.*, l.side FROM justice_reports r
         JOIN justice_case_lawyers l ON l.report_id = r.id
@@ -279,7 +279,7 @@ JS.RegisterCallback('RespectJustice:server:lawyerCases', LawyerOnly, function(sr
     return { ok = true, cases = list }
 end)
 
-JS.RegisterCallback('RespectJustice:server:lawyerCase', LawyerOnly, function(src, Player, reportId)
+JS.RegisterCallback('NomadJustice:server:lawyerCase', LawyerOnly, function(src, Player, reportId)
     reportId = tonumber(reportId)
     if not reportId or not IsAssignedLawyer(Player, reportId) then return { ok = false, err = 'أنت غير معيّن في هذه القضية' } end
     local row = MySQL.single.await('SELECT * FROM justice_reports WHERE id = ?', { reportId })
@@ -299,7 +299,7 @@ JS.RegisterCallback('RespectJustice:server:lawyerCase', LawyerOnly, function(src
     } }
 end)
 
-JS.RegisterCallback('RespectJustice:server:lawyerNote', LawyerOnly, function(src, Player, reportId, note)
+JS.RegisterCallback('NomadJustice:server:lawyerNote', LawyerOnly, function(src, Player, reportId, note)
     reportId = tonumber(reportId)
     note = JS.CleanText(note, Settings.ReportNoteMax, true)
     if not reportId or not note then return { ok = false, err = 'الملاحظة مطلوبة' } end
@@ -338,7 +338,7 @@ function JS.GetVerdicts(citizenid, reportId)
 end
 
 -- data = { reportId?, citizenid, type, amount?, target?, plate?, months?, text }
-JS.RegisterCallback('RespectJustice:server:issueVerdict', 'verdicts', function(src, Player, data)
+JS.RegisterCallback('NomadJustice:server:issueVerdict', 'verdicts', function(src, Player, data)
     if type(data) ~= 'table' then return { ok = false, err = 'بيانات غير صحيحة' } end
     local vType = data.type
     if not JS.VerdictTypes[vType] then return { ok = false, err = 'نوع الحكم غير معروف' } end
@@ -375,7 +375,7 @@ JS.RegisterCallback('RespectJustice:server:issueVerdict', 'verdicts', function(s
                 JS.GiveMoney(citizenid, amount, 'justice-verdict-rollback')
                 return { ok = false, err = 'تعذر تحويل التعويض للمتضرر، تم إرجاع المبلغ' }
             end
-            local t = RTCore.Functions.GetPlayerByCitizenId(target)
+            local t = QBCore.Functions.GetPlayerByCitizenId(target)
             if t then Notify(t.PlayerData.source, ('⚖️ صدر حكم لصالحك بتعويض $%d'):format(amount), 'success', 10000) end
         end
 
@@ -448,7 +448,7 @@ function JS.ReverseVerdict(src, Player, verdictId)
     end
 
     MySQL.update.await("UPDATE justice_verdicts SET status = 'cancelled' WHERE id = ?", { verdictId })
-    local target = RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
     if target then Notify(target.PlayerData.source, ('⚖️ تم إلغاء الحكم #%d الصادر بحقك'):format(verdictId), 'success', 10000) end
     return { ok = true }
 end
@@ -486,7 +486,7 @@ local function DutyHours(days)
     end
     -- اللي لسا في الدوام الآن
     for cid, startedAt in pairs(open) do
-        local P = RTCore.Functions.GetPlayerByCitizenId(cid)
+        local P = QBCore.Functions.GetPlayerByCitizenId(cid)
         if P and P.PlayerData.job.onduty then
             local from = math.max(startedAt, since)
             totals[cid] = (totals[cid] or 0) + math.min(os.time() - from, 16 * 3600)
@@ -501,7 +501,7 @@ local function DutyHours(days)
     return list
 end
 
-JS.RegisterCallback('RespectJustice:server:getStats', 'stats', function()
+JS.RegisterCallback('NomadJustice:server:getStats', 'stats', function()
     -- القضايا بالأسبوع (آخر 8 أسابيع)
     local weeks = {}
     for i = 1, 8 do weeks[i] = 0 end

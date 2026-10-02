@@ -2,13 +2,13 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-name 'RespectJustice'
+name 'NomadJustice'
 description 'نظام وزارة العدل - نظام معلومات المواطنين، القضايا، البصمة، الخزائن، الأرشيف، التعويضات، ومركبات العدل'
 author '2rayan'
-version '7.4.0'
+version '8.0.0'
 
 shared_scripts {
-    '@RespectLib/init.lua',
+    '@ox_lib/init.lua',
     'modules/init.lua',
 }
 
@@ -33,7 +33,6 @@ server_scripts {
     'server/sv_city.lua',
     'server/sv_court.lua',
     'server/sv_police.lua',
-    'server/sv_banking.lua',
     'server/sv_finance.lua',
     'server/sv_undo.lua',
     'server/sv_diagnostics.lua',
@@ -50,9 +49,9 @@ files {
 }
 
 dependencies {
-    'RespectCore',
-    'RespectLib',
-    'RespectTarget',
+    'qb-core',
+    'ox_lib',
+    'deep-target',
     'oxmysql',
 }
 

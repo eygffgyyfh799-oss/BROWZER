@@ -26,13 +26,13 @@ local function MapReport(row, full)
         report.witnesses = (row.witnesses and row.witnesses ~= '') and row.witnesses or nil
         report.evidence = (row.evidence and row.evidence ~= '') and row.evidence or nil
         report.submitter = JS.Decode(row.submitter_info)
-        report.submitterOnline = RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
+        report.submitterOnline = QBCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
         report.submitterStatus = JS.GetStatus(row.citizenid).text
         if report.defendantCitizenid then
             report.defendantStatus = JS.GetStatus(report.defendantCitizenid).text
         end
     else
-        report.submitterOnline = RTCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
+        report.submitterOnline = QBCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
     end
 
     -- حماية البيانات القديمة المحفوظة قبل التنظيف
@@ -48,9 +48,9 @@ end
 -- data = { title, caseType, defendantName, defendantCitizenid, witnesses, evidence, report }
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-RegisterNetEvent('RespectJustice:server:submitReport', function(data)
+RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     local src = source
-    local Player = RTCore.Functions.GetPlayer(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
     if not JS.Ready then return Notify(src, 'النظام قيد التحميل، حاول بعد قليل', 'error') end
 
@@ -154,14 +154,14 @@ RegisterNetEvent('RespectJustice:server:submitReport', function(data)
         id = insertId,
     })
 
-    print(('^2[RespectJustice]^7 New report #%d by %s (%s)'):format(insertId, name, citizenid))
+    print(('^2[NomadJustice]^7 New report #%d by %s (%s)'):format(insertId, name, citizenid))
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- قائمة القضايا
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getJobReports', 'reports', function(src, Player, statusFilter)
+JS.RegisterCallback('NomadJustice:server:getJobReports', 'reports', function(src, Player, statusFilter)
     local rows
     if statusFilter and JS.StatusLabels[statusFilter] then
         rows = MySQL.query.await('SELECT * FROM justice_reports WHERE job = ? AND status = ? ORDER BY id DESC LIMIT 200', { JS.Job, statusFilter })
@@ -186,7 +186,7 @@ end)
 -- تفاصيل قضية
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getReport', 'reports', function(src, Player, reportId)
+JS.RegisterCallback('NomadJustice:server:getReport', 'reports', function(src, Player, reportId)
     reportId = tonumber(reportId)
     if not reportId then return { ok = false, err = 'رقم القضية غير صحيح' } end
 
@@ -212,7 +212,7 @@ end)
 -- تغيير حالة قضية
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:setReportStatus', 'reports', function(src, Player, reportId, status)
+JS.RegisterCallback('NomadJustice:server:setReportStatus', 'reports', function(src, Player, reportId, status)
     reportId = tonumber(reportId)
     if not reportId or not JS.StatusLabels[status] then
         return { ok = false, err = 'بيانات غير صحيحة' }
@@ -234,7 +234,7 @@ JS.RegisterCallback('RespectJustice:server:setReportStatus', 'reports', function
 
     -- إشعار مقدم الدعوى إذا كان متصلاً
     local row = MySQL.single.await('SELECT citizenid FROM justice_reports WHERE id = ?', { reportId })
-    local owner = row and RTCore.Functions.GetPlayerByCitizenId(row.citizenid)
+    local owner = row and QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
     if owner then
         Notify(owner.PlayerData.source, ('تم تحديث حالة دعواك #%d إلى: %s'):format(reportId, JS.StatusLabels[status]), 'primary', 8000)
     end
@@ -246,7 +246,7 @@ end)
 -- إضافة ملاحظة على قضية
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:addReportNote', 'reports', function(src, Player, reportId, note)
+JS.RegisterCallback('NomadJustice:server:addReportNote', 'reports', function(src, Player, reportId, note)
     reportId = tonumber(reportId)
     note = JS.CleanText(note, Settings.ReportNoteMax, true)
     if not reportId or not note then
@@ -268,7 +268,7 @@ end)
 -- حذف قضية
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:deleteReport', 'deleteReport', function(src, Player, reportId)
+JS.RegisterCallback('NomadJustice:server:deleteReport', 'deleteReport', function(src, Player, reportId)
     reportId = tonumber(reportId)
     if not reportId then return { ok = false, err = 'رقم القضية غير صحيح' } end
 
@@ -287,7 +287,7 @@ end)
 -- دعاوى المواطن نفسه (لمتابعة حالتها)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:getMyReports', nil, function(src, Player)
+JS.RegisterCallback('NomadJustice:server:getMyReports', nil, function(src, Player)
     local rows = MySQL.query.await('SELECT * FROM justice_reports WHERE job = ? AND citizenid = ? ORDER BY id DESC LIMIT 25', {
         JS.Job, Player.PlayerData.citizenid
     }) or {}

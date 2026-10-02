@@ -1,11 +1,14 @@
-_2rayan = {}
-_2rayan.Functions = {}
-RTCore = exports['RespectCore']:GetCoreObject()
+JUtil = {}
+JUtil.Functions = {}
+
+-- الكور: qb-core (تقدر تغيّر الاسم من server.cfg:  setr justice_core "qb-core")
+JCoreResource = GetConvar('justice_core', 'qb-core')
+QBCore = exports[JCoreResource]:GetCoreObject()
 
 local resourceName = GetCurrentResourceName()
 
 local function Warn(msg)
-	print(('^3[RespectJustice] %s^7'):format(msg))
+	print(('^3[NomadJustice] %s^7'):format(msg))
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -28,18 +31,18 @@ end
 local function SafeLoad(name)
 	local chunk = LoadResourceFile(resourceName, ('modules/%s.lua'):format(name))
 	if not chunk then
-		print(('^1[RespectJustice] الملف modules/%s.lua غير موجود^7'):format(name))
+		print(('^1[NomadJustice] الملف modules/%s.lua غير موجود^7'):format(name))
 		return nil
 	end
 	local fn, err = load(chunk, ('=%s.lua'):format(name), 't')
 	if not fn then
-		print(('^1[RespectJustice] خطأ كتابة في ملف %s.lua ← %s^7'):format(name, tostring(err)))
-		print('^1[RespectJustice] غالباً فاصلة ناقصة , أو قوس ناقص } أو علامة \' ناقصة في السطر المذكور أو اللي قبله^7')
+		print(('^1[NomadJustice] خطأ كتابة في ملف %s.lua ← %s^7'):format(name, tostring(err)))
+		print('^1[NomadJustice] غالباً فاصلة ناقصة , أو قوس ناقص } أو علامة \' ناقصة في السطر المذكور أو اللي قبله^7')
 		return nil
 	end
 	local ok, result = pcall(fn)
 	if not ok then
-		print(('^1[RespectJustice] خطأ في ملف %s.lua ← %s^7'):format(name, tostring(result)))
+		print(('^1[NomadJustice] خطأ في ملف %s.lua ← %s^7'):format(name, tostring(result)))
 		return nil
 	end
 	return result
@@ -51,7 +54,7 @@ end
 
 local Defaults = {
 	Settings = {
-		Job = 'justice',
+		Job = 'justice', TargetResource = 'deep-target',
 		DutyCooldown = 15, DutyHistoryLimit = 100,
 		ReportFee = 200, ReportMaxLength = 800, ReportMinLength = 10, ReportCooldown = 300,
 		CompensationMax = 1000000, CompensationDailyMax = 3000000, CompensationMaxDistance = 5.0, CompensationCooldown = 10,
@@ -79,9 +82,8 @@ local Defaults = {
 			Permissions = { search = 0, profile = 0, vehicles = 1, warrants = 0, executeWarrant = 2, suspects = 0, requests = 5 },
 		},
 		Lawyers = { License = 'lawyer', Jobs = {}, DocumentMax = 2000 },
-		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'RespectBanking', Sectors = {} },
+		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'qb-banking', Sectors = {} },
 		Verdicts = { MaxFine = 10000000, MaxJail = 120, JailEvent = '', WarrantHours = 72 },
-		Banking = { Resource = 'RespectBanking', FreezeSuspended = true },
 		City = {
 			ImpoundFee = 500, ImpoundGarage = 'impoundlot', AnnounceCooldown = 60,
 			AnnounceMaxLength = 250, SummonMaxLength = 200, NoGang = 'none',
@@ -144,7 +146,7 @@ function LoadConfig()
 
 	local cfg = SafeLoad('config')
 	if type(cfg) ~= 'table' then
-		print('^1[RespectJustice] ملف config.lua فيه خطأ، السكربت يشتغل بالإعدادات الافتراضية لين تصلحه^7')
+		print('^1[NomadJustice] ملف config.lua فيه خطأ، السكربت يشتغل بالإعدادات الافتراضية لين تصلحه^7')
 		cfg = {}
 		quiet = true
 	end
@@ -176,7 +178,7 @@ function LoadCoords()
 
 	local list = SafeLoad('coords')
 	if type(list) ~= 'table' then
-		print('^1[RespectJustice] ملف coords.lua فيه خطأ، ما راح تطلع أي نقطة لين تصلحه^7')
+		print('^1[NomadJustice] ملف coords.lua فيه خطأ، ما راح تطلع أي نقطة لين تصلحه^7')
 		coordsCache = {}
 		return coordsCache
 	end
@@ -205,12 +207,12 @@ end
 -- أدوات عامة
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-_2rayan.Functions.formatDateReports = function(timestamp)
+JUtil.Functions.formatDateReports = function(timestamp)
 	local dateTable = os.date("*t", math.floor(timestamp / 1000))
 	return string.format("%02d/%02d/%04d | %02d:%02d:%02d", dateTable.month, dateTable.day, dateTable.year, dateTable.hour, dateTable.min, dateTable.sec)
 end
 
-_2rayan.Functions.trim = function(str)
+JUtil.Functions.trim = function(str)
 	if type(str) ~= 'string' then return nil end
 	return (str:gsub('^%s+', ''):gsub('%s+$', ''))
 end

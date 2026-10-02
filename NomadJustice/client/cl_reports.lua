@@ -28,13 +28,13 @@ function JC.Reports.OpenSubmit()
     if not input then return end
 
     local data = {
-        title = _2rayan.Functions.trim(input[1]) or '',
+        title = JUtil.Functions.trim(input[1]) or '',
         caseType = tonumber(input[2]),
-        defendantName = _2rayan.Functions.trim(input[3]) or '',
-        defendantCitizenid = _2rayan.Functions.trim(input[4]) or '',
-        witnesses = _2rayan.Functions.trim(input[5]) or '',
-        evidence = _2rayan.Functions.trim(input[6]) or '',
-        report = _2rayan.Functions.trim(input[7]) or '',
+        defendantName = JUtil.Functions.trim(input[3]) or '',
+        defendantCitizenid = JUtil.Functions.trim(input[4]) or '',
+        witnesses = JUtil.Functions.trim(input[5]) or '',
+        evidence = JUtil.Functions.trim(input[6]) or '',
+        report = JUtil.Functions.trim(input[7]) or '',
     }
 
     local length = JC.Utf8Len(data.report)
@@ -54,7 +54,7 @@ function JC.Reports.OpenSubmit()
     })
     if confirm ~= 'confirm' then return end
 
-    TriggerServerEvent('RespectJustice:server:submitReport', data)
+    TriggerServerEvent('NomadJustice:server:submitReport', data)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -63,7 +63,7 @@ end
 
 function JC.Reports.OpenList(filter, parent)
     currentFilter = filter
-    local result = JC.Call('RespectJustice:server:getJobReports', filter)
+    local result = JC.Call('NomadJustice:server:getJobReports', filter)
     if not result then return end
 
     local counts = result.counts or {}
@@ -112,7 +112,6 @@ function JC.Reports.OpenList(filter, parent)
         title = ('القضايا | جديدة %d | قيد النظر %d | مغلقة %d'):format(counts.new or 0, counts.review or 0, counts.closed or 0),
         menu = parent,
         options = options,
-        rt_logo = true,
     })
     lib.showContext('justice_reports_list')
 end
@@ -130,7 +129,7 @@ local function ShowText(title, text)
 end
 
 function JC.Reports.OpenDetails(reportId, parent)
-    local result = JC.Call('RespectJustice:server:getReport', reportId)
+    local result = JC.Call('NomadJustice:server:getReport', reportId)
     if not result then return end
 
     local report, perms = result.report, result.perms or {}
@@ -236,7 +235,7 @@ function JC.Reports.OpenDetails(reportId, parent)
                 } },
             })
             if input and input[1] ~= report.status then
-                if JC.Call('RespectJustice:server:setReportStatus', report.id, input[1]) then
+                if JC.Call('NomadJustice:server:setReportStatus', report.id, input[1]) then
                     JC.Notify('تم تحديث حالة القضية', 'success')
                 end
             end
@@ -250,7 +249,7 @@ function JC.Reports.OpenDetails(reportId, parent)
             local input = lib.inputDialog('ملاحظة على القضية #' .. report.id, {
                 { type = 'textarea', label = 'الملاحظة', required = true, max = JC.Settings.ReportNoteMax, autosize = true },
             })
-            if input and input[1] and JC.Call('RespectJustice:server:addReportNote', report.id, input[1]) then
+            if input and input[1] and JC.Call('NomadJustice:server:addReportNote', report.id, input[1]) then
                 JC.Notify('تمت إضافة الملاحظة', 'success')
             end
             reopen()
@@ -267,7 +266,7 @@ function JC.Reports.OpenDetails(reportId, parent)
                     centered = true,
                     cancel = true,
                 })
-                if confirm == 'confirm' and JC.Call('RespectJustice:server:deleteReport', report.id) then
+                if confirm == 'confirm' and JC.Call('NomadJustice:server:deleteReport', report.id) then
                     JC.Notify('تم حذف القضية', 'success')
                     return JC.Reports.OpenList(currentFilter)
                 end
@@ -281,7 +280,6 @@ function JC.Reports.OpenDetails(reportId, parent)
         title = ('القضية #%d | %s'):format(report.id, report.title),
         menu = parent or 'justice_reports_list',
         options = options,
-        rt_logo = true,
     })
     lib.showContext('justice_report_details')
 end
@@ -291,7 +289,7 @@ end
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JC.Reports.OpenMine(parent)
-    local result = JC.Call('RespectJustice:server:getMyReports')
+    local result = JC.Call('NomadJustice:server:getMyReports')
     if not result then return end
 
     local options = {}

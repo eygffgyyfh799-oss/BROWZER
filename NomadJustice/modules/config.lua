@@ -4,6 +4,7 @@ return {
     -- ════════════════════════════════════════════════════════════
     Settings = {
         Job = 'justice',                 -- اسم الوظيفة
+        TargetResource = 'deep-target',  -- سكربت العين (التارقت)
 
         DutyCooldown = 15,               -- ثواني الانتظار بين كل بصمة
         DutyHistoryLimit = 100,          -- عدد سجلات البصمة المحفوظة في الذاكرة
@@ -38,7 +39,7 @@ return {
         -- ════════════════════════════════════════════════════════
         Panel = {
             Command = 'justice',         -- أمر فتح النظام ('' لإلغاء الأمر)
-            UseTablet = true,            -- true = الواجهة الخاصة (التابلت) | false = قوائم RespectLib القديمة
+            UseTablet = true,            -- true = الواجهة الخاصة (التابلت) | false = قوائم ox_lib القديمة
             Key = '9',                   -- زر فتح التابلت من أي مكان (اللاعب يقدر يغيره من إعدادات FiveM)
             TabletAnimation = true,      -- أنيميشن مسك التابلت
             RequireDuty = true,          -- يجب أن يكون الموظف في الدوام
@@ -56,7 +57,7 @@ return {
                 deleteReport = 7,        -- حذف القضايا (أمين سر المحكمة وأعلى)
                 locate = 9,              -- تحديد موقع المواطن (المدعي العام والقاضي)
                 withdraw = 9,            -- سحب أموال من بنك المواطن (المدعي العام والقاضي)
-                suspend = 9,             -- إيقاف الخدمات وتجميد الحساب (المدعي العام والقاضي)
+                suspend = 9,             -- إيقاف الخدمات (المدعي العام والقاضي)
                 edit = 7,                -- تعديل بيانات المواطن (أمين سر المحكمة وأعلى)
                 logs = 7,                -- سجل العمليات (أمين سر المحكمة وأعلى)
                 compensation = 8,        -- تعويض مواطن (لجنة التحكيم والمصالحة وأعلى)
@@ -137,13 +138,12 @@ return {
             RequireDuty = true,          -- لازم يكون في الدوام
             MaxPerTransaction = 1000000, -- أعلى مبلغ بالعملية الوحدة
             -- وين رصيد القطاع:
-            --   'auto'     = يتعرف تلقائياً على RespectBanking (حسابات القطاعات الحقيقية) وإلا يستخدم خزينة داخلية
-            --   'respect'  = RespectBanking: حساب الوظيفة نفسه (getBusinessAccount / AddMoney / RemoveMoney)
+            --   'auto'     = يتعرف تلقائياً على سكربت البنك (Resource) وإلا يستخدم خزينة داخلية
             --   'qb'       = exports[Resource]:GetAccountBalance / AddMoney / RemoveMoney
             --   'renewed'  = exports[Resource]:getAccountMoney / addAccountMoney / removeAccountMoney
             --   'internal' = خزينة داخلية في قاعدة البيانات (justice_sector_funds)
             Provider = 'auto',
-            Resource = 'RespectBanking',
+            Resource = 'qb-banking',
             Sectors = {
                 -- اسم الوظيفة = { الاسم، الرتب المسموح لها }
                 police = { label = 'وزارة الداخلية', managers = { 18, 19, 20 } },   -- نائب رئيس الشرطة، رئيس الشرطة، القائد الأعلى
@@ -168,14 +168,6 @@ return {
             MaxJail = 120,               -- أعلى مدة سجن (شهر)
             JailEvent = '',              -- (اختياري) حدث سيرفر لسكربت السجن: TriggerEvent(JailEvent, serverId, months, reason)
             WarrantHours = 72,           -- مدة صلاحية أمر القبض/التفتيش (ساعة)
-        },
-
-        -- ════════════════════════════════════════════════════════
-        -- 🏦 RespectBanking
-        -- ════════════════════════════════════════════════════════
-        Banking = {
-            Resource = 'RespectBanking', -- اسم سكربت البنك (للفحص)
-            FreezeSuspended = true,      -- الموقوف حسابه مجمّد: ما يسحب ولا يحوّل ولا يدفع من البنك (يحتاج RespectBanking المعدّل)
         },
 
         -- نظام المدينة

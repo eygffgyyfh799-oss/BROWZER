@@ -10,7 +10,7 @@ end
 local function GetVehicleLabel(value)
     if value.label or value.vehLabel then return value.label or value.vehLabel end
     local model = GetVehicleModel(value)
-    local shared = RTCore.Shared.Vehicles and RTCore.Shared.Vehicles[model]
+    local shared = QBCore.Shared.Vehicles and QBCore.Shared.Vehicles[model]
     return shared and shared.name or model
 end
 
@@ -23,7 +23,7 @@ local function CleanupSpawnedVehicles()
 end
 
 local function IsSpawnPointClear(coords, maxDistance)
-    for _, vehicle in pairs(RTCore.Functions.GetVehicles()) do
+    for _, vehicle in pairs(QBCore.Functions.GetVehicles()) do
         if #(coords - GetEntityCoords(vehicle)) <= maxDistance then
             return false
         end
@@ -95,9 +95,10 @@ local function SpawnJusticeVehicle(data, value)
     end
 
     -- لوحة المركبة لا تتجاوز 8 أحرف
-    SetVehicleNumberPlateText(veh, ('J' .. RTCore.Functions.GetPlayerData().citizenid):sub(1, 8))
+    SetVehicleNumberPlateText(veh, ('J' .. QBCore.Functions.GetPlayerData().citizenid):sub(1, 8))
 
-    pcall(function() exports['RespectFuel']:SetFuel(veh, Settings.VehicleFuel) end)
+    SetVehicleFuelLevel(veh, Settings.VehicleFuel + 0.0)
+    Entity(veh).state:set('fuel', Settings.VehicleFuel + 0.0, true)
     TaskWarpPedIntoVehicle(PlayerPedId(), veh, -1)
     TriggerEvent('vehiclekeys:client:SetOwner', GetVehicleNumberPlateText(veh))
 
@@ -127,8 +128,8 @@ local function ReturnVehicle(index)
     JC.Notify('تم ارجاع المركبة', 'success', 5000)
 end
 
-AddEventHandler('RespectJustice:client:spawnVehicleMenu', function(data)
-    local job = RTCore.Functions.GetPlayerData().job
+AddEventHandler('NomadJustice:client:spawnVehicleMenu', function(data)
+    local job = QBCore.Functions.GetPlayerData().job
     if not job or job.name ~= Settings.Job then return end
 
     CleanupSpawnedVehicles()
@@ -154,7 +155,6 @@ AddEventHandler('RespectJustice:client:spawnVehicleMenu', function(data)
     lib.registerContext({
         id = 'openJusticeVehiclesGarage',
         title = 'قائمة سيارات العدل',
-        rt_logo = true,
         logo = true,
         options = options,
     })

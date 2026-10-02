@@ -44,7 +44,7 @@ function JC.Panel.Open()
         return JC.Tablet.Open()
     end
 
-    local info = JC.Call('RespectJustice:server:panelInfo')
+    local info = JC.Call('NomadJustice:server:panelInfo')
     if not info then return end
     local perms = info.perms or {}
 
@@ -116,12 +116,12 @@ function JC.Panel.Open()
         }
     end
 
-    lib.registerContext({ id = 'justice_panel_main', title = 'نظام الدولة', options = options, rt_logo = true })
+    lib.registerContext({ id = 'justice_panel_main', title = 'نظام الدولة', options = options })
     lib.showContext('justice_panel_main')
 end
 
 function JC.Panel.OpenOnline()
-    local result = JC.Call('RespectJustice:server:getOnlinePlayers')
+    local result = JC.Call('NomadJustice:server:getOnlinePlayers')
     if not result then return end
 
     local items = {}
@@ -135,7 +135,7 @@ end
 local FilterLabels = { all = 'الكل', online = '🟢 المتصلين', offline = '⚫ غير المتصلين' }
 
 function JC.Panel.OpenAll(page, filter)
-    local result = JC.Call('RespectJustice:server:getAllCitizens', page, filter)
+    local result = JC.Call('NomadJustice:server:getAllCitizens', page, filter)
     if not result then return end
 
     local items = {
@@ -183,7 +183,7 @@ function JC.Panel.OpenSearch()
     })
     if not input or not input[1] then return lib.showContext('justice_panel_main') end
 
-    local result = JC.Call('RespectJustice:server:searchCitizens', input[1])
+    local result = JC.Call('NomadJustice:server:searchCitizens', input[1])
     if not result then return end
 
     local items = {}
@@ -194,7 +194,7 @@ function JC.Panel.OpenSearch()
 end
 
 function JC.Panel.OpenSuspended()
-    local result = JC.Call('RespectJustice:server:getSuspended')
+    local result = JC.Call('NomadJustice:server:getSuspended')
     if not result then return end
 
     local items = {}
@@ -211,7 +211,7 @@ function JC.Panel.OpenSuspended()
 end
 
 function JC.Panel.OpenLogs(citizenid, parent)
-    local result = JC.Call('RespectJustice:server:getLogs', citizenid)
+    local result = JC.Call('NomadJustice:server:getLogs', citizenid)
     if not result then return end
 
     local items = {}
@@ -308,7 +308,7 @@ local function ProfileSections(p, perms, menuId, reopen)
             onSelect = canToggle and function()
                 local action = license.active and 'سحب' or 'منح'
                 local ok = lib.alertDialog({ header = action .. ' ترخيص', content = ('%s **%s** للمواطن **%s**؟'):format(action, license.label, p.name), centered = true, cancel = true })
-                if ok == 'confirm' and JC.Call('RespectJustice:server:setLicense', p.citizenid, license.key, not license.active) then
+                if ok == 'confirm' and JC.Call('NomadJustice:server:setLicense', p.citizenid, license.key, not license.active) then
                     JC.Notify(('تم %s الترخيص'):format(action), 'success')
                 end
                 reopen()
@@ -421,7 +421,7 @@ local function ProfileActions(p, perms, reopen)
             description = p.online and 'وضع علامة على الخريطة' or 'المواطن غير متصل',
             disabled = not p.online,
             onSelect = function()
-                local result = JC.Call('RespectJustice:server:locateCitizen', p.citizenid)
+                local result = JC.Call('NomadJustice:server:locateCitizen', p.citizenid)
                 if not result then return reopen() end
                 JC.TempBlip(result.coords, 'موقع ' .. result.name, Panel.LocateBlipTime, 280, 1)
                 JC.Notify(('%s موجود في: %s%s'):format(result.name, JC.GetStreet(result.coords), result.inVehicle and ' (داخل مركبة)' or ''), 'success', 10000)
@@ -446,7 +446,7 @@ local function ProfileActions(p, perms, reopen)
                     centered = true, cancel = true,
                 })
                 if confirm == 'confirm' then
-                    local result = JC.Call('RespectJustice:server:withdrawBank', p.citizenid, input[1], input[2])
+                    local result = JC.Call('NomadJustice:server:withdrawBank', p.citizenid, input[1], input[2])
                     if result then
                         JC.Notify(('تم سحب %s، الرصيد الجديد: %s'):format(JC.Money(input[1]), JC.Money(result.newBalance)), 'success', 8000)
                     end
@@ -463,7 +463,7 @@ local function ProfileActions(p, perms, reopen)
                 description = 'السبب الحالي: ' .. JC.Value(p.suspension.reason),
                 onSelect = function()
                     local confirm = lib.alertDialog({ header = 'رفع الإيقاف', content = ('هل تريد رفع إيقاف خدمات **%s**؟'):format(p.name), centered = true, cancel = true })
-                    if confirm == 'confirm' and JC.Call('RespectJustice:server:unsuspendCitizen', p.citizenid) then
+                    if confirm == 'confirm' and JC.Call('NomadJustice:server:unsuspendCitizen', p.citizenid) then
                         JC.Notify('تم رفع إيقاف الخدمات', 'success')
                     end
                     reopen()
@@ -476,7 +476,7 @@ local function ProfileActions(p, perms, reopen)
                     local input = lib.inputDialog('إيقاف خدمات ' .. p.name, {
                         { type = 'input', label = 'سبب الإيقاف', required = true, max = 200, icon = 'pen' },
                     })
-                    if input and input[1] and JC.Call('RespectJustice:server:suspendCitizen', p.citizenid, input[1]) then
+                    if input and input[1] and JC.Call('NomadJustice:server:suspendCitizen', p.citizenid, input[1]) then
                         JC.Notify('تم إيقاف خدمات المواطن', 'success')
                     end
                     reopen()
@@ -518,7 +518,7 @@ local function ProfileActions(p, perms, reopen)
             title = 'تغيير العصابة', icon = 'fas fa-mask', iconColor = 'purple',
             description = 'الحالية: ' .. (p.gang and p.gang.label or 'لا يوجد'),
             onSelect = function()
-                local result = JC.Call('RespectJustice:server:getGangs')
+                local result = JC.Call('NomadJustice:server:getGangs')
                 if not result then return reopen() end
                 local gangOptions = {}
                 for i, g in ipairs(result.gangs) do gangOptions[i] = { value = tostring(i), label = ('%s (%s)'):format(g.label, g.name) } end
@@ -532,7 +532,7 @@ local function ProfileActions(p, perms, reopen)
                 local gInput = lib.inputDialog('الرتبة في ' .. gang.label, {
                     { type = 'select', label = 'الرتبة', required = true, options = gradeOptions, default = gradeOptions[1].value },
                 })
-                if gInput and gInput[1] and JC.Call('RespectJustice:server:setGang', p.citizenid, gang.name, tonumber(gInput[1])) then
+                if gInput and gInput[1] and JC.Call('NomadJustice:server:setGang', p.citizenid, gang.name, tonumber(gInput[1])) then
                     JC.Notify('تم تغيير العصابة', 'success')
                 end
                 reopen()
@@ -555,7 +555,7 @@ local function ProfileActions(p, perms, reopen)
                 })
                 if not input then return reopen() end
 
-                local result = JC.Call('RespectJustice:server:editCitizen', p.citizenid, {
+                local result = JC.Call('NomadJustice:server:editCitizen', p.citizenid, {
                     firstname = input[1], lastname = input[2], birthdate = input[3], gender = tonumber(input[4]), nationality = input[5],
                 })
                 if result then JC.Notify('تم تحديث بيانات المواطن', 'success') end
@@ -573,7 +573,7 @@ local function ProfileActions(p, perms, reopen)
                     { type = 'number', label = 'المبلغ', required = true, min = 1, max = Settings.CompensationMax, icon = 'dollar-sign' },
                 })
                 if input and tonumber(input[1]) then
-                    TriggerServerEvent('RespectJustice:server:giveMoneyToPlayer', p.citizenid, math.floor(tonumber(input[1])))
+                    TriggerServerEvent('NomadJustice:server:giveMoneyToPlayer', p.citizenid, math.floor(tonumber(input[1])))
                 end
             end,
         }
@@ -584,7 +584,7 @@ local function ProfileActions(p, perms, reopen)
 end
 
 function JC.Panel.OpenProfile(citizenid, parent)
-    local result = JC.Call('RespectJustice:server:getProfile', citizenid)
+    local result = JC.Call('NomadJustice:server:getProfile', citizenid)
     if not result then return end
 
     local p, perms = result.profile, result.perms or {}
@@ -617,7 +617,6 @@ function JC.Panel.OpenProfile(citizenid, parent)
         title = 'ملف المواطن | ' .. p.citizenid,
         menu = parent,
         options = options,
-        rt_logo = true,
     })
     lib.showContext(menuId)
 end
@@ -634,6 +633,6 @@ if Panel.Command and Panel.Command ~= '' then
     TriggerEvent('chat:addSuggestion', '/' .. Panel.Command, 'نظام الدولة - وزارة العدل')
 end
 
-RegisterNetEvent('RespectJustice:client:openPanel', function()
+RegisterNetEvent('NomadJustice:client:openPanel', function()
     JC.Panel.Open()
 end)

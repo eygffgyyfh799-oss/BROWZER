@@ -6,7 +6,7 @@
 local Notify = JS.Notify
 
 local function H(name)
-    return JS.Handlers['RespectJustice:server:' .. name]
+    return JS.Handlers['NomadJustice:server:' .. name]
 end
 
 -- إرجاع مبلغ لبنك المواطن (للتراجع عن السحب)
@@ -14,7 +14,7 @@ local function Refund(citizenid, amount)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return { ok = false, err = 'مبلغ غير صحيح' } end
 
-    local target = RTCore.Functions.GetPlayerByCitizenId(citizenid)
+    local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         if not target.Functions.AddMoney('bank', amount, 'justice-withdraw-refund') then
             return { ok = false, err = 'تعذر إرجاع المبلغ' }
@@ -105,7 +105,7 @@ JS.UndoActions = UndoActions
 -- التراجع
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:undoLog', 'undo', function(src, Player, logId)
+JS.RegisterCallback('NomadJustice:server:undoLog', 'undo', function(src, Player, logId)
     logId = tonumber(logId)
     if not logId then return { ok = false, err = 'رقم السجل غير صحيح' } end
 
@@ -127,7 +127,7 @@ JS.RegisterCallback('RespectJustice:server:undoLog', 'undo', function(src, Playe
     local ok, result = pcall(handler.run, src, Player, log, JS.Decode(log.undo_data))
     if not ok or type(result) ~= 'table' or not result.ok then
         MySQL.update.await('UPDATE justice_logs SET undone_by = NULL, undone_at = NULL WHERE id = ?', { logId })
-        if not ok then print(('^1[RespectJustice] undo #%d error: %s^7'):format(logId, tostring(result))) end
+        if not ok then print(('^1[NomadJustice] undo #%d error: %s^7'):format(logId, tostring(result))) end
         return { ok = false, err = (ok and type(result) == 'table' and result.err) or 'تعذر التراجع عن الإجراء' }
     end
 
@@ -143,7 +143,7 @@ end)
 -- الحذف (يبقى أثر في السجل: من حذف وإيش حذف)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-JS.RegisterCallback('RespectJustice:server:deleteLog', 'delete', function(src, Player, logId)
+JS.RegisterCallback('NomadJustice:server:deleteLog', 'delete', function(src, Player, logId)
     logId = tonumber(logId)
     local log = logId and MySQL.single.await('SELECT * FROM justice_logs WHERE id = ?', { logId })
     if not log then return { ok = false, err = 'السجل غير موجود' } end
@@ -160,7 +160,7 @@ JS.RegisterCallback('RespectJustice:server:deleteLog', 'delete', function(src, P
     return { ok = true }
 end)
 
-JS.RegisterCallback('RespectJustice:server:deleteSummon', 'delete', function(src, Player, summonId)
+JS.RegisterCallback('NomadJustice:server:deleteSummon', 'delete', function(src, Player, summonId)
     summonId = tonumber(summonId)
     local row = summonId and MySQL.single.await('SELECT * FROM justice_summons WHERE id = ?', { summonId })
     if not row then return { ok = false, err = 'الاستدعاء غير موجود' } end
