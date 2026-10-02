@@ -58,14 +58,17 @@ param(
     [switch]$Restore,
     [switch]$Auto,
     [switch]$Full,
+    [switch]$Strict,
     [string[]]$Server = @(),
     [string[]]$Trust = @()
 )
 
 $ErrorActionPreference = 'Continue'
 if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJunk = $true }
+# -Strict = everything scanned, one command, no questions, only confirmed threats acted on
+if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '5.0'
+$Version = '5.1'
 
 # ---------------------------------------------------------------- setup
 
@@ -428,6 +431,7 @@ function Clear-JunkFiles([switch]$NoPrompt, [switch]$EmptyRecycleBin) {
         Where-Object { $_ } | ForEach-Object { Get-NormPath $_ }
 
     $total = 0.0
+    $script:JunkCount = 0
     foreach ($t in $targets) {
         $root = Get-NormPath $t.Path
         if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
@@ -448,11 +452,13 @@ function Clear-JunkFiles([switch]$NoPrompt, [switch]$EmptyRecycleBin) {
         }
         if ($count -gt 0) { Write-Host ("  {0,-34} {1,6} files  {2}" -f $t.Name, $count, (Format-Size $freed)) }
         $total += $freed
+        $script:JunkCount += $count
     }
     try { Delete-DeliveryOptimizationCache -Force -ErrorAction Stop; Write-Host '  Delivery Optimization cache cleared' } catch { }
     $rb = 'n'
     if ($EmptyRecycleBin) { $rb = 'y' } elseif (-not $NoPrompt) { $rb = Read-Host '  Also empty the Recycle Bin? (y/n)' }
     if ($rb -match '^[yY]') { try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Host '  Recycle Bin emptied' } catch { } }
+    $script:JunkFreed = $total
     Write-Host ("  Total freed: {0}" -f (Format-Size $total)) -ForegroundColor Green
 }
 
@@ -1510,7 +1516,7 @@ foreach ($root in @($Downloads, $Desktop, $Documents) | Where-Object { $_ -and (
         ForEach-Object { Add-FileFinding 'Fake document / dangerous file' 'High' $_.FullName 'Disguised program (double extension or dangerous type)' }
 }
 
-if ($Full) { Invoke-DeepFileScan }
+if ($Full -or $Strict) { Invoke-DeepFileScan }
 
 # ---------------------------------------------------------------- 8. Steam
 
@@ -1618,7 +1624,7 @@ Write-Host "  Scanned $($scannedFiles.Count) script file(s)"
 if ($mpOk -and -not $SkipDefenderScan) {
     Write-Section 'Defender scan (this can take a while)'
     try { Write-Host '  Updating definitions...'; Update-MpSignature -ErrorAction Stop } catch { Write-Host "  Update failed: $_" -ForegroundColor Yellow }
-    if ($Full) {
+    if ($Full -and -not $Strict) {
         try { Set-MpPreference -PUAProtection Enabled -ErrorAction Stop; Write-Host '  PUA detection turned ON (finds cracks, keygens, hack tools, adware).' } catch { }
     }
     try {
@@ -1792,6 +1798,144 @@ function Invoke-FixSafe($f) {
     catch { if ("$_" -like 'skipped for safety*') { return "protected: $_" } else { return "failed: $_" } }
 }
 
+# ---------------------------------------------------------------- strict mode (-Strict)
+# Acts ONLY on confirmed threats, verifies every file is not used by any running program, service or task
+# before removing it, never deletes (quarantine only), and writes a detailed report of every operation.
+
+$script:Ops = New-Object System.Collections.Generic.List[object]
+function Write-Op([string]$Action, [string]$Target, [string]$Result, [string]$Detail = '') {
+    $script:Ops.Add([pscustomobject]@{ Time = (Get-Date -Format 'HH:mm:ss'); Action = $Action; Target = $Target; Result = $Result; Detail = $Detail })
+    $c = 'Green'; if ($Result -like 'SKIPPED*') { $c = 'Cyan' } elseif ($Result -like 'FAILED*') { $c = 'Red' }
+    Write-Host ("  [{0}] {1}: {2}" -f $Result, $Action, $Target) -ForegroundColor $c
+    if ($Detail) { Write-Host "      $Detail" -ForegroundColor DarkGray }
+}
+
+# Every file currently used by a running process (loaded module), a service or a scheduled task
+function Get-ActiveFileIndex([int[]]$IgnorePids) {
+    $idx = @{}
+    $addRef = { param($p, $who) if ($p) { $k = $p.Trim('"').ToLowerInvariant(); if (-not $idx.ContainsKey($k)) { $idx[$k] = @() }; $idx[$k] += $who } }
+    foreach ($pr in Get-Process -ErrorAction SilentlyContinue) {
+        if ($pr.Id -in $IgnorePids -or $pr.Id -le 4) { continue }
+        try { foreach ($m in $pr.Modules) { & $addRef $m.FileName "loaded by running program $($pr.ProcessName) (PID $($pr.Id))" } } catch { }
+        try { if ($pr.Path) { & $addRef $pr.Path "running program $($pr.ProcessName) (PID $($pr.Id))" } } catch { }
+    }
+    foreach ($s in Get-CimInstance Win32_Service -ErrorAction SilentlyContinue) {
+        foreach ($f in Get-ReferencedFiles $s.PathName) { & $addRef $f "used by service $($s.Name)" }
+    }
+    foreach ($t in Get-ScheduledTask -ErrorAction SilentlyContinue) {
+        foreach ($a in @($t.Actions)) {
+            if ($a.PSObject.Properties['Execute'] -and $a.Execute) {
+                foreach ($f in Get-ReferencedFiles "`"$($a.Execute.Trim('"'))`" $($a.Arguments)") { & $addRef $f "used by scheduled task $($t.TaskPath)$($t.TaskName)" }
+            }
+        }
+    }
+    return $idx
+}
+
+if ($Strict) {
+    Write-Section 'STRICT cleaning - confirmed threats only, nothing is deleted'
+    New-SafetyRestorePoint
+    $killCats = '^(Crypto miner|Fake system process|Malicious script running|Mining pool connection)$'
+    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut)$'
+
+    # 1. stop confirmed malicious processes
+    $killed = @()
+    foreach ($f in @($Findings | Where-Object { $_.Severity -eq 'High' -and $_.Action -eq 'KillProcess' -and $_.Category -match $killCats })) {
+        $r = Invoke-FixSafe $f
+        if ($r -eq 'done') { $killed += [int]$f.Data.Pid; Write-Op 'Stop malicious process' $f.Item 'DONE' "$($f.Category): $($f.Detail)" }
+        else { Write-Op 'Stop malicious process' $f.Item ("SKIPPED - $r") }
+    }
+
+    # 2. quarantine confirmed malicious files - only if nothing legitimate is using them
+    Write-Host '  Checking which files are in use by programs, services and tasks...'
+    $active = Get-ActiveFileIndex $killed
+    foreach ($f in @($Findings | Where-Object { $_.Severity -eq 'High' -and $_.Action -eq 'Quarantine' -and $_.Category -match $fileCats })) {
+        $p = [string]$f.Data.Path
+        $refs = $active[$p.ToLowerInvariant()]
+        if ($refs) {
+            Write-Op 'Quarantine file' $p 'SKIPPED - in use' ("Still used by: " + (($refs | Select-Object -Unique) -join '; ') + ". Not touched to avoid breaking anything. Run Start-MpWDOScan to remove it safely.")
+            continue
+        }
+        $r = Invoke-FixSafe $f
+        if ($r -eq 'done') { Write-Op 'Quarantine file' $p 'DONE' "$($f.Category): $($f.Detail) | Technical: $($f.Tech)" }
+        else { Write-Op 'Quarantine file' $p ("SKIPPED - $r") }
+    }
+
+    # 3. turn protection back on (only switches protection ON, never off)
+    foreach ($f in @($Findings | Where-Object { $_.Severity -eq 'High' -and $_.Action -in 'DefenderEnable', 'FirewallEnable' })) {
+        $r = Invoke-FixSafe $f
+        Write-Op 'Re-enable protection' $f.Item ($(if ($r -eq 'done') { 'DONE' } else { "SKIPPED - $r" }))
+    }
+
+    # 4. threats confirmed by antivirus signatures (Defender quarantines them, restorable from Windows Security)
+    if ($mpOk -and @($Findings | Where-Object { $_.Action -eq 'MpThreatRemove' }).Count -gt 0) {
+        try { Remove-MpThreat -ErrorAction Stop; Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' 'DONE' 'Signature-confirmed detections sent to Defender quarantine' }
+        catch { Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' "FAILED - $_" }
+    }
+
+    # 5. temporary files and caches only (in-use files are skipped automatically; Recycle Bin is NOT emptied)
+    if ($CleanJunk) {
+        $script:JunkCount = 0; $script:JunkFreed = 0
+        Clear-JunkFiles -NoPrompt
+        Write-Op 'Delete temporary/cache files' 'Temp, crash dumps, error reports, shader/browser/Discord/FiveM caches' 'DONE' ("{0} files, {1} freed. Files in use were skipped. Recycle Bin not touched." -f $script:JunkCount, (Format-Size $script:JunkFreed))
+    }
+
+    # 6. everything else is reported only
+    $handled = @($script:Ops | ForEach-Object { $_.Target })
+    $reportOnly = @($Findings | Where-Object { $_.Severity -ne 'Info' -and $handled -notcontains $_.Item -and $handled -notcontains [string]$_.Data.Path -and
+        $_.Action -ne 'MpThreatRemove' -and -not ($_.Action -eq 'KillProcess' -and $_.Category -match $killCats -and $_.Severity -eq 'High') })
+
+    # ---- detailed report
+    $done = @($script:Ops | Where-Object Result -eq 'DONE')
+    $skipped = @($script:Ops | Where-Object { $_.Result -notlike 'DONE*' })
+    $rep = New-Object System.Collections.Generic.List[string]
+    $rep.Add("SECURITY CLEANER v$Version - DETAILED STRICT REPORT")
+    $rep.Add("Computer: $env:COMPUTERNAME   Started: $Stamp   Finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+    $rep.Add('')
+    $rep.Add('RULES APPLIED')
+    $rep.Add('  - Windows folder, Microsoft-signed files, Program Files, installed programs, critical services/processes: never touched')
+    $rep.Add('  - Only confirmed threats were acted on: disguised programs (verified by file header), known miners, fake system')
+    $rep.Add('    processes, malicious shortcuts, and antivirus signature detections')
+    $rep.Add('  - Every file was checked against running programs, services and scheduled tasks before removal; files in use were skipped')
+    $rep.Add('  - Nothing was deleted: files were moved to quarantine; only temporary/cache files were deleted')
+    $rep.Add('  - A System Restore point was created before any change')
+    $rep.Add('')
+    $rep.Add(("SUMMARY: findings High={0} Medium={1}   actions done={2}   skipped={3}   report-only={4}" -f $high.Count, $med.Count, $done.Count, $skipped.Count, $reportOnly.Count))
+    $rep.Add('')
+    $rep.Add('ACTIONS PERFORMED')
+    if ($done.Count -eq 0) { $rep.Add('  (none)') }
+    foreach ($o in $done) { $rep.Add("  $($o.Time)  $($o.Action): $($o.Target)"); if ($o.Detail) { $rep.Add("            $($o.Detail)") } }
+    $rep.Add('')
+    $rep.Add('SKIPPED FOR SAFETY')
+    if ($skipped.Count -eq 0) { $rep.Add('  (none)') }
+    foreach ($o in $skipped) { $rep.Add("  $($o.Time)  $($o.Action): $($o.Target)  -> $($o.Result)"); if ($o.Detail) { $rep.Add("            $($o.Detail)") } }
+    $rep.Add('')
+    $rep.Add('FOUND BUT NOT CHANGED (not 100% confirmed - review these yourself)')
+    if ($reportOnly.Count -eq 0) { $rep.Add('  (none)') }
+    foreach ($f in $reportOnly) {
+        $rep.Add("  [$($f.Severity)] $($f.Category): $($f.Item)")
+        if ($f.Detail) { $rep.Add("            Reason: $($f.Detail)") }
+        if ($f.Tech) { $rep.Add("            Technical: $($f.Tech)") }
+    }
+    if ($script:CrackedGames -and $script:CrackedGames.Count -gt 0) {
+        $rep.Add(''); $rep.Add('CRACKED GAMES / PROGRAMS (not touched)')
+        foreach ($g in $script:CrackedGames) { $rep.Add("  $($g.Path)   (crack file: $($g.Indicator))") }
+    }
+    $rep.Add('')
+    $rep.Add('UNDO')
+    $rep.Add("  Quarantine and backups: $QDir")
+    $rep.Add('  Restore quarantined files: .\Scan-And-Clean.ps1 -Restore')
+    $rep.Add('  Restore the whole system: rstrui.exe -> restore point "SecurityCleaner"')
+    $rep.Add('  Defender quarantine: Windows Security -> Virus & threat protection -> Protection history')
+    $repFile = Join-Path $Desktop "SecurityReport_$Stamp.txt"
+    $rep | Out-File -LiteralPath $repFile -Encoding UTF8
+
+    Write-Section 'Done'
+    Write-Host ("  Actions done: {0}   Skipped for safety: {1}   Found but not changed: {2}" -f $done.Count, $skipped.Count, $reportOnly.Count) -ForegroundColor Green
+    Write-Host "  Detailed report: $repFile" -ForegroundColor Green
+    Write-Host '  Restart the PC to finish.' -ForegroundColor Cyan
+}
+
 if ($Auto) {
     Write-Section 'Automatic cleaning (nothing is deleted in this step)'
     New-SafetyRestorePoint
@@ -1880,12 +2024,12 @@ if ($Auto) {
 }
 
 $fixable = @($Findings | Where-Object { $_.Severity -ne 'Info' -and $_.Action })
-if (-not $Clean -and -not $Auto -and $fixable.Count -gt 0) {
+if (-not $Clean -and -not $Auto -and -not $Strict -and $fixable.Count -gt 0) {
     $ans = Read-Host "`nFound $($fixable.Count) item(s) that can be cleaned. Start cleaning now? (y/n)"
     if ($ans -match '^[yY]') { $Clean = $true }
 }
 
-if ($Clean -and -not $Auto -and $fixable.Count -gt 0) {
+if ($Clean -and -not $Auto -and -not $Strict -and $fixable.Count -gt 0) {
     Write-Section 'Cleaning'
     New-SafetyRestorePoint
     Write-Host '  For each item: y = fix, n = skip, a = fix this and all remaining, q = stop' -ForegroundColor Cyan
@@ -1922,11 +2066,11 @@ if ($Clean -and -not $Auto -and $fixable.Count -gt 0) {
     Write-Host '  Restart the PC, then run the scan again to confirm it is clean.' -ForegroundColor Cyan
 }
 
-if ($CleanJunk -and -not $Auto) { Clear-JunkFiles }
+if ($CleanJunk -and -not $Auto -and -not $Strict) { Clear-JunkFiles }
 
 if ($mpOk) {
     $doOffline = $OfflineScan
-    if (-not $doOffline -and -not $Auto -and ($high.Count -gt 0)) {
+    if (-not $doOffline -and -not $Auto -and -not $Strict -and ($high.Count -gt 0)) {
         $ans = Read-Host "`nHigh items were found. Run Microsoft Defender OFFLINE scan now? It restarts the PC immediately (~15 min). (y/n)"
         if ($ans -match '^[yY]') { $doOffline = $true }
     }
