@@ -2,6 +2,21 @@
 
 أداة لويندوز تفحص الجهاز من الفيروسات وسارقات الباسوردات وبرامج التعدين (Miners). هذي البرامج تجي عادة مع الألعاب المكركة، أو "Steam Tools" المزيفة، أو ملفات FiveM الملغّمة. بعد الفحص تنظّف اللي تلقاه بأمان.
 
+## ▶️ تشغيل وإيقاف بأمر واحد
+
+**تشغيل** (من أي نافذة PowerShell، والأمر يطلب صلاحية المسؤول بنفسه، ويشغّل الوضع الصارم):
+```powershell
+irm https://raw.githubusercontent.com/eygffgyyfh799-oss/BROWZER/claude/sleepy-ramanujan-pprdgc/security-cleaner/start.ps1 | iex
+```
+
+**إيقاف آمن** (من نافذة PowerShell ثانية، في أي وقت):
+```powershell
+irm https://raw.githubusercontent.com/eygffgyyfh799-oss/BROWZER/claude/sleepy-ramanujan-pprdgc/security-cleaner/stop.ps1 | iex
+```
+- يوقف الأداة، ويلغي فحص Defender، ويقفل Kaspersky.
+- **الحماية الدائمة حق Defender تبقى شغالة.**
+- أي ملف انحجر قبل الإيقاف، ترجّعه بـ `-Restore`.
+
 ## 🧬 الحماية من التهديدات الجديدة وغير المعروفة (v6)
 
 - **قاعدة بيانات للتهديدات:** أي تهديد مؤكد، الأداة تحفظ بصمته (SHA256) في `C:\SecurityCleaner\threat-db.csv`. وإذا رجع بعدين، حتى لو باسم ثاني أو في مكان ثاني، تمسكه على طول.
