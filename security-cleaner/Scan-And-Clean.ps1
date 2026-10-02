@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.0'
+$Version = '6.1'
 
 # ---------------------------------------------------------------- setup
 
@@ -249,7 +249,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator)$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\))$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -506,6 +506,17 @@ function Expand-Obfuscation([string]$Text) {
 }
 
 
+# Hidden ".something.js" files inside resources are a known FiveM backdoor technique
+# (e.g. temp\.env.local.js, data\.webpack.config.js, temp\.job_runner.js, node_modules\internal\.eventHandler.js)
+$HiddenJsOk = '(?i)^\.(eslintrc|prettierrc|babelrc|stylelintrc|mocharc|lintstagedrc|commitlintrc|postcssrc|swcrc|huskyrc|releaserc|ncurc|jshintrc)(\.[a-z]+)?\.(c|m)?js$'
+function Test-HiddenResourceJs([IO.FileInfo]$File) {
+    return ($File.Name.StartsWith('.') -and $File.Extension -ieq '.js' -and $File.Name -notmatch $HiddenJsOk)
+}
+function Test-JsLoaderContent([string]$Text) {
+    return ([regex]::Matches($Text, '_0x[0-9a-fA-F]{4,}').Count -gt 10) -or
+           ($Text -match '(?i)\beval\s*\(|new\s+Function\s*\(|child_process|require\(\s*[''"]https?[''"]|https?://|Buffer\.from\([^)]*base64|\batob\s*\(')
+}
+
 # ---- FiveM SERVER mode: find malicious code, remove only those lines, never touch clean files
 $ObfuscatorRx = '(?i)Luraph|MoonSec|IronBrew|Prometheus Obfuscator|wearedevs\.net/obfuscator|protected (with|using|by) \w+ ?obfuscator'
 $SignalRx     = '(?i)PerformHttpRequest|https?[:.]|\\x[0-9a-f]{2}|\\[0-9]{2,3}|string\.char|fromCharCode|\bload|\beval|Function\s*\(|child_process|_0x[0-9a-f]{4}|cipher|blum|GetConvar|webhooks|os\.execute|io\.popen|atob|base64|_G\s*\['
@@ -557,6 +568,13 @@ function Get-ServerFileVerdict([IO.FileInfo]$File) {
     $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
     $text = [Text.Encoding]::UTF8.GetString($bytes)
     if ($hasBom) { $text = $text.Substring(1) }
+    if (Test-HiddenResourceJs $File) {
+        $hw = 'hidden .js file inside a resource (known FiveM backdoor technique)'
+        if (Test-JsLoaderContent $text) {
+            return [pscustomobject]@{ Path = $fp; Status = 'MaliciousFile'; Reason = "$hw with loader/obfuscated code (the whole file is malicious)"; Ranges = @(); Lines = @(); Bom = $hasBom; IsJs = $true }
+        }
+        return [pscustomobject]@{ Path = $fp; Status = 'Infected'; Reason = "$hw - no loader code found, check it and delete it if you did not create it"; Ranges = @(); Lines = @(); Bom = $hasBom; IsJs = $true }
+    }
     $isBundle = ($fp -match '(?i)\\citizen\\system_resources\\|\\node_modules\\') -or
                 ($isJs -and ($File.Name -match '(?i)\.min\.js$' -or $File.Length -gt 300KB -or $fp -match '(?i)\\(dist|build|yarn|webpack)\\'))
     if ($isBundle) {
@@ -810,15 +828,15 @@ function Invoke-DeepFileScan {
     $drives = @(Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | Where-Object { $_.DriveType -in 2, 3 } | ForEach-Object { $_.DeviceID + '\' })
     if ($drives.Count -eq 0) { $drives = @($env:SystemDrive + '\') }
     $skip = @{}
-    foreach ($p in @($env:SystemRoot, $BaseDir, (Join-Path $env:SystemDrive 'Recovery'), (Join-Path $env:SystemDrive 'ProgramData\Microsoft\Windows Defender'))) {
+    foreach ($p in @($env:SystemRoot, $BaseDir, (Join-Path $env:LOCALAPPDATA 'SecurityCleaner'), (Join-Path $env:SystemDrive 'Recovery'), (Join-Path $env:SystemDrive 'ProgramData\Microsoft\Windows Defender'))) {
         $n = Get-NormPath $p; if ($n) { $skip[$n.ToLowerInvariant()] = $true }
     }
     $mediaExt  = '(?i)^\.(jpe?g|png|gif|bmp|webp|tiff?|ico|heic|mp4|mkv|avi|mov|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|pdf|docx?|xlsx?|pptx?|txt|rtf|csv)$'
     $progExt   = '(?i)^\.(exe|dll|scr|com|pif|msi|cpl|ocx|sys)$'
     $scriptExt = '(?i)^\.(bat|cmd|ps1|vbs|vbe|js|jse|wsf|hta)$'
     $doubleExt = '(?i)\.(pdf|docx?|xlsx?|pptx?|txt|jpe?g|png|gif|bmp|mp3|mp4|avi|mkv|mov|zip|rar|7z)\s*\.(exe|scr|com|pif|bat|cmd|vbs|vbe|js|jse|hta|wsf|lnk)$'
-    $activator = '(?i)kmspico|kms[\s_.-]?auto|aact(_x64)?\.exe|re-?loader|hwidgen|windows[\s_.-]?loader|kms[\s_.-]?tools|microsoft[\s_.-]?toolkit|kmsauto'
-    $crackName = '(?i)(^|[\s_.\-\[\(])(crack(ed)?|keygen|key[\s_-]?gen|patch(er)?|activator|serial[\s_-]?gen|hack(s|er)?|cheat(s|er)?|injector|trainer|unlocker|bypass|spoofer|executor|mod[\s_-]?menu)([\s_.\-\]\)0-9]|$)'
+    $activator = '(?i)kmspico|kms[\s_.-]?auto|^aact(_x64)?\.exe$|re-?loader|hwidgen|windows[\s_.-]?loader|kms[\s_.-]?tools|^microsoft[\s_-]?toolkit[\s_.-]*(v?[0-9.]+)?\.(exe|zip|rar|7z)$'
+    $crackName = '(?i)(^|[\s_.\-\[\(])(crack(ed)?|keygen|key[\s_-]?gen|patch(er)?|activator|serial[\s_-]?gen|hack(s|er)?|cheat(s|er)?|injector|trainer|unlocker|bypass|spoofer|mod[\s_-]?menu)([\s_.\-\]\)0-9]|$)'
     $crackFile = '(?i)^(steam_emu\.ini|onlinefix(64)?\.(ini|dll)|codex\.ini|cream_api\.ini|cpy\.ini|3dmgame\.(ini|dll)|ali213\.ini|smartsteamemu\.ini|unsteam\.ini|rld\.ini|skidrow\.ini|empress\.ini|tenoke\.ini|hlm\.ini|steamclient_loader(_x64)?\.(exe|ini)|coldclientloader\.ini|steam_api(64)?\.cdx|valve\.ini)$'
     $mediaDirs = @([Environment]::GetFolderPath('MyPictures'), [Environment]::GetFolderPath('MyVideos'), [Environment]::GetFolderPath('MyMusic')) |
         Where-Object { $_ } | ForEach-Object { (Get-NormPath $_) + '\' }
@@ -867,7 +885,7 @@ function Invoke-DeepFileScan {
                         continue
                     }
                 }
-                if ($ext -match $progExt -or $ext -match '(?i)^\.(zip|rar|7z|iso)$') {
+                if (($ext -match $progExt -or $ext -match '(?i)^\.(zip|rar|7z|iso)$') -and $full -notmatch '(?i)^[a-z]:\\Program Files( \(x86\))?\\') {
                     if ($name -match $activator) {
                         Add-FileFinding 'Crack tool' 'High' $full 'Windows/Office activator (crack). These are one of the most common ways malware gets installed.' "File name matches activator pattern: '$($Matches[0])'"
                         continue
@@ -1538,16 +1556,17 @@ $fileRoots = @(
     @{ Path = $env:PUBLIC;       Depth = 3 }
 )
 $scriptExt = '(?i)^\.(vbs|vbe|js|jse|hta|wsf|scr|pif)$'
+$scriptHits = New-Object System.Collections.Generic.List[object]
 $softExt   = '(?i)^\.(ps1|bat|cmd)$'
 foreach ($r in $fileRoots) {
     if (-not $r.Path -or -not (Test-Path -LiteralPath $r.Path)) { continue }
     Get-ChildItem -LiteralPath $r.Path -Recurse -Depth $r.Depth -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -match '(?i)^\.(exe|com|scr|pif|vbs|vbe|js|jse|hta|wsf|ps1|bat|cmd)$' -and $_.FullName -notmatch '(?i)\\Microsoft\\(Windows|Edge|Teams|OneDrive)' } |
+        Where-Object { $_.Extension -match '(?i)^\.(exe|com|scr|pif|vbs|vbe|js|jse|hta|wsf|ps1|bat|cmd)$' -and $_.FullName -notmatch '(?i)\\Microsoft\\(Windows|Edge|Teams|OneDrive)|\\SecurityCleaner\\' } |
         ForEach-Object {
             $age = ($now - $_.LastWriteTime).TotalDays
             $hidden = [bool]($_.Attributes -band [IO.FileAttributes]::Hidden)
             if ($_.Extension -match $scriptExt) {
-                Add-FileFinding 'Suspicious file' 'High' $_.FullName "script/screensaver in user folder, modified $($_.LastWriteTime)"
+                $scriptHits.Add($_)
             } elseif ($_.Extension -match $softExt) {
                 if ($age -lt 90) { Add-FileFinding 'Suspicious file' 'Medium' $_.FullName "script modified $($_.LastWriteTime)" }
             } else {
@@ -1562,6 +1581,16 @@ foreach ($r in $fileRoots) {
                 }
             }
         }
+}
+
+foreach ($g in $scriptHits | Group-Object { $_.DirectoryName }) {
+    if ($g.Count -gt 25) {
+        $exts = ($g.Group | ForEach-Object { $_.Extension.ToLowerInvariant() } | Sort-Object -Unique) -join ', '
+        $gsev = 'Medium'; if ($g.Name -match '(?i)\\Temp(\\|$)') { $gsev = 'Info' }
+        Add-Finding 'Suspicious file' $gsev "$($g.Count) script files in $($g.Name)" "Many temporary script files ($exts), e.g. $($g.Group[0].Name). Usually created by apps; the temp cleanup removes the old ones." -Tech "Grouped: $($g.Count) files with extensions $exts in one folder"
+    } else {
+        foreach ($fi in $g.Group) { Add-FileFinding 'Suspicious file' 'High' $fi.FullName "script/screensaver in user folder, modified $($fi.LastWriteTime)" "Extension $($fi.Extension) in a user/temp folder" }
+    }
 }
 
 Write-Host '  Looking for miner programs and configs...'
@@ -1646,6 +1675,15 @@ foreach ($dir in $resourceDirs.Values) {
             $t = $null
             try { $t = [IO.File]::ReadAllText($fp) } catch { return }
             if (-not $t) { return }
+
+            if (Test-HiddenResourceJs $_) {
+                if (Test-JsLoaderContent $t) {
+                    Add-FileFinding 'FiveM backdoor (hidden file)' 'High' $fp 'Hidden .js file inside a FiveM resource that contains loader code - the known FiveM backdoor technique.' "File name starts with '.', content has obfuscated/eval/network code"
+                } else {
+                    Add-FileFinding 'FiveM hidden file' 'Medium' $fp 'Hidden .js file inside a FiveM resource. Not normal for a resource - delete it if you did not create it.' "File name starts with '.'"
+                }
+                return
+            }
 
             $isJs = $_.Extension -ieq '.js'
             # bundled UI code (NUI) legitimately contains eval/fetch - only strong signals count there
@@ -1916,7 +1954,7 @@ if ($Strict) {
     Write-Section 'STRICT cleaning - confirmed threats only, nothing is deleted'
     New-SafetyRestorePoint
     $killCats = '^(Crypto miner|Fake system process|Malicious script running|Mining pool connection)$'
-    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut|Known threat \(database\))$'
+    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut|Known threat \(database\)|FiveM backdoor \(hidden file\))$'
 
     # 1. stop confirmed malicious processes
     $killed = @()
@@ -1956,6 +1994,28 @@ if ($Strict) {
         } catch { }
         try { Remove-MpThreat -ErrorAction Stop; Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' 'DONE' 'Signature-confirmed detections sent to Defender quarantine' }
         catch { Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' "FAILED - $_" }
+        Start-Sleep -Seconds 3
+        try {
+            $names = @{}; foreach ($t in @(Get-MpThreat -ErrorAction SilentlyContinue)) { $names[[string]$t.ThreatID] = $t.ThreatName }
+            $left = @{}
+            foreach ($det in @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 })) {
+                foreach ($res in @($det.Resources)) {
+                    if ([string]$res -match '^(file|containerfile):_(.+?)(->.*)?$') {
+                        $pp = $Matches[2]
+                        if (Test-Path -LiteralPath $pp -PathType Leaf) { $left[$pp.ToLowerInvariant()] = @($pp, [string]$det.ThreatID) }
+                    }
+                }
+            }
+            foreach ($v in $left.Values) {
+                $pp = $v[0]; $tn = $names[$v[1]]; if (-not $tn) { $tn = "ThreatID $($v[1])" }
+                $refs = $active[$pp.ToLowerInvariant()]
+                if ($refs) { Write-Op 'Quarantine Defender detection' $pp 'SKIPPED - in use' ("$tn. Still used by: " + (($refs | Select-Object -Unique) -join '; ')); continue }
+                $why = Test-ProtectedPath $pp
+                if ($why) { Write-Op 'Quarantine Defender detection' $pp "SKIPPED - protected: $why" $tn; continue }
+                try { Add-ThreatDbEntry $pp 'Defender detection' $tn; Move-ToQuarantine $pp; Write-Op 'Quarantine Defender detection' $pp 'DONE' "$tn - confirmed by Microsoft Defender signatures but was still on disk" }
+                catch { Write-Op 'Quarantine Defender detection' $pp "FAILED - $_" $tn }
+            }
+        } catch { }
     }
 
     # 5. temporary files and caches only (in-use files are skipped automatically; Recycle Bin is NOT emptied)
