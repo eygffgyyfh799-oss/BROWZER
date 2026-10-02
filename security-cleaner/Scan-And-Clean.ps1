@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '5.1'
+$Version = '6.0'
 
 # ---------------------------------------------------------------- setup
 
@@ -92,6 +92,26 @@ $Report    = Join-Path $Desktop "SecurityScan_$Stamp.txt"
 $script:QCount = 0
 
 New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+
+# ---- local threat database: SHA256 of every confirmed threat, so it is recognised instantly next time (even renamed)
+$ThreatDbFile = Join-Path $BaseDir 'threat-db.csv'
+$script:ThreatDb = @{}
+$script:ThreatDbAdded = 0
+if (Test-Path -LiteralPath $ThreatDbFile) {
+    try { Import-Csv -LiteralPath $ThreatDbFile | ForEach-Object { if ($_.Sha256) { $script:ThreatDb[$_.Sha256.ToUpperInvariant()] = $_ } } } catch { }
+}
+function Add-ThreatDbEntry([string]$Path, [string]$Category, [string]$Reason) {
+    try {
+        if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+        $h = (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant()
+        if ($script:ThreatDb.ContainsKey($h)) { return }
+        $e = [pscustomobject]@{ Sha256 = $h; Name = (Split-Path $Path -Leaf); Category = $Category
+            Reason = ([string]$Reason -replace '[\r\n]+', ' '); FirstSeen = (Get-Date -Format 'yyyy-MM-dd HH:mm'); Path = $Path }
+        $script:ThreatDb[$h] = $e
+        $e | Export-Csv -LiteralPath $ThreatDbFile -Append -NoTypeInformation -Encoding UTF8
+        $script:ThreatDbAdded++
+    } catch { }
+}
 try { Start-Transcript -LiteralPath (Join-Path $LogDir "run_$Stamp.log") -Force | Out-Null } catch { }
 
 $SteamPath = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
@@ -229,7 +249,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut)$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -805,6 +825,9 @@ function Invoke-DeepFileScan {
     $lnkDirs = @($Desktop, $Downloads, (Join-Path $env:PUBLIC 'Desktop')) | Where-Object { $_ } | ForEach-Object { (Get-NormPath $_) + '\' }
     $shell = $null; try { $shell = New-Object -ComObject WScript.Shell } catch { }
     $crackDirs = @{}
+    $encDirs = @{}; $ransomNotes = 0
+    $ransomNote = '(?i)^(_readme\.txt|how[_ -]?to[_ -]?(decrypt|restore|recover|back)[^\\]*\.(txt|html?|hta|rtf)|[^\\]*decrypt[_ -]?(instructions|my[_ -]?files|files)[^\\]*\.(txt|html?|hta|rtf)|restore[_ -]?(my[_ -]?)?files[^\\]*\.(txt|html?|hta|rtf)|!+[_ -]*read[_ -]*me[_ -]*!+[^\\]*\.(txt|html?|hta|rtf))$'
+    $ransomExt  = '(?i)^\.(locked|encrypted|crypted|crypt|crypz|cerber[0-9]?|locky|zepto|odin|wncry|wnry|wcry|wncryt|djvu|ryk|conti|lockbit|akira|blackcat|alphv|hive|babuk|phobos|dharma|makop)$'
     $script:CrackedGames = @()
     $total = 0; $headers = 0
 
@@ -854,6 +877,22 @@ function Invoke-DeepFileScan {
                         continue
                     }
                 }
+                if ($name -match $ransomNote) {
+                    $ransomNotes++
+                    if ($ransomNotes -le 30) {
+                        Add-Finding 'Ransomware indicator' 'High' $full 'A ransomware note (ransom/decrypt instructions). Your files may have been encrypted. Do NOT pay; keep the note for identification.' -Tech "File name matches ransom-note pattern"
+                    }
+                }
+                if ($ext -match $ransomExt) { $k = $f.DirectoryName; if ($encDirs.ContainsKey($k)) { $encDirs[$k]++ } else { $encDirs[$k] = 1 } }
+                if ($script:ThreatDb.Count -gt 0 -and ($ext -match $progExt -or $ext -match $scriptExt) -and $f.Length -lt 200MB -and
+                    ($full -match $UserDirPattern -or $full -match '(?i)\\(Desktop|Documents)\\' -or -not $full.StartsWith($env:SystemDrive, [StringComparison]::OrdinalIgnoreCase))) {
+                    $h = $null; try { $h = (Get-FileHash -LiteralPath $full -Algorithm SHA256 -ErrorAction Stop).Hash.ToUpperInvariant() } catch { }
+                    if ($h -and $script:ThreatDb.ContainsKey($h)) {
+                        $e = $script:ThreatDb[$h]
+                        Add-FileFinding 'Known threat (database)' 'High' $full "Exactly the same file as a threat removed before: $($e.Name) ($($e.Category), first seen $($e.FirstSeen))." "SHA256 $h matches the local threat database"
+                        continue
+                    }
+                }
                 if ($name -match $crackFile) {
                     $root = $f.DirectoryName
                     if ((Split-Path $root -Leaf) -ieq 'steam_settings') { $root = Split-Path $root -Parent }
@@ -892,6 +931,11 @@ function Invoke-DeepFileScan {
         }
     }
 
+    foreach ($k in $encDirs.Keys) {
+        if ($encDirs[$k] -ge 20) {
+            Add-Finding 'Ransomware indicator' 'High' $k "$($encDirs[$k]) files in this folder have ransomware-style extensions (encrypted files). Nothing was changed." -Tech "Extensions such as .locked/.encrypted/.djvu/.lockbit counted: $($encDirs[$k])"
+        }
+    }
     foreach ($v in $crackDirs.Values) {
         $root = $v[0]; $ind = $v[1]
         $n = Get-NormPath $root
@@ -1453,6 +1497,35 @@ foreach ($p in $procs) {
     }
 }
 
+# ---------------------------------------------------------------- 6c. Rootkits and ransomware protection
+
+Write-Section 'Rootkit checks'
+try {
+    $bcd = (& bcdedit.exe /enum '{current}' 2>$null) -join "`n"
+    if ($bcd -match '(?im)^\s*testsigning\s+Yes') {
+        Add-Finding 'Rootkit indicator' 'High' 'Test-signing mode is ON' 'Windows accepts unsigned kernel drivers (used by rootkits and kernel cheats). Turn off: bcdedit /set testsigning off' -Tech 'bcdedit {current}: testsigning Yes'
+    }
+    if ($bcd -match '(?im)^\s*nointegritychecks\s+Yes') {
+        Add-Finding 'Rootkit indicator' 'High' 'Driver signature checks are disabled' 'Windows loads drivers without checking them. Turn on: bcdedit /set nointegritychecks off' -Tech 'bcdedit {current}: nointegritychecks Yes'
+    }
+} catch { }
+foreach ($d in Get-CimInstance Win32_SystemDriver -Filter "State='Running'" -ErrorAction SilentlyContinue) {
+    $dp = [string]$d.PathName
+    $dp = $dp -replace '^\\\?\?\\', '' -replace '(?i)^\\SystemRoot\\', "$env:SystemRoot\" -replace '(?i)^system32\\', "$env:SystemRoot\System32\"
+    if (-not $dp -or -not (Test-Path -LiteralPath $dp -PathType Leaf)) { continue }
+    $sig = Get-SigStatus $dp
+    if ($sig -in 'NotSigned', 'HashMismatch') {
+        Add-Finding 'Rootkit indicator' 'High' "$($d.Name)" "A running kernel driver has NO valid signature: $dp. Possible rootkit - verify before trusting it." -Tech "Authenticode status: $sig"
+    }
+}
+if ($mpOk) {
+    try {
+        if ((Get-MpPreference -ErrorAction Stop).EnableControlledFolderAccess -ne 1) {
+            Add-Finding 'Ransomware protection' 'Info' 'Controlled folder access is off' 'Optional: Windows Security > Ransomware protection. It can block some games from saving, so it is not turned on automatically.'
+        }
+    } catch { }
+}
+
 # ---------------------------------------------------------------- 7. Files
 
 Write-Section 'Suspicious files in user folders'
@@ -1624,6 +1697,13 @@ Write-Host "  Scanned $($scannedFiles.Count) script file(s)"
 if ($mpOk -and -not $SkipDefenderScan) {
     Write-Section 'Defender scan (this can take a while)'
     try { Write-Host '  Updating definitions...'; Update-MpSignature -ErrorAction Stop } catch { Write-Host "  Update failed: $_" -ForegroundColor Yellow }
+    if ($Strict) {
+        try {
+            Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent SendSafeSamples -CloudBlockLevel High -CloudExtendedTimeout 50 -ErrorAction Stop
+            $script:CloudHardened = $true
+            Write-Host '  Cloud protection set to High: new and unknown threats are analysed by Microsoft in real time.'
+        } catch { Write-Host "  Could not raise cloud protection: $_" -ForegroundColor Yellow }
+    }
     if ($Full -and -not $Strict) {
         try { Set-MpPreference -PUAProtection Enabled -ErrorAction Stop; Write-Host '  PUA detection turned ON (finds cracks, keygens, hack tools, adware).' } catch { }
     }
@@ -1705,7 +1785,7 @@ if ($high.Count -eq 0 -and $med.Count -eq 0) { Write-Host '  Nothing suspicious 
 function Invoke-Fix($f) {
     $d = $f.Data
     switch ($f.Action) {
-        'Quarantine'        { Move-ToQuarantine $d.Path }
+        'Quarantine'        { Add-ThreatDbEntry $d.Path $f.Category $f.Detail; Move-ToQuarantine $d.Path }
         'KillProcess'       {
             $pr = Get-Process -Id $d.Pid -ErrorAction SilentlyContinue
             if (-not $pr) { return }
@@ -1836,7 +1916,7 @@ if ($Strict) {
     Write-Section 'STRICT cleaning - confirmed threats only, nothing is deleted'
     New-SafetyRestorePoint
     $killCats = '^(Crypto miner|Fake system process|Malicious script running|Mining pool connection)$'
-    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut)$'
+    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut|Known threat \(database\))$'
 
     # 1. stop confirmed malicious processes
     $killed = @()
@@ -1869,6 +1949,11 @@ if ($Strict) {
 
     # 4. threats confirmed by antivirus signatures (Defender quarantines them, restorable from Windows Security)
     if ($mpOk -and @($Findings | Where-Object { $_.Action -eq 'MpThreatRemove' }).Count -gt 0) {
+        try {
+            foreach ($det in @(Get-MpThreatDetection -ErrorAction Stop)) {
+                foreach ($res in @($det.Resources)) { if ([string]$res -match '^file:_(.+)$') { Add-ThreatDbEntry $Matches[1] 'Defender detection' "ThreatID $($det.ThreatID)" } }
+            }
+        } catch { }
         try { Remove-MpThreat -ErrorAction Stop; Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' 'DONE' 'Signature-confirmed detections sent to Defender quarantine' }
         catch { Write-Op 'Remove threats detected by Defender' 'Microsoft Defender' "FAILED - $_" }
     }
@@ -1921,6 +2006,12 @@ if ($Strict) {
         $rep.Add(''); $rep.Add('CRACKED GAMES / PROGRAMS (not touched)')
         foreach ($g in $script:CrackedGames) { $rep.Add("  $($g.Path)   (crack file: $($g.Indicator))") }
     }
+    $rep.Add('')
+    $rep.Add('PROTECTION AGAINST NEW / UNKNOWN THREATS')
+    $rep.Add("  Threat database: $ThreatDbFile  (new entries added this run: $($script:ThreatDbAdded), total: $($script:ThreatDb.Count))")
+    $rep.Add('  Every confirmed threat is stored by SHA256 and recognised instantly in future scans, even if renamed')
+    if ($script:CloudHardened) { $rep.Add('  Defender cloud protection raised to High (real-time analysis of new, unknown files)') }
+    $rep.Add('  For the deepest rootkit check run (restarts the PC, ~15 min):  Start-MpWDOScan')
     $rep.Add('')
     $rep.Add('UNDO')
     $rep.Add("  Quarantine and backups: $QDir")
