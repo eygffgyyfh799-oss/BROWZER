@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '7.0'
+$Version = '7.1'
 
 # ---------------------------------------------------------------- setup
 
@@ -597,7 +597,7 @@ function Get-ServerFileVerdict([IO.FileInfo]$File) {
         return [pscustomobject]@{ Path = $fp; Status = 'Infected'; Reason = "$hw - no loader code found, check it and delete it if you did not create it"; Ranges = @(); Lines = @(); Bom = $hasBom; IsJs = $true }
     }
     if ($File.Extension -match '(?i)^\.html?$') {
-        $trustedCdn = '(?i)^([a-z0-9-]+\.)*(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|code\.jquery\.com|ajax\.googleapis\.com|cdn\.tailwindcss\.com|kit\.fontawesome\.com|use\.fontawesome\.com|(stackpath|maxcdn)\.bootstrapcdn\.com|cdn\.socket\.io|cdn\.skypack\.dev|esm\.sh|cfx-nui-[a-z0-9_.-]+|nui-game-internal)$'
+        $trustedCdn = '(?i)^([a-z0-9-]+\.)*(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|code\.jquery\.com|ajax\.googleapis\.com|cdn\.tailwindcss\.com|kit\.fontawesome\.com|use\.fontawesome\.com|(stackpath|maxcdn)\.bootstrapcdn\.com|cdn\.socket\.io|cdn\.skypack\.dev|esm\.sh|use\.fortawesome\.com|kit\.fortawesome\.com|(www\.)?youtube\.com|s\.ytimg\.com|www\.gstatic\.com|(code|cdn)\.highcharts\.com|cdn\.plyr\.io|w\.soundcloud\.com|cfx-nui-[a-z0-9_.-]+|nui-game-internal)$'
         $hl = [regex]::Split($text, '(?<=\n)')
         $hr = @(); $hunsafe = @()
         for ($i = 0; $i -lt $hl.Count; $i++) {
