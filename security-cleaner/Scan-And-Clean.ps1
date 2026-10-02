@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.4'
+$Version = '6.5'
 
 # ---------------------------------------------------------------- setup
 
@@ -107,6 +107,11 @@ function Test-ReadOnlyMedia([string]$Path) {
 function Test-RemovableAutorun([string]$Path) {
     if (-not $Path -or $Path -notmatch '(?i)^([a-z]):\\autorun\.inf$') { return $false }
     return ($Matches[1] + ':') -ine $env:SystemDrive
+}
+function Test-DetectionStillThere($Detection) {
+    $p = Get-DetectionPath $Detection
+    if (-not $p) { return $true }
+    return (Test-Path -LiteralPath $p)
 }
 function Get-DetectionPath($Detection) {
     foreach ($res in @($Detection.Resources)) { if ([string]$res -match '^(file|containerfile):_(.+?)(->.*)?$') { return $Matches[2] } }
@@ -524,7 +529,7 @@ function Expand-Obfuscation([string]$Text) {
 
 # Hidden ".something.js" files inside resources are a known FiveM backdoor technique
 # (e.g. temp\.env.local.js, data\.webpack.config.js, temp\.job_runner.js, node_modules\internal\.eventHandler.js)
-$HiddenJsOk = '(?i)^\.(eslintrc|prettierrc|babelrc|stylelintrc|mocharc|lintstagedrc|commitlintrc|postcssrc|swcrc|huskyrc|releaserc|ncurc|jshintrc)(\.[a-z]+)?\.(c|m)?js$'
+$HiddenJsOk = '(?i)^\.(tonic_example|eslintrc|prettierrc|babelrc|stylelintrc|mocharc|lintstagedrc|commitlintrc|postcssrc|swcrc|huskyrc|releaserc|ncurc|jshintrc)(\.[a-z]+)?\.(c|m)?js$'
 function Test-HiddenResourceJs([IO.FileInfo]$File) {
     return ($File.Name.StartsWith('.') -and $File.Extension -ieq '.js' -and $File.Name -notmatch $HiddenJsOk)
 }
@@ -911,7 +916,7 @@ function Invoke-DeepFileScan {
                         continue
                     }
                 }
-                if ($name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?)\.txt$' -and $full -match '(?i)\\(AppData|Temp|ProgramData|Users\\Public)\\') {
+                if ($name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?)\.txt$' -and $full -match '(?i)\\(AppData|Temp|ProgramData|Users\\Public)\\' -and $full -notmatch '(?i)\\ZxcvbnData\\') {
                     Add-FileFinding 'Stealer leftovers' 'High' $full 'A file typical of password-stealer output (stolen passwords/cookies/tokens). Assume your accounts are compromised.' "Name '$name' in a hidden app/temp folder"
                 }
                 if ($name -match $ransomNote) {
@@ -1548,8 +1553,10 @@ try {
     foreach ($j in @(Get-BitsTransfer -AllUsers -ErrorAction Stop)) {
         foreach ($fl in @($j.FileList)) {
             $u = [string]$fl.RemoteName
-            if ($u -match '(?i)^https?://' -and $u -notmatch '(?i)\.(microsoft|windowsupdate|windows|msftconnecttest|office|live|bing|xboxlive|nvidia|amd|intel|google|mozilla)\.(com|net)/' -and
-                ($u -match '(?i)\.(exe|dll|ps1|vbs|js|bat|cmd|scr|zip|rar|7z|msi)(\?|$)' -or [string]$fl.LocalName -match '(?i)\\(AppData|Temp|ProgramData|Users\\Public)\\')) {
+            $uh = ''; try { $uh = ([uri]$u).Host } catch { }
+            $trustedHost = $uh -match '(?i)(^|\.)(microsoft|windowsupdate|windows|msftconnecttest|office|office365|live|bing|xboxlive|msedge|azureedge|nvidia|amd|intel|google|googleapis|gstatic|gvt1|gvt2|googleusercontent|mozilla|steamcontent|steampowered|discord|discordapp|epicgames|adobe|apple|akamaized)\.(com|net)$'
+            $progRx = '(?i)\.(exe|dll|ps1|vbs|js|bat|cmd|scr|zip|rar|7z|msi)(\?|$)'
+            if ($u -match '(?i)^https?://' -and -not $trustedHost -and ($u -match $progRx -or [string]$fl.LocalName -match $progRx)) {
                 Add-Finding 'Background downloader' 'High' "BITS job '$($j.DisplayName)' ($($j.OwnerAccount))" "Hidden download of $u to $($fl.LocalName) - downloader/botnet behaviour." -Tech "Get-BitsTransfer JobId $($j.JobId), state $($j.JobState)"
             }
         }
@@ -1570,7 +1577,7 @@ foreach ($base in 'HKCU:\Software\Microsoft\Office', 'HKCU:\Software\Policies\Mi
 # info-stealer leftovers: stolen data collected into text files before upload
 foreach ($root in @($env:TEMP, $env:APPDATA, $env:LOCALAPPDATA, $env:ProgramData, $env:PUBLIC) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }) {
     Get-ChildItem -LiteralPath $root -Recurse -Depth 3 -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?|steam ?tokens?|userinformation)\.txt$' -and $_.FullName -notmatch '(?i)\\SecurityCleaner\\' } |
+        Where-Object { $_.Name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?|steam ?tokens?|userinformation)\.txt$' -and $_.FullName -notmatch '(?i)\\SecurityCleaner\\|\\ZxcvbnData\\' } |
         Select-Object -First 50 | ForEach-Object {
             Add-FileFinding 'Stealer leftovers' 'High' $_.FullName 'A file typical of password-stealer output (stolen passwords/cookies/tokens collected before upload). Assume your accounts are compromised.' "Name '$($_.Name)' in $($_.DirectoryName), modified $($_.LastWriteTime)"
         }
@@ -1959,7 +1966,7 @@ if ($mpOk) {
         $threats = @(Get-MpThreat -ErrorAction SilentlyContinue)
         $detections = @(Get-MpThreatDetection -ErrorAction Stop)
         # 2 cleaned, 3 quarantined, 4 removed, 6 blocked = handled. 5 = "Allowed" by the user, which is exactly what cracks ask you to do.
-        $pending = @($detections | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 -and -not (Test-RemovableAutorun (Get-DetectionPath $_)) })
+        $pending = @($detections | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 -and -not (Test-RemovableAutorun (Get-DetectionPath $_)) -and (Test-DetectionStillThere $_) })
         $groups = @($detections | Group-Object { "$($_.ThreatID)|" + [string](@($_.Resources) | Select-Object -First 1) } |
             Sort-Object { ($_.Group | Sort-Object InitialDetectionTime -Descending | Select-Object -First 1).InitialDetectionTime } -Descending)
         foreach ($g in $groups | Select-Object -First 50) {
@@ -1970,6 +1977,9 @@ if ($mpOk) {
             if (@($g.Group | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 }).Count -gt 0 -and $d.ThreatStatusID -notin 2, 3, 4, 6) { $sev = 'High'; $state = 'NOT removed' }
             if ($d.ThreatStatusID -eq 5) { $state = 'ALLOWED by user' }
             $dp = Get-DetectionPath $d
+            if ($sev -eq 'High' -and $dp -and -not (Test-Path -LiteralPath $dp)) {
+                $sev = 'Info'; $state = 'Defender still lists it as not removed, but the file no longer exists - nothing left to do'
+            }
             if (Test-RemovableAutorun $dp) {
                 $sev = 'Info'; $state = 'autorun.inf on another drive - if it is a USB internet modem this is its read-only installer (harmless); if it is a normal USB stick, back it up and format it'
             }
@@ -2201,14 +2211,19 @@ if ($Strict) {
         Start-Sleep -Seconds 3
         try {
             $names = @{}; foreach ($t in @(Get-MpThreat -ErrorAction SilentlyContinue)) { $names[[string]$t.ThreatID] = $t.ThreatName }
-            $left = @{}
+            $left = @{}; $gone = @{}
             foreach ($det in @(Get-MpThreatDetection -ErrorAction Stop | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 })) {
                 foreach ($res in @($det.Resources)) {
                     if ([string]$res -match '^(file|containerfile):_(.+?)(->.*)?$') {
                         $pp = $Matches[2]
                         if (Test-Path -LiteralPath $pp -PathType Leaf) { $left[$pp.ToLowerInvariant()] = @($pp, [string]$det.ThreatID) }
+                        elseif (-not $gone.ContainsKey($pp.ToLowerInvariant()) -and -not (Test-RemovableAutorun $pp)) { $gone[$pp.ToLowerInvariant()] = @($pp, [string]$det.ThreatID) }
                     }
                 }
+            }
+            foreach ($v in $gone.Values) {
+                $tn = $names[$v[1]]; if (-not $tn) { $tn = "ThreatID $($v[1])" }
+                Write-Op 'Check Defender detection' $v[0] 'DONE - already gone' "$tn - the file no longer exists, nothing left to remove"
             }
             foreach ($v in $left.Values) {
                 $pp = $v[0]; $tn = $names[$v[1]]; if (-not $tn) { $tn = "ThreatID $($v[1])" }
@@ -2240,7 +2255,7 @@ if ($Strict) {
         -not ($_.Action -eq 'KillProcess' -and $_.Category -match $killCats -and $_.Severity -eq 'High') })
 
     # ---- detailed report
-    $done = @($script:Ops | Where-Object Result -eq 'DONE')
+    $done = @($script:Ops | Where-Object { $_.Result -like 'DONE*' })
     $skipped = @($script:Ops | Where-Object { $_.Result -notlike 'DONE*' })
     $rep = New-Object System.Collections.Generic.List[string]
     $rep.Add("SECURITY CLEANER v$Version - DETAILED STRICT REPORT")
