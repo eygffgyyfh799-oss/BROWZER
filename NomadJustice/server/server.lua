@@ -21,6 +21,10 @@ local function InitDatabase()
             KEY `citizenid` (`citizenid`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
+    -- Older versions stored duty states in Arabic: convert them to the English values once
+    JS.TryQuery([[UPDATE `justice_duty_history`
+        SET `duty_status` = CASE WHEN `duty_status` LIKE ? THEN 'Clocked in' ELSE 'Clocked out' END
+        WHERE `duty_status` NOT IN ('Clocked in', 'Clocked out')]], { '%\u{628}\u{62F}\u{623}%' })
 
     MySQL.query.await([[
         CREATE TABLE IF NOT EXISTS `justice_reports` (
@@ -382,13 +386,17 @@ RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizen
         return Notify(src, err, 'error')
     end
 
+    -- Chief Justice / Supreme Court Justice: no amount, daily or distance limits, and may compensate themselves
+    local unlimited = JS.Can(Player, 'unlimitedCompensation') == true
+
     local moneyAmount = math.floor(tonumber(amount) or 0)
-    if moneyAmount <= 0 then
+    if moneyAmount <= 0 or moneyAmount ~= moneyAmount then
         return Notify(src, 'The amount entered is invalid', 'error')
     end
 
-    if moneyAmount > Settings.CompensationMax then
-        return Notify(src, ('The amount is too large (maximum: $%d)'):format(Settings.CompensationMax), 'error')
+    local maxAmount = unlimited and (tonumber(Settings.CompensationHardCap) or 2000000000) or Settings.CompensationMax
+    if moneyAmount > maxAmount then
+        return Notify(src, ('The amount is too large (maximum: $%d)'):format(maxAmount), 'error')
     end
 
     targetCitizenid = JS.ValidCitizenId(targetCitizenid)
@@ -402,15 +410,18 @@ RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizen
     end
 
     local targetSrc = TargetPlayer.PlayerData.source
-    if targetSrc == src then
+    local isSelf = targetSrc == src
+    if isSelf and not unlimited then
         return Notify(src, 'You cannot compensate yourself', 'error')
     end
 
     -- Server-side check that the recipient is really near the employee
-    local officerPed, targetPed = GetPlayerPed(src), GetPlayerPed(targetSrc)
-    if officerPed == 0 or targetPed == 0
-        or #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > Settings.CompensationMaxDistance then
-        return Notify(src, 'The recipient must be near you', 'error')
+    if not unlimited then
+        local officerPed, targetPed = GetPlayerPed(src), GetPlayerPed(targetSrc)
+        if officerPed == 0 or targetPed == 0
+            or #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > Settings.CompensationMaxDistance then
+            return Notify(src, 'The recipient must be near you', 'error')
+        end
     end
 
     local blocked, remaining = JS.OnCooldown('compensation', Player.PlayerData.citizenid, Settings.CompensationCooldown)
@@ -419,10 +430,11 @@ RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizen
     end
 
     -- Daily limit per employee
-    local todayTotal = tonumber(MySQL.scalar.await(
+    local todayTotal = 0
+    if not unlimited then todayTotal = tonumber(MySQL.scalar.await(
         "SELECT COALESCE(SUM(amount), 0) FROM justice_transactions WHERE officer_citizenid = ? AND type = 'compensation' AND created_at >= CURDATE()",
-        { Player.PlayerData.citizenid })) or 0
-    if todayTotal + moneyAmount > Settings.CompensationDailyMax then
+        { Player.PlayerData.citizenid })) or 0 end
+    if not unlimited and todayTotal + moneyAmount > Settings.CompensationDailyMax then
         return Notify(src, ('You reached the daily compensation limit (remaining today: $%d)'):format(math.max(0, Settings.CompensationDailyMax - todayTotal)), 'error', 7000)
     end
 
@@ -434,12 +446,44 @@ RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizen
     local targetName = JS.PlayerName(TargetPlayer)
 
     Notify(src, ('$%d transferred to %s successfully'):format(moneyAmount, targetName), 'success')
-    Notify(targetSrc, ('$%d was transferred to your bank account by the Department of Justice - officer: %s'):format(moneyAmount, officerName), 'success', 7000)
+    if not isSelf then Notify(targetSrc, ('$%d was transferred to your bank account by the Department of Justice - officer: %s'):format(moneyAmount, officerName), 'success', 7000) end
 
     MySQL.insert.await('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
-        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'Compensation', JS.Now(), 'compensation'
+        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, isSelf and 'Compensation (self)' or 'Compensation', JS.Now(), 'compensation'
     })
-    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['Amount'] = moneyAmount }, { amount = moneyAmount })
+    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['Amount'] = moneyAmount, ['Self'] = isSelf and 'Yes' or nil }, { amount = moneyAmount })
+end)
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- Lockers and evidence archive (deep-inventory)
+-- The server checks the job/grade and opens the stash; inventories without a server export fall back to the client event
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
+
+RegisterNetEvent('NomadJustice:server:openStash', function(kind, archiveId)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player or not JS.IsJustice(Player) then return end
+
+    local stashId, data
+    if kind == 'personal' then
+        stashId = 'justice_stash_' .. Player.PlayerData.citizenid
+        data = { label = 'Personal Locker', maxweight = Settings.PersonalStash.maxweight, slots = Settings.PersonalStash.slots }
+    elseif kind == 'archive' then
+        if not JS.IsBoss(Player) then return Notify(src, 'The evidence archive is for management only', 'error') end
+        archiveId = math.floor(tonumber(archiveId) or 0)
+        if archiveId < 1 or archiveId > 999999999 then return Notify(src, 'Invalid archive ID', 'error') end
+        stashId = 'justice_archive_' .. archiveId
+        data = { label = 'Evidence Archive #' .. archiveId, maxweight = Settings.ArchiveStash.maxweight, slots = Settings.ArchiveStash.slots }
+    else
+        return
+    end
+
+    local inv = Settings.InventoryResource or 'deep-inventory'
+    if GetResourceState(inv) == 'started' then
+        local ok = pcall(function() exports[inv]:OpenInventory(src, stashId, data) end)
+        if ok then return end
+    end
+    TriggerClientEvent('NomadJustice:client:openStashLegacy', src, stashId, data)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════

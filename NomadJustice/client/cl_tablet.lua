@@ -103,6 +103,7 @@ function JC.Tablet.Open(page, arg)
             unemployed = Panel.UnemployedJob,
             withdrawMax = Panel.WithdrawMax,
             compensationMax = Settings.CompensationMax,
+            compensationHardCap = Settings.CompensationHardCap,
             compensationDistance = Settings.CompensationMaxDistance,
             summonMax = Settings.City.SummonMaxLength,
             announceMax = Settings.City.AnnounceMaxLength,

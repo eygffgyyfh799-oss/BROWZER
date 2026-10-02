@@ -3,8 +3,9 @@ return {
     -- General settings
     -- ════════════════════════════════════════════════════════════
     Settings = {
-        Job = 'justice',                 -- Job name
+        Job = 'judge',                   -- Job name (Judicial Department)
         TargetResource = 'deep-target',  -- Target resource
+        InventoryResource = 'deep-inventory', -- Inventory resource used for lockers and the evidence archive
 
         DutyCooldown = 15,               -- Seconds between duty clock punches
         DutyHistoryLimit = 100,          -- Duty records kept in memory
@@ -18,6 +19,9 @@ return {
         CompensationDailyMax = 3000000,  -- Maximum total compensation per employee per day
         CompensationMaxDistance = 5.0,   -- Maximum distance between employee and recipient
         CompensationCooldown = 10,       -- Seconds between compensations
+        -- Grades with the 'unlimitedCompensation' permission (Chief Justice + Supreme Court Justice) have no amount,
+        -- daily or distance limits and may compensate themselves. Only a technical ceiling per transaction applies:
+        CompensationHardCap = 2000000000,
 
         PersonalStash = { maxweight = 100000, slots = 100 },
         ArchiveStash  = { maxweight = 100000, slots = 200 },
@@ -44,46 +48,50 @@ return {
             TabletAnimation = true,      -- Tablet holding animation
             RequireDuty = true,          -- Employee must be on duty
 
-            -- 👑 Chief Justice / administrator grade: this grade and above get everything
-            -- (same as a boss: all permissions + duty log + archive)
-            FullAccessGrade = 10,
+            -- 👑 Full access: this grade and above get EVERYTHING in State Records -
+            -- every DOJ permission, every police permission, every department's finances (Police, EMS...),
+            -- duty log and evidence archive. 11 = Chief Justice, 12 = Supreme Court Justice
+            FullAccessGrade = 11,
 
             -- Permissions:  number = this grade and above  |  'boss' = grades flagged isboss  |  false = locked
-            -- DOJ grades: 0 Paralegal | 1 Commerce Inspector | 2 Associate Attorney | 3 Attorney | 4 Senior Attorney | 5 Partner
-            --            6 Bar Association President | 7 Court Clerk | 8 Arbitration & Mediation Board | 9 District Attorney | 10 Judge (everything)
+            -- Judicial Department grades:
+            --   0 Trainee | 1 Court Clerk | 2 Lawyer | 3 Senior Lawyer | 4 Prosecutor | 5 Senior Prosecutor
+            --   6 Public Defender | 7 Senior Public Defender | 8 Junior Judge | 9 Judge | 10 Senior Judge
+            --   11 Chief Justice (everything) | 12 Supreme Court Justice (everything)
             Permissions = {
                 view = 0,                -- View players, search and citizen records (everyone)
                 reports = 0,             -- View cases, change status, add notes (everyone)
-                deleteReport = 7,        -- Delete cases (Court Clerk and above)
-                locate = 9,              -- Locate a citizen (DA and Judge)
-                withdraw = 9,            -- Seize money from a citizen's bank (DA and Judge)
-                suspend = 9,             -- Suspend services (DA and Judge)
-                edit = 7,                -- Edit citizen identity (Court Clerk and above)
-                logs = 7,                -- Audit log (Court Clerk and above)
-                compensation = 8,        -- Compensate a citizen (Arbitration Board and above)
-                jobs = 10,               -- Change jobs and grades in every department (Judge)
+                deleteReport = 8,        -- Delete cases (Junior Judge and above)
+                locate = 4,              -- Locate a citizen (Prosecutor and above)
+                withdraw = 9,            -- Seize money from a citizen's bank (Judge and above)
+                suspend = 9,             -- Suspend services (Judge and above)
+                edit = 8,                -- Edit citizen identity (Junior Judge and above)
+                logs = 8,                -- Audit log (Junior Judge and above)
+                compensation = 9,        -- Compensate a citizen (Judge and above)
+                unlimitedCompensation = 11, -- No limits + may compensate themselves (Chief Justice and Supreme Court Justice only)
+                jobs = 11,               -- Change jobs and grades in every department (Chief Justice and above)
 
                 -- City affairs
                 city = 0,                -- Overview + vehicle and property registry (everyone)
-                summon = 7,              -- Court summons (Court Clerk and above)
-                vehicles = 9,            -- Impound / release / transfer vehicle title (DA and Judge)
-                properties = 8,          -- Transfer property deed (Arbitration Board and above)
-                licenses = 7,            -- Grant / revoke licenses and bar license (Court Clerk and above)
-                gangs = 9,               -- Change / remove a citizen's gang (DA and Judge)
-                announce = 7,            -- City-wide announcement (Court Clerk and above)
-                economy = 1,             -- City economy and richest citizens (Commerce Inspector and above)
+                summon = 1,              -- Court summons (Court Clerk and above)
+                vehicles = 9,            -- Impound / release / transfer vehicle title (Judge and above)
+                properties = 9,          -- Transfer property deed (Judge and above)
+                licenses = 1,            -- Grant / revoke licenses and bar license (Court Clerk and above)
+                gangs = 9,               -- Change / remove a citizen's gang (Judge and above)
+                announce = 8,            -- City-wide announcement (Junior Judge and above)
+                economy = 8,             -- City economy and richest citizens (Junior Judge and above)
 
                 -- Undo and delete
-                undo = 10,               -- Undo any action (Judge)
-                delete = 10,             -- Delete records and summonses (Judge)
+                undo = 11,               -- Undo any action (Chief Justice and above)
+                delete = 11,             -- Delete records and summonses (Chief Justice and above)
 
                 -- Judiciary
-                verdicts = 10,           -- Issue verdicts (Judge)
-                warrants = 9,            -- Arrest and search warrants (DA and Judge)
-                suspects = 7,            -- Add / remove persons of interest (Court Clerk and above)
-                lawyers = 6,             -- Assign attorneys to cases (Bar President and above)
-                policeRequests = 9,      -- Accept / reject police requests (DA and Judge)
-                stats = 6,               -- Statistics (Bar President and above)
+                verdicts = 8,            -- Issue verdicts (Junior Judge and above)
+                warrants = 8,            -- Arrest and search warrants (Junior Judge and above)
+                suspects = 4,            -- Add / remove persons of interest (Prosecutor and above)
+                lawyers = 8,             -- Assign attorneys to cases (Junior Judge and above)
+                policeRequests = 8,      -- Accept / reject police requests (Junior Judge and above)
+                stats = 8,               -- Statistics (Junior Judge and above)
             },
 
             UnemployedJob = 'unemployed',   -- Job a citizen is moved to when terminated
@@ -116,15 +124,18 @@ return {
             Jobs = { 'police' },         -- Police jobs (add 'sheriff' and others)
             RequireDuty = true,          -- Must be on duty
             -- Permissions: number = this grade and above | 'boss' = command staff (isboss) | false = locked
-            -- Police grades: 0 Cadet | 1 Officer | 2 Officer II | 3 Corporal | 4 Acting Sergeant | 5 Sergeant | 6 Staff Sergeant | 7 Master Sergeant | 8+ Command
+            -- Police grades:
+            --   0 Cadet | 1 Solo Cadet | 2 Officer I | 3 Officer II | 4 Officer III | 5 Senior Officer | 6 Sergeant
+            --   7 Staff Sergeant | 8 First Sergeant | 9 Lieutenant | 10 First Lieutenant | 11 Captain | 12 General
+            --   13 Deputy Police Chief | 14 Police Chief | 15 Deputy Minister of Interior | 16 Minister of Interior
             Permissions = {
                 search = 0,              -- Search citizens (everyone)
                 profile = 0,             -- Basic info + case and verdict history (everyone)
-                vehicles = 1,            -- Citizen vehicles (Officer and above)
+                vehicles = 2,            -- Citizen vehicles (Officer I and above)
                 warrants = 0,            -- View active warrants (everyone)
-                executeWarrant = 2,      -- Log warrant execution (Officer II and above)
+                executeWarrant = 3,      -- Log warrant execution (Officer II and above)
                 suspects = 0,            -- View persons of interest (everyone)
-                requests = 5,            -- Request authorization from DOJ: location, bank statement, warrant (Sergeant and above)
+                requests = 6,            -- Request authorization from DOJ: location, bank statement, warrant (Sergeant and above)
             },
             GrantMinutes = 30,           -- Authorization lifetime after approval (bank statement)
             RequestCooldown = 60,        -- Seconds between requests for the same officer
@@ -146,8 +157,8 @@ return {
             Resource = 'deep-Banking',
             Sectors = {
                 -- job name = { label, grades allowed }
-                police = { label = 'Los Santos Police Department', managers = { 18, 19, 20 } },   -- Assistant Chief, Chief of Police, Commissioner
-                ambulance = { label = 'Emergency Medical Services', managers = { 8, 9 } },         -- Deputy Medical Director, Medical Director
+                police = { label = 'Police Department', managers = { 13, 14, 15, 16 } },   -- Deputy Police Chief, Police Chief, Deputy Minister, Minister of Interior
+                ambulance = { label = 'EMS', managers = { 11, 12 } },                             -- Deputy EMS Chief, EMS Chief
             },
         },
 

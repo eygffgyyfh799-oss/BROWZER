@@ -478,9 +478,11 @@ function profileActions(p, perms, reload) {
         if (r) { toast(`Seized. New balance: ${money(r.newBalance)}`, 'success'); reload(); }
     }, 'red'));
 
-    if (!self && perms.compensation && p.online) list.push(btn('🤝 Compensation', async () => {
-        const v = await modal({ title: `Compensate ${p.name}`, text: `They must be near you (${S.config.compensationDistance || 5} m)`, fields: [
-            { name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue: S.config.compensationMax },
+    const unlimitedComp = perms.unlimitedCompensation === true;
+    if ((!self || unlimitedComp) && perms.compensation && p.online) list.push(btn(self ? '🤝 Compensate Myself' : '🤝 Compensation', async () => {
+        const v = await modal({ title: self ? 'Compensate Myself' : `Compensate ${p.name}`,
+            text: unlimitedComp ? 'No limit for your grade' : `They must be near you (${S.config.compensationDistance || 5} m)`, fields: [
+            { name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue: unlimitedComp ? S.config.compensationHardCap : S.config.compensationMax },
         ] });
         if (!v) return;
         await nui('compensate', { citizenid: p.citizenid, amount: v.amount });
@@ -1518,7 +1520,7 @@ function onLiveEvent(ev) {
 
 // ═════ Open and close ═════
 function renderMe() {
-    const roleLabel = S.info && S.info.judge ? '👑 Judge - full access to State Records' : ({ justice: '⚖️ Department of Justice', police: '🚓 Police Department', lawyer: '💼 Attorney', sector: '💰 Department Manager' }[S.role] || '');
+    const roleLabel = S.info && S.info.judge ? '👑 Full access - Justice, Police & EMS' : ({ justice: '⚖️ Judicial Department', police: '🚓 Police Department', lawyer: '💼 Attorney', sector: '💰 Department Manager' }[S.role] || '');
     $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 

@@ -476,7 +476,7 @@ local function DutyHours(days)
     for _, row in ipairs(rows) do
         local cid, t = row.citizenid, tonumber(row.timestamp) or 0
         names[cid] = row.name
-        if row.duty_status == 'Clocked in' or row.duty_status == 'بدأ الدوام' then
+        if row.duty_status == 'Clocked in' then
             open[cid] = t
         elseif open[cid] then
             local from = math.max(open[cid], since)

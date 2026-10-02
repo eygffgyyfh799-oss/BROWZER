@@ -14,7 +14,7 @@ local function RunDiagnostics()
     end
 
     -- Required resources
-    for _, res in ipairs({ JCoreResource, 'ox_lib', Settings.TargetResource or 'deep-target', 'oxmysql' }) do
+    for _, res in ipairs({ JCoreResource, 'ox_lib', Settings.TargetResource or 'deep-target', Settings.InventoryResource or 'deep-inventory', 'oxmysql' }) do
         local state = GetResourceState(res)
         line(state == 'started' and 'ok' or 'bad', ('%s: %s'):format(res, state == 'started' and 'running' or ('not running (' .. state .. ') - required')))
     end
@@ -42,7 +42,7 @@ local function RunDiagnostics()
         line('ok', ('Justice job: %s'):format(job.label or Settings.Job))
         local full = tonumber(Settings.Panel.FullAccessGrade)
         if full and job.grades and not (job.grades[tostring(full)] or job.grades[full]) then
-            line('warn', ('Grade %d (full access) does not exist in the justice job - any higher grade gets it, otherwise managers only'):format(full))
+            line('warn', ('Grade %d (full access) does not exist in the judge job - any higher grade gets it, otherwise managers only'):format(full))
         end
     end
     if not jobs[Settings.Panel.UnemployedJob] then

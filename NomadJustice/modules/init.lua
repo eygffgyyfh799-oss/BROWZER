@@ -54,22 +54,22 @@ end
 
 local Defaults = {
 	Settings = {
-		Job = 'justice', TargetResource = 'deep-target',
+		Job = 'judge', TargetResource = 'deep-target', InventoryResource = 'deep-inventory',
 		DutyCooldown = 15, DutyHistoryLimit = 100,
 		ReportFee = 200, ReportMaxLength = 800, ReportMinLength = 10, ReportCooldown = 300,
-		CompensationMax = 1000000, CompensationDailyMax = 3000000, CompensationMaxDistance = 5.0, CompensationCooldown = 10,
+		CompensationMax = 1000000, CompensationDailyMax = 3000000, CompensationMaxDistance = 5.0, CompensationCooldown = 10, CompensationHardCap = 2000000000,
 		PersonalStash = { maxweight = 100000, slots = 100 },
 		ArchiveStash = { maxweight = 100000, slots = 200 },
 		MaxSpawnedVehicles = 1, VehicleFuel = 75.0,
 		CaseTypes = { 'Civil', 'Criminal', 'Traffic', 'Real Estate', 'Commercial', 'Family', 'Labor', 'Other' },
 		ReportTitleMax = 80, ReportWitnessesMax = 200, ReportEvidenceMax = 500, ReportNoteMax = 500,
 		Panel = {
-			Command = 'justice', RequireDuty = true, FullAccessGrade = 10, UseTablet = true, Key = '9', TabletAnimation = true,
+			Command = 'justice', RequireDuty = true, FullAccessGrade = 11, UseTablet = true, Key = '9', TabletAnimation = true,
 			Permissions = {
-				view = 0, reports = 0, city = 0, deleteReport = 7, locate = 9, withdraw = 9, suspend = 9, edit = 7,
-				logs = 7, compensation = 8, jobs = 10, summon = 7, vehicles = 9, properties = 8, licenses = 7, gangs = 9,
-				announce = 7, economy = 1, undo = 10, delete = 10,
-				verdicts = 10, warrants = 9, suspects = 7, lawyers = 6, policeRequests = 9, stats = 6,
+				view = 0, reports = 0, city = 0, deleteReport = 8, locate = 4, withdraw = 9, suspend = 9, edit = 8,
+				logs = 8, compensation = 9, unlimitedCompensation = 11, jobs = 11, summon = 1, vehicles = 9, properties = 9,
+				licenses = 1, gangs = 9, announce = 8, economy = 8, undo = 11, delete = 11,
+				verdicts = 8, warrants = 8, suspects = 4, lawyers = 8, policeRequests = 8, stats = 8,
 			},
 			UnemployedJob = 'unemployed', JobsBlacklist = {},
 			WithdrawMax = 5000000, WithdrawCooldown = 5, LocateBlipTime = 60, LogViews = true,
@@ -79,7 +79,7 @@ local Defaults = {
 		},
 		Police = {
 			Jobs = { 'police' }, RequireDuty = true, GrantMinutes = 30, RequestCooldown = 60,
-			Permissions = { search = 0, profile = 0, vehicles = 1, warrants = 0, executeWarrant = 2, suspects = 0, requests = 5 },
+			Permissions = { search = 0, profile = 0, vehicles = 2, warrants = 0, executeWarrant = 3, suspects = 0, requests = 6 },
 		},
 		Lawyers = { License = 'lawyer', Jobs = {}, DocumentMax = 2000 },
 		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'deep-Banking', Sectors = {} },

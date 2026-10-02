@@ -83,7 +83,7 @@ local function OpenDutyHistory()
             options[#options + 1] = {
                 title = history.name,
                 description = ('%s - %s'):format(history.dutyStatus, history.timeFormated),
-                icon = (history.dutyStatus == 'Clocked in' or history.dutyStatus == 'بدأ الدوام') and 'fas fa-right-to-bracket' or 'fas fa-right-from-bracket',
+                icon = history.dutyStatus == 'Clocked in' and 'fas fa-right-to-bracket' or 'fas fa-right-from-bracket',
             }
         end
 
@@ -100,18 +100,10 @@ end
 -- Create blips, zones and peds
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
--- Point types used in coords.lua (English names, old Arabic names still work)
+-- Point types used in coords.lua
 local TypeNames = {
     ['Duty'] = 'Duty', ['Stash'] = 'Stash', ['Case Files'] = 'ReportsView', ['Citizen Panel'] = 'CitizenPanel',
     ['Case Clerk'] = 'ReportPed', ['Motor Pool Clerk'] = 'VehiclePed', ['Vehicle Spawn'] = 'VehicleSpawn', ['Blip'] = 'Blip',
-    ['بصمة'] = 'Duty',
-    ['خزنة'] = 'Stash',
-    ['رؤية القضايا'] = 'ReportsView',
-    ['نظام المواطنين'] = 'CitizenPanel',
-    ['بوت القضايا'] = 'ReportPed',
-    ['بوت المركبات'] = 'VehiclePed',
-    ['خروج المركبات'] = 'VehicleSpawn',
-    ['علامة الخريطة'] = 'Blip',
 }
 
 -- Group points by type: Points.Duty = { {name, coords, model}, ... }
@@ -175,9 +167,7 @@ local PointOptions = {
             label = 'Personal Locker',
             job = JOB,
             action = function()
-                local stashId = 'justice_stash_' .. QBCore.Functions.GetPlayerData().citizenid
-                TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.PersonalStash)
-                TriggerEvent('inventory:client:SetCurrentStash', stashId)
+                TriggerServerEvent('NomadJustice:server:openStash', 'personal')
             end,
         },
         {
@@ -193,9 +183,7 @@ local PointOptions = {
                 if not archiveId or archiveId < 1 then return end
                 archiveId = math.floor(archiveId)
 
-                local stashId = 'justice_archive_' .. archiveId
-                TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, Settings.ArchiveStash)
-                TriggerEvent('inventory:client:SetCurrentStash', stashId)
+                TriggerServerEvent('NomadJustice:server:openStash', 'archive', archiveId)
             end,
         },
     },
@@ -313,7 +301,7 @@ local function create_zones()
 
     local peds = data.Peds or {}
     for i, entry in ipairs(Points.ReportPed or {}) do
-        local look = peds['Case Clerk'] or peds['بوت القضايا'] or {}
+        local look = peds['Case Clerk'] or {}
         SpawnPed('report_ped_' .. i, {
             coords = entry.coords,
             model = entry.model or look.model or 'cs_josh',
@@ -322,7 +310,7 @@ local function create_zones()
         }, reportPedOptions)
     end
     for i, entry in ipairs(Points.VehiclePed or {}) do
-        local look = peds['Motor Pool Clerk'] or peds['بوت المركبات'] or {}
+        local look = peds['Motor Pool Clerk'] or {}
         SpawnPed('vehicle_ped_' .. i, {
             coords = entry.coords,
             model = entry.model or look.model or 'csb_trafficwarden',
@@ -381,6 +369,14 @@ RegisterCommand('jcoords', function()
 end, false)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
+-- Fallback for inventories that open stashes from the client (older qb-inventory style)
+RegisterNetEvent('NomadJustice:client:openStashLegacy', function(stashId, data)
+    if type(stashId) ~= 'string' or not stashId:find('^justice_') then return end
+    TriggerServerEvent('inventory:server:OpenInventory', 'stash', stashId, data)
+    TriggerEvent('inventory:client:SetCurrentStash', stashId)
+end)
+
+-- ════════════════════════════════════════════════════════════════════════════════════════════════
 -- Compensation
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -404,13 +400,14 @@ RegisterNetEvent('NomadJustice:client:giveMoney', function()
         end
     end
 
-    if not closestPlayer then
+    local unlimited = JC.HasFullAccess()
+    if not closestPlayer and not unlimited then
         return JC.Notify('Nobody nearby', 'error', 5000)
     end
 
     local input = lib.inputDialog('Compensation', {
-        { type = 'input', label = 'Citizen ID', required = true },
-        { type = 'number', label = 'Amount', required = true, min = 1, max = Settings.CompensationMax },
+        { type = 'input', label = 'Citizen ID', required = true, default = unlimited and not closestPlayer and QBCore.Functions.GetPlayerData().citizenid or nil },
+        { type = 'number', label = 'Amount', required = true, min = 1, max = unlimited and Settings.CompensationHardCap or Settings.CompensationMax },
     })
     if not input then return end
 

@@ -564,13 +564,14 @@ local function ProfileActions(p, perms, reopen)
         }
     end
 
-    if perms.compensation and p.online and not p.isSelf then
+    local unlimitedComp = perms.unlimitedCompensation == true
+    if perms.compensation and p.online and (not p.isSelf or unlimitedComp) then
         actions[#actions + 1] = {
-            title = 'Compensate Citizen', icon = 'fas fa-hand-holding-dollar', iconColor = 'green',
-            description = ('They must be near you (%.0f m)'):format(Settings.CompensationMaxDistance),
+            title = p.isSelf and 'Compensate Myself' or 'Compensate Citizen', icon = 'fas fa-hand-holding-dollar', iconColor = 'green',
+            description = unlimitedComp and 'No limit' or ('They must be near you (%.0f m)'):format(Settings.CompensationMaxDistance),
             onSelect = function()
                 local input = lib.inputDialog('Compensate ' .. p.name, {
-                    { type = 'number', label = 'Amount', required = true, min = 1, max = Settings.CompensationMax, icon = 'dollar-sign' },
+                    { type = 'number', label = 'Amount', required = true, min = 1, max = unlimitedComp and Settings.CompensationHardCap or Settings.CompensationMax, icon = 'dollar-sign' },
                 })
                 if input and tonumber(input[1]) then
                     TriggerServerEvent('NomadJustice:server:giveMoneyToPlayer', p.citizenid, math.floor(tonumber(input[1])))

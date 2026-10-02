@@ -5,7 +5,7 @@ lua54 'yes'
 name 'NomadJustice'
 description 'Nomad Justice - Department of Justice suite: citizen records, cases, duty clock, lockers, evidence archive, compensation and motor pool'
 author '2rayan'
-version '8.0.0'
+version '8.1.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -53,6 +53,7 @@ dependencies {
     'ox_lib',
     'deep-target',
     'deep-Banking',
+    'deep-inventory',
     'oxmysql',
 }
 

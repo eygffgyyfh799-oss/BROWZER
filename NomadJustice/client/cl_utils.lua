@@ -38,6 +38,15 @@ function JC.IsBoss()
     return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
 end
 
+-- Full access grade (Chief Justice / Supreme Court Justice) - display only, the server decides
+function JC.HasFullAccess()
+    local job = QBCore.Functions.GetPlayerData().job
+    if not job or job.name ~= JC.Job then return false end
+    local grade = type(job.grade) == 'table' and job.grade.level or job.grade
+    local fullAccess = tonumber(JC.Settings.Panel.FullAccessGrade)
+    return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
+end
+
 -- Expected role from player data (the server makes the real decision)
 function JC.GuessRole()
     local pd = QBCore.Functions.GetPlayerData()

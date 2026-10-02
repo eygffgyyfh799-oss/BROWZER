@@ -1,4 +1,4 @@
-# NomadJustice v8.0.0
+# NomadJustice v8.1.0
 
 Department of Justice suite for QBCore: citizen records, department management, cases, duty clock, lockers, evidence archive, compensation and the DOJ motor pool.
 
@@ -10,7 +10,8 @@ Department of Justice suite for QBCore: citizen records, department management, 
    - `qb-core`
    - `deep-target`
    - `deep-Banking`
-   - The target resource name can be changed with `TargetResource` in `config.lua`, the core name with `setr justice_core "qb-core"`, and the bank with `Finance.Resource`.
+   - `deep-inventory`
+   - The target resource name can be changed with `TargetResource` in `config.lua`, the core name with `setr justice_core "qb-core"`, the bank with `Finance.Resource` and the inventory with `InventoryResource`.
 3. Tables are created and migrated automatically on start. You can also install them manually from **`NomadJustice.sql`** (safe to run more than once, never deletes data).
 4. (Optional) Discord: `set justice_webhook "https://discord.com/api/webhooks/..."` in `server.cfg`.
 
@@ -46,33 +47,35 @@ Department of Justice suite for QBCore: citizen records, department management, 
 | 💰 **Department manager** (`Finance.Sectors`) | Department finances only |
 
 ## 🎖️ Default permissions by grade
-**Rule:** number = this grade and above, `'boss'` = grades flagged isboss, the Judge (10) has everything. All of this is configurable in `config.lua`, where each grade is named.
+The DOJ job is **`judge`** (Judicial Department). **Rule:** number = this grade and above. Grades **11 Chief Justice** and **12 Supreme Court Justice** have everything. All of this is configurable in `config.lua`.
 
-| Department of Justice | Permissions |
+| Judicial Department | Permissions |
 |---|---|
-| 0 Paralegal and above | Search, citizen records, cases, city affairs |
-| 1 Commerce Inspector | + city economy and department balances |
-| 6 Bar Association President | + assign attorneys, statistics |
-| 7 Court Clerk | + summonses, persons of interest, licenses, identity edits, announcements, audit log, delete cases |
-| 8 Arbitration & Mediation Board | + compensation, property deed transfers |
-| 9 District Attorney | + warrants, police requests, locate, bank seizure, suspensions, vehicles, gangs |
-| 10 Judge | **Everything**: verdicts, undo, delete, jobs |
+| 0 Trainee and above | Search, citizen records, cases, city affairs |
+| 1 Court Clerk | + summonses, licenses and bar license |
+| 4 Prosecutor | + locate, persons of interest |
+| 8 Junior Judge | + verdicts, warrants, police requests, attorneys, statistics, identity edits, announcements, audit log, city economy, delete cases |
+| 9 Judge | + bank seizure, suspensions, vehicles, properties, gangs, compensation |
+| 10 Senior Judge | same as Judge |
+| 11 Chief Justice | **Everything** (see below) |
+| 12 Supreme Court Justice | **Everything** (see below) |
 
 | Police | Permissions |
 |---|---|
 | 0 Cadet and above | Search, basic info, case & verdict history, warrants, persons of interest |
-| 1 Officer | + citizen vehicles |
-| 2 Officer II | + log warrant execution |
-| 5 Sergeant | + request DOJ authorization (location, bank statement, warrant) |
+| 2 Officer I | + citizen vehicles |
+| 3 Officer II | + log warrant execution |
+| 6 Sergeant | + request DOJ authorization (location, bank statement, warrant) |
 
-## 👑 Judge (grade 10)
-**Full access to all of State Records**:
-- **DOJ:** every permission (verdicts, undo, delete, warrants, job and grade control...).
-- **Police:** every police permission (search, records, vehicles, warrants, **warrant execution**, persons of interest, requests); all police requests reach the Judge.
-- **Department finances:** balance, withdraw, deposit and history for every department (police, EMS and any you add), selected at the top.
-- **Oversight:** the audit log contains everything from every department, plus full statistics.
+## 👑 Chief Justice (11) and Supreme Court Justice (12)
+**Full access to everything in State Records**:
+- **Justice:** every permission (verdicts, undo, delete, warrants, job and grade control in every department...).
+- **Police:** every police permission (search, records, vehicles, warrants, **warrant execution**, persons of interest, requests); all police requests reach them.
+- **EMS and Police finances:** balance, withdraw, deposit and history for every department, selected at the top.
+- **Oversight:** the full audit log of every department, plus statistics, duty log and evidence archive.
+- **Unlimited compensation:** they are the only grades that may compensate **themselves**, with no per-transaction, daily or distance limit (permission `unlimitedCompensation = 11`). Every payout is still written to the audit log as `Compensation (self)`. A technical ceiling of `CompensationHardCap` per transaction protects the database.
 
-The tablet shows "👑 Judge - full access to State Records". The grade number is `Settings.Panel.FullAccessGrade`.
+The tablet shows "👑 Full access - Justice, Police & EMS". The grade number is `Settings.Panel.FullAccessGrade` (11).
 
 ## 🛡️ Abuse protection
 - **Rate limit:** 25 requests per player every 5 seconds. Executors flooding the server are blocked and flagged in the console.
@@ -81,15 +84,15 @@ The tablet shows "👑 Judge - full access to State Records". The grade number i
 
 ## 💰 Department finances
 - **Who:** only the listed managers see the **department balance**, withdraw and deposit, with a full transaction history:
-  - **Police:** 18 Assistant Chief, 19 Chief of Police, 20 Commissioner.
-  - **EMS:** 8 Deputy Medical Director, 9 Medical Director.
+  - **Police:** 13 Deputy Police Chief, 14 Police Chief, 15 Deputy Minister of Interior, 16 Minister of Interior.
+  - **EMS:** 11 Deputy EMS Chief, 12 EMS Chief.
 - **Where:** police managers get an extra section in the police view; EMS managers open the tablet with key 9 and see finances only.
 - **Balance source (`Finance.Provider = 'auto'`):**
   - **deep-Banking** business accounts (`getBusinessAccount` / `AddMoney` / `RemoveMoney`), the default `Finance.Resource`.
   - Otherwise qb-style or Renewed-style banking exports if detected.
   - Otherwise an internal fund in the database (`justice_sector_funds`).
   - The startup readiness report shows which one is active.
-- **Oversight:** every transaction is written to the DOJ audit log; the Judge and Commerce Inspector see department balances in the city economy.
+- **Oversight:** every transaction is written to the DOJ audit log; grades 11 and 12 see and manage every department's finances.
 - **Add a department:** `Finance.Sectors`.
 
 ## 🚓 Police section
@@ -133,7 +136,7 @@ From the **Audit Log** (tablet, or the "Log" tab of a citizen record):
 - **↩️ Undo:** reverts the action. Covers seizures (refund), compensation, suspensions, identity edits, jobs, duty, gangs, licenses, impounds, vehicle and property transfers, summonses and case status.
 - **🗑️ Delete:** removes the record or summons, leaving a trace of who deleted what.
 - An action cannot be undone twice, even if two employees click at the same moment.
-- `undo` and `delete` default to the Judge (grade 10).
+- `undo` and `delete` default to grades 11 and 12.
 
 ## Citizen records
 Opened with key 9 or `/justice`.
@@ -146,13 +149,14 @@ Opened with key 9 or `/justice`.
 | Online players and search (name / citizen ID / phone / server ID, offline included) | Any employee |
 | Citizen record: identity, finances, employment & gang, jail & criminal record, licenses, vehicles, properties, possessions, cases, DOJ actions | Any employee |
 | Departments: every department and its staff (online / on duty / total) | Any employee |
-| **Change any citizen's job and grade**, hire, promote, demote, transfer, terminate, clock in/out | Judge |
-| Locate | District Attorney |
-| Bank seizure (with reason, works online and offline) | District Attorney |
-| Suspend / lift services | District Attorney |
-| Edit identity | Court Clerk |
-| Compensation (daily cap per employee) | Arbitration Board |
-| Audit log | Court Clerk |
+| **Change any citizen's job and grade**, hire, promote, demote, transfer, terminate, clock in/out | Chief Justice |
+| Locate | Prosecutor |
+| Bank seizure (with reason, works online and offline) | Judge |
+| Suspend / lift services | Judge |
+| Edit identity | Junior Judge |
+| Compensation (daily cap per employee) | Judge |
+| Self compensation, no limits | Chief Justice / Supreme Court Justice only |
+| Audit log | Junior Judge |
 
 Permissions live in `Settings.Panel.Permissions` (number = lowest grade, or `'boss'`). All actions require the employee to be on duty (`RequireDuty`).
 To protect a department (e.g. admin), add it to `JobsBlacklist`.
@@ -163,14 +167,14 @@ To protect a department (e.g. admin), add it to `JobsBlacklist`.
 | City status: online, citizens, suspended, summonses, departments on duty | Any employee |
 | Vehicle registry: search by plate or citizen ID, owner and status, on the street or not | Any employee |
 | Property registry: search by name or citizen ID, owner | Any employee |
-| Locate a vehicle on the street | District Attorney |
-| Impound (removed from the street), release, transfer title | District Attorney |
-| Transfer property deed | Arbitration Board |
+| Locate a vehicle on the street | Judge |
+| Impound (removed from the street), release, transfer title | Judge |
+| Transfer property deed | Judge |
 | Grant / revoke licenses | Court Clerk |
-| Change / remove gang | District Attorney |
+| Change / remove gang | Judge |
 | Court summons (delivered instantly, or on next join) + follow-up: appeared / failed to appear / cancelled | Court Clerk |
-| City economy: total bank and cash, top 10 richest citizens (live balances for online players) | Commerce Inspector |
-| City-wide announcement | Court Clerk |
+| City economy: total bank and cash, top 10 richest citizens (live balances for online players) | Junior Judge |
+| City-wide announcement | Junior Judge |
 
 Citizens see their summonses at the Court Clerk ped → **My Summonses**.
 
@@ -203,7 +207,7 @@ Run it again any time with **`justicecheck`** in the server console.
 - **Discord:** messages are queued one every 1.5 seconds so the webhook is never rate-limited.
 
 ## Testing
-Every system was tested against a real MariaDB database with QBCore tables and the actual script code: 219 database checks pass, covering police, attorneys, verdicts, warrants, banking and deep-Banking business accounts. The UI was tested in Chromium for every role (DOJ, police, attorney, department manager) with zero errors, and upgrading from the original tables keeps all old data.
+Every system was tested against a real MariaDB database with QBCore tables and the actual script code: 232 database checks pass, covering police, attorneys, verdicts, warrants, banking and deep-Banking business accounts. The UI was tested in Chromium for every role (DOJ, police, attorney, department manager) with zero errors, and upgrading from the original tables keeps all old data.
 
 ## Security
 - **Server-side validation of everything:** permission, duty, input values, amount limits, and no actions on yourself.
@@ -212,5 +216,5 @@ Every system was tested against a real MariaDB database with QBCore tables and t
 - **Spam:** click protection, cooldowns and a daily compensation cap.
 - **Logs:** every action is written to `justice_logs` and sent to Discord when enabled.
 
-### Note on lockers
-Opening a locker goes through the inventory event (`inventory:server:OpenInventory`). Its protection depends on your inventory resource, not this script.
+### Lockers (deep-inventory)
+Lockers and the evidence archive are opened **by the server** through `exports['deep-inventory']:OpenInventory(source, stashId, { label, maxweight, slots })` after it checks the job (and management / grade 11+ for the archive). If the inventory has no such export, it falls back to the classic `inventory:server:OpenInventory` event.
