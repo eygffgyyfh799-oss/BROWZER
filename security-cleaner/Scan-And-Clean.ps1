@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.5'
+$Version = '7.0'
 
 # ---------------------------------------------------------------- setup
 
@@ -540,7 +540,7 @@ function Test-JsLoaderContent([string]$Text) {
 
 # ---- FiveM SERVER mode: find malicious code, remove only those lines, never touch clean files
 $ObfuscatorRx = '(?i)Luraph|MoonSec|IronBrew|Prometheus Obfuscator|wearedevs\.net/obfuscator|protected (with|using|by) \w+ ?obfuscator'
-$SignalRx     = '(?i)PerformHttpRequest|https?[:.]|\\x[0-9a-f]{2}|\\[0-9]{2,3}|string\.char|fromCharCode|\bload|\beval|Function\s*\(|child_process|_0x[0-9a-f]{4}|cipher|blum|GetConvar|webhooks|os\.execute|io\.popen|atob|base64|_G\s*\['
+$SignalRx     = '(?i)PerformHttpRequest|https?[:.]|\\x[0-9a-f]{2}|\\[0-9]{2,3}|string\.char|fromCharCode|\bload|\beval|Function\s*\(|child_process|_0x[0-9a-f]{4}|cipher|blum|GetConvar|webhooks|os\.execute|io\.popen|atob|base64|_G\s*\[|ExecuteCommand'
 
 # Why a single line is malicious ($null = not malicious)
 function Get-LineThreat([string]$Line, [bool]$IsJs) {
@@ -596,6 +596,25 @@ function Get-ServerFileVerdict([IO.FileInfo]$File) {
         }
         return [pscustomobject]@{ Path = $fp; Status = 'Infected'; Reason = "$hw - no loader code found, check it and delete it if you did not create it"; Ranges = @(); Lines = @(); Bom = $hasBom; IsJs = $true }
     }
+    if ($File.Extension -match '(?i)^\.html?$') {
+        $trustedCdn = '(?i)^([a-z0-9-]+\.)*(cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|code\.jquery\.com|ajax\.googleapis\.com|cdn\.tailwindcss\.com|kit\.fontawesome\.com|use\.fontawesome\.com|(stackpath|maxcdn)\.bootstrapcdn\.com|cdn\.socket\.io|cdn\.skypack\.dev|esm\.sh|cfx-nui-[a-z0-9_.-]+|nui-game-internal)$'
+        $hl = [regex]::Split($text, '(?<=\n)')
+        $hr = @(); $hunsafe = @()
+        for ($i = 0; $i -lt $hl.Count; $i++) {
+            foreach ($m in [regex]::Matches($hl[$i], '(?i)<script[^>]*\bsrc\s*=\s*["'']?(https?:)?//([^/"''\s>]+)')) {
+                if ($m.Groups[2].Value -notmatch $trustedCdn) {
+                    $why = "loads a script from an unknown website ($($m.Groups[2].Value)) into the game UI"
+                    if ($hl[$i] -match '(?i)^\s*<script[^>]*>\s*</script>\s*$') { $hr += [pscustomobject]@{ Start = $i; End = $i; Why = $why } }
+                    else { $hunsafe += $why }
+                }
+            }
+            if ($hl[$i] -match '(?i)\beval\s*\(\s*atob|document\.write\s*\(\s*unescape|new\s+Function\s*\(\s*atob') { $hunsafe += 'runs hidden/encoded code in the game UI' }
+        }
+        if ($hr.Count -eq 0 -and $hunsafe.Count -eq 0) { return $null }
+        $hstatus = 'Cleanable'; $hreason = ((@($hr | ForEach-Object { $_.Why }) + $hunsafe) | Select-Object -Unique) -join '; '
+        if ($hunsafe.Count -gt 0) { $hstatus = 'Infected'; $hreason += ' (cannot be removed safely)' }
+        return [pscustomobject]@{ Path = $fp; Status = $hstatus; Reason = $hreason; Ranges = $hr; Lines = $hl; Bom = $hasBom; IsJs = $false; IsHtml = $true }
+    }
     $isBundle = ($fp -match '(?i)\\citizen\\system_resources\\|\\node_modules\\') -or
                 ($isJs -and ($File.Name -match '(?i)\.min\.js$' -or $File.Length -gt 300KB -or $fp -match '(?i)\\(dist|build|yarn|webpack)\\'))
     if ($isBundle) {
@@ -617,6 +636,27 @@ function Get-ServerFileVerdict([IO.FileInfo]$File) {
                 if ($up -match $httpRx -or $up -match 'https?://') {
                     $bad += [pscustomobject]@{ Index = $i; Why = 'downloads code from the internet and runs it (multi-line)'; Need = $k }; break
                 }
+            }
+        }
+    }
+    if (-not $isBundle) {
+        $permRx = '(?i)IsPlayerAceAllowed|IsAceAllowed|IsPrincipalAceAllowed|hasPermission|HasPermission|isAdmin|IsAdmin|IsPlayerAdmin|GetPlayerGroup|getGroup|\.group\s*==|source\s*==\s*0|source\s*<\s*1|IsDuplicityVersion\(\)\s*and\s*source\s*=='
+        $evLua = '(?i)\b(RegisterNetEvent|RegisterServerEvent|AddEventHandler)\s*\(\s*[''"][^''"]+[''"]\s*,\s*function\s*\(([^)]*)\)'
+        $evJs  = '(?i)\b(onNet|on|RegisterNetEvent|AddEventHandler)\s*\(\s*[''"`][^''"`]+[''"`]\s*,\s*(async\s*)?\(?\s*([A-Za-z_$][\w$,\s]*)\)?\s*=>'
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch '(?i)\b(ExecuteCommand|load|loadstring|os\.execute|io\.popen|eval)\s*\(\s*([A-Za-z_$][\w$]*)\s*[\),]') { continue }
+            $var = $Matches[2]
+            for ($k = $i; $k -ge [Math]::Max(0, $i - 8); $k--) {
+                $params = $null
+                if ($lines[$k] -match $evLua) { $params = $Matches[2] } elseif ($lines[$k] -match $evJs) { $params = $Matches[3] }
+                if ($null -eq $params) { continue }
+                if ($params -match ('(^|[\s,])' + [regex]::Escape($var) + '([\s,]|$)')) {
+                    $block = -join $lines[$k..$i]
+                    if ($block -notmatch $permRx -and @($bad | Where-Object { $_.Index -eq $i }).Count -eq 0) {
+                        $bad += [pscustomobject]@{ Index = $i; Why = 'a network event runs whatever it receives with no permission check (remote command/code backdoor)'; Need = $i }
+                    }
+                }
+                break
             }
         }
     }
@@ -678,6 +718,7 @@ function Repair-ServerFile($V) {
     $remove = @{}
     foreach ($r in $V.Ranges) { for ($j = $r.Start; $j -le $r.End; $j++) { $remove[$j] = $r } }
     $mark = '-- [SecurityCleaner] removed malicious code here'; if ($V.IsJs) { $mark = '// [SecurityCleaner] removed malicious code here' }
+    if ($V.PSObject.Properties['IsHtml'] -and $V.IsHtml) { $mark = '<!-- [SecurityCleaner] removed malicious script here -->' }
     $sb = New-Object System.Text.StringBuilder
     for ($j = 0; $j -lt $V.Lines.Count; $j++) {
         if ($remove.ContainsKey($j)) {
@@ -696,10 +737,10 @@ function Invoke-ServerScan([string[]]$Roots) {
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { Write-Host "  Folder not found: $root" -ForegroundColor Red; continue }
         Write-Host "  Reading $root ..."
         Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { ($_.Extension -ieq '.lua' -or $_.Extension -ieq '.js') -and $_.Length -lt 5MB -and $_.FullName -notmatch '(?i)\\cache\\' } |
+            Where-Object { $_.Extension -match '(?i)^\.(lua|js|html?)$' -and $_.Length -lt 5MB -and $_.FullName -notmatch '(?i)\\cache\\|\\node_modules\\.*\.html?$' } |
             ForEach-Object { $files.Add($_) }
     }
-    Write-Host "  Checking $($files.Count) script files..."
+    Write-Host "  Checking $($files.Count) script / UI files..."
     $verdicts = New-Object System.Collections.Generic.List[object]
     $n = 0
     foreach ($f in $files) {
@@ -816,6 +857,13 @@ function Invoke-ServerScan([string[]]$Roots) {
         $rep.Add(''); $rep.Add('server.cfg command permissions:')
         foreach ($a in $aceNotes) { Write-Host "    $a"; $rep.Add("  $a") }
     }
+    $state = 'CLEAN - no malicious code found'
+    if ($done.Count -gt 0 -and $failed.Count -eq 0) { $state = 'CLEANED - all malicious code was removed (originals backed up)' }
+    if ($failed.Count -gt 0) { $state = "NEEDS ACTION - $($failed.Count) infected file(s) left, see the list and the delete command above" }
+    $sc = 'Green'; if ($failed.Count -gt 0) { $sc = 'Red' }
+    Write-Host ''
+    Write-Host "  SERVER STATUS: $state" -ForegroundColor $sc
+    $rep.Insert(3, "SERVER STATUS: $state")
     $repFile = Join-Path $Desktop "ServerScan_$Stamp.txt"
     $rep | Out-File -LiteralPath $repFile -Encoding UTF8
     Write-Host ''
