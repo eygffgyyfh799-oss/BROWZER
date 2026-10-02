@@ -10,10 +10,10 @@
     Clear-Host
     Write-Host ''
     Write-Host '  ==============================================' -ForegroundColor Cyan
-    Write-Host '               SECURITY CLEANER v4' -ForegroundColor Cyan
+    Write-Host '               SECURITY CLEANER v5' -ForegroundColor Cyan
     Write-Host '  ==============================================' -ForegroundColor Cyan
     Write-Host ''
-    Write-Host '   1  Full check + clean + junk cleanup   (recommended, 1-3 hours)' -ForegroundColor Green
+    Write-Host '   1  FULL: every file on every drive + clean (several hours)' -ForegroundColor Green
     Write-Host '   2  Fast auto-clean + junk cleanup      (about 10-20 minutes)'
     Write-Host '   3  Only clean temp / junk files        (a few minutes)'
     Write-Host '   4  Only scan (report, change nothing)'
@@ -22,7 +22,7 @@
     $choice = Read-Host '  Type a number and press Enter'
 
     switch ($choice.Trim()) {
-        '1' { $opts = '-FullScan -SecondOpinion -Auto -CleanJunk' }
+        '1' { $opts = '-Full' }
         '2' { $opts = '-Auto -CleanJunk' }
         '3' { $opts = '-JunkOnly' }
         '4' { $opts = '' }

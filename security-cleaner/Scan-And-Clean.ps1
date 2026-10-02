@@ -57,13 +57,15 @@ param(
     [switch]$JunkOnly,
     [switch]$Restore,
     [switch]$Auto,
+    [switch]$Full,
     [string[]]$Server = @(),
     [string[]]$Trust = @()
 )
 
 $ErrorActionPreference = 'Continue'
+if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJunk = $true }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '4.1'
+$Version = '5.0'
 
 # ---------------------------------------------------------------- setup
 
@@ -224,7 +226,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer)$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -236,7 +238,7 @@ function Add-Finding {
     param(
         [string]$Category, [ValidateSet('High','Medium','Info')][string]$Severity,
         [string]$Item, [string]$Detail,
-        [string]$Action = '', [hashtable]$Data = @{}, [string]$FixText = ''
+        [string]$Action = '', [hashtable]$Data = @{}, [string]$FixText = '', [string]$Tech = ''
     )
     if ($Severity -ne 'Info' -and $Category -notmatch $NeverTrust -and "$Item`n$Detail" -notmatch $RunningBadCmd -and
         (Test-Trusted ("$Item`n$Detail`n" + [string]$Data.Path))) {
@@ -244,7 +246,7 @@ function Add-Finding {
     }
     $f = [pscustomobject]@{
         Id = $Findings.Count + 1; Category = $Category; Severity = $Severity
-        Item = $Item; Detail = $Detail; Action = $Action; Data = $Data; FixText = $FixText
+        Item = $Item; Detail = $Detail; Action = $Action; Data = $Data; FixText = $FixText; Tech = $Tech
     }
     $Findings.Add($f)
     $color = @{ High = 'Red'; Medium = 'Yellow'; Info = 'Gray' }[$Severity]
@@ -252,7 +254,7 @@ function Add-Finding {
     if ($Detail) { Write-Host "         $Detail" -ForegroundColor DarkGray }
 }
 
-function Add-FileFinding([string]$Category, [string]$Severity, [string]$Path, [string]$Detail) {
+function Add-FileFinding([string]$Category, [string]$Severity, [string]$Path, [string]$Detail, [string]$Tech = '') {
     $full = Get-NormPath $Path
     if (-not $full -or -not (Test-Path -LiteralPath $full)) { return }
     $key = $full.ToLowerInvariant()
@@ -260,10 +262,10 @@ function Add-FileFinding([string]$Category, [string]$Severity, [string]$Path, [s
     $SeenFiles[$key] = $true
     $why = Test-ProtectedPath $full
     if ($why) {
-        Add-Finding -Category $Category -Severity 'Info' -Item $full -Detail "$Detail [protected: $why - not touched]"
+        Add-Finding -Category $Category -Severity 'Info' -Item $full -Detail "$Detail [protected: $why - not touched]" -Tech $Tech
     } else {
         Add-Finding -Category $Category -Severity $Severity -Item $full -Detail $Detail `
-            -Action 'Quarantine' -Data @{ Path = $full } -FixText 'Move to quarantine'
+            -Action 'Quarantine' -Data @{ Path = $full } -FixText 'Move to quarantine' -Tech $Tech
     }
 }
 
@@ -757,6 +759,147 @@ function Invoke-ServerScan([string[]]$Roots) {
         Write-Host '  IMPORTANT: a backdoor may already have stolen your keys. Regenerate your sv_licenseKey (keymaster.fivem.net),' -ForegroundColor Yellow
         Write-Host '  change rcon/database passwords and Discord bot tokens, and remove admins you do not know.' -ForegroundColor Yellow
     }
+}
+
+# ---- -Full: every file on every drive (except Windows itself)
+# Reads the REAL file type from the file header, finds disguised programs, crack/keygen/activator tools,
+# cracked games, programs hidden in picture/video/music folders and malicious shortcuts.
+
+# $true when the file really is a Windows program (MZ header + PE signature), whatever its extension says
+function Test-IsWindowsProgram([string]$Path) {
+    $fs = $null
+    try {
+        $fs = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $buf = New-Object byte[] 1024
+        $n = $fs.Read($buf, 0, 1024)
+        if ($n -lt 64 -or $buf[0] -ne 0x4D -or $buf[1] -ne 0x5A) { return $false }
+        $pe = [BitConverter]::ToInt32($buf, 0x3C)
+        if ($pe -lt 64 -or $pe + 4 -gt $n) { return $false }
+        return ($buf[$pe] -eq 0x50 -and $buf[$pe + 1] -eq 0x45 -and $buf[$pe + 2] -eq 0 -and $buf[$pe + 3] -eq 0)
+    } catch { return $false } finally { if ($fs) { $fs.Dispose() } }
+}
+
+function Invoke-DeepFileScan {
+    Write-Section 'Every file on every drive (real file type, cracks, disguised programs)'
+    $drives = @(Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | Where-Object { $_.DriveType -in 2, 3 } | ForEach-Object { $_.DeviceID + '\' })
+    if ($drives.Count -eq 0) { $drives = @($env:SystemDrive + '\') }
+    $skip = @{}
+    foreach ($p in @($env:SystemRoot, $BaseDir, (Join-Path $env:SystemDrive 'Recovery'), (Join-Path $env:SystemDrive 'ProgramData\Microsoft\Windows Defender'))) {
+        $n = Get-NormPath $p; if ($n) { $skip[$n.ToLowerInvariant()] = $true }
+    }
+    $mediaExt  = '(?i)^\.(jpe?g|png|gif|bmp|webp|tiff?|ico|heic|mp4|mkv|avi|mov|wmv|flv|webm|m4v|mp3|wav|flac|aac|ogg|m4a|pdf|docx?|xlsx?|pptx?|txt|rtf|csv)$'
+    $progExt   = '(?i)^\.(exe|dll|scr|com|pif|msi|cpl|ocx|sys)$'
+    $scriptExt = '(?i)^\.(bat|cmd|ps1|vbs|vbe|js|jse|wsf|hta)$'
+    $doubleExt = '(?i)\.(pdf|docx?|xlsx?|pptx?|txt|jpe?g|png|gif|bmp|mp3|mp4|avi|mkv|mov|zip|rar|7z)\s*\.(exe|scr|com|pif|bat|cmd|vbs|vbe|js|jse|hta|wsf|lnk)$'
+    $activator = '(?i)kmspico|kms[\s_.-]?auto|aact(_x64)?\.exe|re-?loader|hwidgen|windows[\s_.-]?loader|kms[\s_.-]?tools|microsoft[\s_.-]?toolkit|kmsauto'
+    $crackName = '(?i)(^|[\s_.\-\[\(])(crack(ed)?|keygen|key[\s_-]?gen|patch(er)?|activator|serial[\s_-]?gen|hack(s|er)?|cheat(s|er)?|injector|trainer|unlocker|bypass|spoofer|executor|mod[\s_-]?menu)([\s_.\-\]\)0-9]|$)'
+    $crackFile = '(?i)^(steam_emu\.ini|onlinefix(64)?\.(ini|dll)|codex\.ini|cream_api\.ini|cpy\.ini|3dmgame\.(ini|dll)|ali213\.ini|smartsteamemu\.ini|unsteam\.ini|rld\.ini|skidrow\.ini|empress\.ini|tenoke\.ini|hlm\.ini|steamclient_loader(_x64)?\.(exe|ini)|coldclientloader\.ini|steam_api(64)?\.cdx|valve\.ini)$'
+    $mediaDirs = @([Environment]::GetFolderPath('MyPictures'), [Environment]::GetFolderPath('MyVideos'), [Environment]::GetFolderPath('MyMusic')) |
+        Where-Object { $_ } | ForEach-Object { (Get-NormPath $_) + '\' }
+    $lnkDirs = @($Desktop, $Downloads, (Join-Path $env:PUBLIC 'Desktop')) | Where-Object { $_ } | ForEach-Object { (Get-NormPath $_) + '\' }
+    $shell = $null; try { $shell = New-Object -ComObject WScript.Shell } catch { }
+    $crackDirs = @{}
+    $script:CrackedGames = @()
+    $total = 0; $headers = 0
+
+    foreach ($drive in $drives) {
+        Write-Host "  Scanning drive $drive (this can take a long time on big drives)..."
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($drive)
+        while ($stack.Count -gt 0) {
+            $dir = $stack.Pop()
+            $di = New-Object IO.DirectoryInfo $dir
+            $subs = @(); $files = @()
+            try { $subs = $di.GetDirectories() } catch { }
+            try { $files = $di.GetFiles() } catch { }
+            foreach ($sd in $subs) {
+                if ($sd.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+                if ($sd.Name -ieq '$Recycle.Bin' -or $sd.Name -ieq 'System Volume Information' -or $sd.Name -ieq 'WinSxS') { continue }
+                if ($skip.ContainsKey($sd.FullName.TrimEnd('\').ToLowerInvariant())) { continue }
+                $stack.Push($sd.FullName)
+            }
+            foreach ($f in $files) {
+                $total++
+                if ($total % 100000 -eq 0) { Write-Host ("    {0:N0} files checked..." -f $total) -ForegroundColor DarkGray }
+                $name = $f.Name; $ext = $f.Extension; $full = $f.FullName
+
+                if ($name.IndexOf([char]0x202E) -ge 0) {
+                    Add-FileFinding 'Disguised file' 'High' $full 'The file name uses a hidden right-to-left character to fake its extension (classic malware trick).' 'File name contains U+202E (RIGHT-TO-LEFT OVERRIDE)'
+                    continue
+                }
+                if ($name -match $doubleExt) {
+                    Add-FileFinding 'Disguised file' 'High' $full "Looks like a .$($Matches[1]) file but is really a .$($Matches[2]) program." "Double extension: '.$($Matches[1]).$($Matches[2])' - Windows hides the last one"
+                    continue
+                }
+                if ($ext -match $mediaExt -and $f.Length -gt 1024) {
+                    $headers++
+                    if (Test-IsWindowsProgram $full) {
+                        Add-FileFinding 'Disguised file' 'High' $full "This is a Windows program pretending to be a $ext file." "File header is MZ + PE (Windows executable) but the extension is $ext"
+                        continue
+                    }
+                }
+                if ($ext -match $progExt -or $ext -match '(?i)^\.(zip|rar|7z|iso)$') {
+                    if ($name -match $activator) {
+                        Add-FileFinding 'Crack tool' 'High' $full 'Windows/Office activator (crack). These are one of the most common ways malware gets installed.' "File name matches activator pattern: '$($Matches[0])'"
+                        continue
+                    }
+                    if ($name -match $crackName) {
+                        Add-FileFinding 'Crack tool' 'Medium' $full "Crack/cheat/hack tool (name contains '$($Matches[2])'). Such tools very often carry stealers." "File name matches crack/cheat pattern: '$($Matches[2])'"
+                        continue
+                    }
+                }
+                if ($name -match $crackFile) {
+                    $root = $f.DirectoryName
+                    if ((Split-Path $root -Leaf) -ieq 'steam_settings') { $root = Split-Path $root -Parent }
+                    if (-not $crackDirs.ContainsKey($root.ToLowerInvariant())) { $crackDirs[$root.ToLowerInvariant()] = @($root, $full) }
+                    continue
+                }
+                if (($ext -match $progExt -or $ext -match $scriptExt)) {
+                    foreach ($md in $mediaDirs) {
+                        if ($full.StartsWith($md, [StringComparison]::OrdinalIgnoreCase)) {
+                            Add-FileFinding 'Program in media folder' 'High' $full "A program/script hidden among your pictures, videos or music." "Extension $ext inside $md"
+                            break
+                        }
+                    }
+                }
+                if ($ext -ieq '.lnk' -and $shell) {
+                    $inLnkDir = $false
+                    foreach ($ld in $lnkDirs) { if ($full.StartsWith($ld, [StringComparison]::OrdinalIgnoreCase)) { $inLnkDir = $true; break } }
+                    if ($inLnkDir -or $f.Directory.Parent -eq $null) {
+                        try {
+                            $sc = $shell.CreateShortcut($full)
+                            $cmd = "`"$($sc.TargetPath)`" $($sc.Arguments)"
+                            if ($sc.TargetPath -match '(?i)\\(powershell|pwsh|cmd|mshta|wscript|cscript|rundll32|regsvr32)\.exe$' -and $sc.Arguments -and
+                                ($cmd -match $RunningBadCmd -or $cmd -match $LolbinPattern -or $sc.Arguments -match '(?i)https?://|\.(vbs|js|jse|hta|ps1|bat|cmd|dll)\b')) {
+                                Add-FileFinding 'Malicious shortcut' 'High' $full 'A shortcut that secretly runs a script/command (used by USB worms and droppers).' "Shortcut target: $cmd"
+                            }
+                        } catch { }
+                    }
+                }
+                if ($name -ieq 'autorun.inf' -and $f.Directory.Parent -eq $null) {
+                    $txt = ''; try { $txt = [IO.File]::ReadAllText($full) } catch { }
+                    if ($txt -match '(?im)^\s*(open|shellexecute|shell\\[^=]*\\command)\s*=') {
+                        Add-FileFinding 'Malicious shortcut' 'Medium' $full 'autorun.inf that starts a program when the drive is opened (USB worm technique).' 'autorun.inf contains open=/shellexecute='
+                    }
+                }
+            }
+        }
+    }
+
+    foreach ($v in $crackDirs.Values) {
+        $root = $v[0]; $ind = $v[1]
+        $n = Get-NormPath $root
+        $unsafe = (-not $n) -or ($n.Length -le 3) -or ($ProtectedDirs -contains $n) -or
+                  $n.StartsWith($env:SystemRoot, [StringComparison]::OrdinalIgnoreCase) -or (($n -split '\\').Count -lt 3)
+        if ($unsafe) {
+            Add-Finding 'Cracked game' 'Info' $root "Crack files found ($(Split-Path $ind -Leaf)) but this folder is too important to delete automatically." -Tech "Crack indicator: $ind"
+        } else {
+            Add-Finding 'Cracked game' 'Medium' $root "This game/program is cracked (crack file: $(Split-Path $ind -Leaf)). Cracked games are a top source of stealers and miners." `
+                -Tech "Crack indicator file: $ind"
+            $script:CrackedGames += [pscustomobject]@{ Path = $root; Indicator = $ind }
+        }
+    }
+    Write-Host ("  Checked {0:N0} files ({1:N0} pictures/videos/documents opened to verify their real type)." -f $total, $headers)
 }
 
 # Second, independent engine: Kaspersky Virus Removal Tool (free, portable, different detections than Defender)
@@ -1367,6 +1510,8 @@ foreach ($root in @($Downloads, $Desktop, $Documents) | Where-Object { $_ -and (
         ForEach-Object { Add-FileFinding 'Fake document / dangerous file' 'High' $_.FullName 'Disguised program (double extension or dangerous type)' }
 }
 
+if ($Full) { Invoke-DeepFileScan }
+
 # ---------------------------------------------------------------- 8. Steam
 
 Write-Section 'Steam folder (SteamTools / GreenLuma / DLL hijack)'
@@ -1473,6 +1618,9 @@ Write-Host "  Scanned $($scannedFiles.Count) script file(s)"
 if ($mpOk -and -not $SkipDefenderScan) {
     Write-Section 'Defender scan (this can take a while)'
     try { Write-Host '  Updating definitions...'; Update-MpSignature -ErrorAction Stop } catch { Write-Host "  Update failed: $_" -ForegroundColor Yellow }
+    if ($Full) {
+        try { Set-MpPreference -PUAProtection Enabled -ErrorAction Stop; Write-Host '  PUA detection turned ON (finds cracks, keygens, hack tools, adware).' } catch { }
+    }
     try {
         if ($FullScan) { Write-Host '  Full scan (can take 30-90 minutes)...'; Start-MpScan -ScanType FullScan -ErrorAction Stop }
         else { Write-Host '  Quick scan...'; Start-MpScan -ScanType QuickScan -ErrorAction Stop }
@@ -1487,6 +1635,8 @@ if ($mpOk -and -not $SkipDefenderScan) {
         }
     }
 }
+
+if ($SecondOpinion) { Invoke-SecondOpinion }
 
 if ($mpOk) {
     try {
@@ -1666,7 +1816,7 @@ if ($Auto) {
         $what = $f.FixText
         if ($f.Action -eq 'Quarantine') { $what = 'Move to quarantine (restorable)' }
         if ($f.Action -eq 'MpThreatRemove') { $what = 'Let Defender remove detected threats' }
-        $final.Add([pscustomobject]@{ Sev = $f.Severity; What = $what; Item = $f.Item; Why = "$($f.Category): $($f.Detail)"; Finding = $f; Kind = 'fix' })
+        $final.Add([pscustomobject]@{ Sev = $f.Severity; What = $what; Item = $f.Item; Why = "$($f.Category): $($f.Detail)"; Tech = $f.Tech; Finding = $f; Kind = 'fix' })
     }
     if ($CleanJunk) {
         $final.Add([pscustomobject]@{ Sev = 'Info'; What = 'Delete temporary/cache files'; Item = 'Temp, crash dumps, error reports, shader/browser/Discord/FiveM caches'
@@ -1686,6 +1836,7 @@ if ($Auto) {
             Write-Host ("      Item:   {0}" -f $x.Item)
             $why = $x.Why; if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + '...' }
             Write-Host ("      Reason: {0}" -f $why) -ForegroundColor DarkGray
+            if ($x.PSObject.Properties['Tech'] -and $x.Tech) { Write-Host ("      Technical: {0}" -f $x.Tech) -ForegroundColor DarkGray }
         }
         Write-Host ''
         Write-Host '  y       = approve ALL items above' -ForegroundColor Cyan
@@ -1714,6 +1865,16 @@ if ($Auto) {
     }
     Write-Host ''
     if (Test-Path -LiteralPath $QDir) { Write-Host "  Quarantine and backups: $QDir  (undo: .\Scan-And-Clean.ps1 -Restore)" }
+    if ($script:CrackedGames -and $script:CrackedGames.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  CRACKED GAMES / PROGRAMS FOUND (not deleted - the tool never deletes folders itself):' -ForegroundColor Yellow
+        foreach ($g in $script:CrackedGames) {
+            Write-Host "    $($g.Path)" -ForegroundColor Yellow
+            Write-Host "      Technical: crack file $($g.Indicator)" -ForegroundColor DarkGray
+        }
+        Write-Host '  If you want them gone, uninstall them, or paste this command (PERMANENT, check the list first):' -ForegroundColor Yellow
+        Write-Host ('  ' + (($script:CrackedGames | ForEach-Object { "Remove-Item -LiteralPath '" + ($_.Path -replace "'", "''") + "' -Recurse -Force" }) -join '; '))
+    }
     Write-Host '  Done. Restart the PC to finish.' -ForegroundColor Green
     if ($high.Count -gt 0) { Write-Host '  High items were found - for the deepest check later run:  Start-MpWDOScan  (restarts the PC)' -ForegroundColor Yellow }
 }
@@ -1761,7 +1922,6 @@ if ($Clean -and -not $Auto -and $fixable.Count -gt 0) {
     Write-Host '  Restart the PC, then run the scan again to confirm it is clean.' -ForegroundColor Cyan
 }
 
-if ($SecondOpinion) { Invoke-SecondOpinion }
 if ($CleanJunk -and -not $Auto) { Clear-JunkFiles }
 
 if ($mpOk) {
