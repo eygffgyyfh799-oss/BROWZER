@@ -3,7 +3,7 @@ game 'gta5'
 lua54 'yes'
 
 name 'NomadJustice'
-description 'نظام وزارة العدل - نظام معلومات المواطنين، القضايا، البصمة، الخزائن، الأرشيف، التعويضات، ومركبات العدل'
+description 'Nomad Justice - Department of Justice suite: citizen records, cases, duty clock, lockers, evidence archive, compensation and motor pool'
 author '2rayan'
 version '8.0.0'
 

@@ -1,219 +1,216 @@
 # NomadJustice v8.0.0
 
-نظام وزارة العدل: نظام معلومات المواطنين، التحكم بكل القطاعات، القضايا، البصمة، الخزائن، الأرشيف، التعويضات، ومركبات العدل.
+Department of Justice suite for QBCore: citizen records, department management, cases, duty clock, lockers, evidence archive, compensation and the DOJ motor pool.
 
-## التركيب
-1. انسخ مجلد `NomadJustice` إلى `resources`.
-2. أضف `ensure NomadJustice` في `server.cfg` بعد السكربتات اللي يحتاجها:
+## Installation
+1. Copy the `NomadJustice` folder into `resources`.
+2. Add `ensure NomadJustice` to `server.cfg` **after** its dependencies:
    - `oxmysql`
    - `ox_lib`
    - `qb-core`
    - `deep-target`
-   - اسم سكربت العين تقدر تغيّره من `TargetResource` في `config.lua`، واسم الكور من `setr justice_core "qb-core"`.
-3. الجداول تنشأ وتتحدث تلقائياً عند التشغيل. أو تقدر تركّبها يدوياً من ملف **`NomadJustice.sql`** (آمن تشغيله أكثر من مرة وما يحذف أي بيانات).
-4. (اختياري) Discord: `set justice_webhook "https://discord.com/api/webhooks/..."` في `server.cfg`.
+   - `deep-Banking`
+   - The target resource name can be changed with `TargetResource` in `config.lua`, the core name with `setr justice_core "qb-core"`, and the bank with `Finance.Resource`.
+3. Tables are created and migrated automatically on start. You can also install them manually from **`NomadJustice.sql`** (safe to run more than once, never deletes data).
+4. (Optional) Discord: `set justice_webhook "https://discord.com/api/webhooks/..."` in `server.cfg`.
 
-## الملفات اللي تعدلها
-| الملف | فيه |
+## Files you edit
+| File | Contains |
 |---|---|
-| `modules/coords.lua` | **كل الإحداثيات**، وكل سطر عليه اسم ونوع |
-| `modules/config.lua` | الرسوم، الصلاحيات، الحدود، المركبات، شكل البوتات |
+| `modules/coords.lua` | **All coordinates**, each line has a name and a type |
+| `modules/config.lua` | Fees, permissions, limits, vehicles, ped appearance, finance |
 
-### الإحداثيات
+### Coordinates
 ```lua
-{ name = 'خزنة المحكمة', type = 'خزنة', coords = vector4(X, Y, Z, الاتجاه) },
+{ name = 'Courthouse Locker', type = 'Stash', coords = vector4(X, Y, Z, heading) },
 ```
-- الأنواع: `'بصمة'` `'خزنة'` `'رؤية القضايا'` `'نظام المواطنين'` `'بوت القضايا'` `'بوت المركبات'` `'خروج المركبات'` `'علامة الخريطة'`
-- `/jcoords` داخل اللعبة ينسخ لك إحداثيتك الحالية جاهزة
-- إذا غلطت في النوع، يطلع لك في الكونسول رقم السطر والاسم
-- نفس الإحداثية لأكثر من نوع = خياراتهم تنضم في نقطة وحدة
-- ما يظهر لك الخيار؟ خل `DebugZones = true` أو كبّر `ZoneSize` في `config.lua`
+- Types: `'Duty'` `'Stash'` `'Case Files'` `'Citizen Panel'` `'Case Clerk'` `'Motor Pool Clerk'` `'Vehicle Spawn'` `'Blip'`
+- `/jcoords` in game copies your current position ready to paste
+- A wrong type prints the line number and name in the console
+- Same coordinates for several types = their options are merged into one point
+- Option not showing? Set `DebugZones = true` or increase `ZoneSize` in `config.lua`
 
-## 📱 نظام الدولة (التابلت)
-- يفتح بضغطة **زر 9** من أي مكان (أو بالأمر `/justice`). وكل لاعب يقدر يغيّر الزر من إعدادات اللعبة: Settings ← Key Bindings ← FiveM.
-- واجهة خاصة (مو قوائم ox_lib) فيها كل شي: الرئيسية، والمتصلين، وجميع المواطنين، والبحث، وملف المواطن بكل تبويباته، والقضايا، والقطاعات، والمدينة، والاستدعاءات، والموقوفين، وسجل العمليات.
-- وأنت ماسك التابلت يطلع أنيميشن مسك التابلت، وتقفله بـ **ESC** أو زر ✕.
-- إذا تبي ترجع للقوائم القديمة: `UseTablet = false` في `config.lua`. وإذا تبي تغيّر الزر: `Key = '9'`.
-- **الحماية:** الواجهة تعرض بس، وكل التحقق والصلاحيات في السيرفر. وكل النصوص تنعرض كنص، فما ينفّذ أي كود مكتوب في اسم أو قضية.
+## 📱 State Records (tablet)
+- Opens with **key 9** anywhere (or `/justice`). Players can rebind it in Settings → Key Bindings → FiveM.
+- Custom NUI (not ox_lib menus): dashboard, online players, citizen registry, search, full citizen record, cases, departments, city affairs, summonses, suspended citizens and the audit log.
+- Tablet holding animation while open; close with **ESC** or ✕.
+- Legacy menus: `UseTablet = false` in `config.lua`. Change the key with `Key = '9'`.
+- **Security:** the UI only displays data. All checks and permissions run on the server, and all text is rendered as text so nothing typed in a name or case can execute.
 
-## 👥 الأدوار في نظام الدولة (زر 9)
-| الدور | يشوف |
+## 👥 Roles in State Records
+| Role | Sees |
 |---|---|
-| ⚖️ **العدل** | كل شي (حسب الصلاحيات) |
-| 🚓 **الشرطة** (`Settings.Police.Jobs`) | البحث، والمعلومات الأساسية، والتراخيص، والمركبات، **وسجل القضايا والأحكام**، والأوامر السارية، والمشبوهين، وطلباته |
-| 💼 **المحامي** (عنده رخصة `lawyer`) | القضايا المعيّن فيها بس: التفاصيل، والملاحظات، والمستندات، والأحكام |
+| ⚖️ **DOJ** | Everything (per permissions) |
+| 🚓 **Police** (`Settings.Police.Jobs`) | Search, basic info, licenses, vehicles, **case & verdict history**, active warrants, persons of interest, their requests |
+| 💼 **Attorney** (holds the `lawyer` license) | Only the cases they are assigned to: details, notes, documents, verdicts |
+| 💰 **Department manager** (`Finance.Sectors`) | Department finances only |
 
-## 🎖️ الصلاحيات حسب رتبكم (الافتراضي)
-**القاعدة:** رقم = هذي الرتبة وأعلى، و`'boss'` = الرتب اللي عليها isboss، والقاضي (10) عنده كل شي. كل هذا تقدر تغيّره من `config.lua`، ومكتوب اسم كل رتبة جنبها هناك.
+## 🎖️ Default permissions by grade
+**Rule:** number = this grade and above, `'boss'` = grades flagged isboss, the Judge (10) has everything. All of this is configurable in `config.lua`, where each grade is named.
 
-| وزارة العدل | الصلاحيات |
+| Department of Justice | Permissions |
 |---|---|
-| 0 مساعد محامي وأعلى | البحث، وملفات المواطنين، والقضايا، والمدينة |
-| 1 الرقابة التجارية | + اقتصاد المدينة وأرصدة القطاعات |
-| 6 رئيس نقابة المحامين | + تعيين المحامين، والإحصائيات |
-| 7 أمين سر المحكمة | + الاستدعاءات، والمشبوهين، والتراخيص، وتعديل البيانات، والإعلانات، وسجل العمليات، وحذف القضايا |
-| 8 لجنة التحكيم والمصالحة | + التعويض، ونقل ملكية العقارات |
-| 9 المدعي العام | + أوامر القبض والتفتيش، وطلبات الشرطة، وتحديد الموقع، والسحب، والإيقاف، والمركبات، والعصابات |
-| 10 قاضي | **كل شي**: الأحكام، والتراجع، والحذف، والوظائف |
+| 0 Paralegal and above | Search, citizen records, cases, city affairs |
+| 1 Commerce Inspector | + city economy and department balances |
+| 6 Bar Association President | + assign attorneys, statistics |
+| 7 Court Clerk | + summonses, persons of interest, licenses, identity edits, announcements, audit log, delete cases |
+| 8 Arbitration & Mediation Board | + compensation, property deed transfers |
+| 9 District Attorney | + warrants, police requests, locate, bank seizure, suspensions, vehicles, gangs |
+| 10 Judge | **Everything**: verdicts, undo, delete, jobs |
 
-| الشرطة | الصلاحيات |
+| Police | Permissions |
 |---|---|
-| 0 مستجد وأعلى | البحث، والمعلومات الأساسية، وسجل القضايا والأحكام، والأوامر، والمشبوهين |
-| 1 جندي | + مركبات المواطن |
-| 2 جندي أول | + تسجيل تنفيذ الأوامر |
-| 5 رقيب | + طلب تصريح من العدل (موقع، كشف حساب، أمر) |
+| 0 Cadet and above | Search, basic info, case & verdict history, warrants, persons of interest |
+| 1 Officer | + citizen vehicles |
+| 2 Officer II | + log warrant execution |
+| 5 Sergeant | + request DOJ authorization (location, bank statement, warrant) |
 
-## 👑 القاضي (رتبة 10)
-عنده **فل أكسس على نظام الدولة كله**:
-- **العدل:** كل الصلاحيات (أحكام، تراجع، حذف، أوامر قبض، تحكم بالوظائف والرتب...).
-- **الشرطة:** كل صلاحيات قسم الشرطة بدون استثناء (بحث، ملفات، مركبات، أوامر، **تنفيذ أوامر القبض**، مشبوهين، طلبات)، وطلبات الشرطة كلها توصله ويرد عليها.
-- **الصحة والشرطة (المالية):** رصيد وسحب وإيداع وسجل لكل قطاع (الشرطة، والصحة، وأي قطاع تضيفه) من "مالية القطاعات"، ويختار القطاع من فوق.
-- **الرقابة:** سجل العمليات فيه كل شي يصير في النظام من كل القطاعات، والإحصائيات كاملة.
+## 👑 Judge (grade 10)
+**Full access to all of State Records**:
+- **DOJ:** every permission (verdicts, undo, delete, warrants, job and grade control...).
+- **Police:** every police permission (search, records, vehicles, warrants, **warrant execution**, persons of interest, requests); all police requests reach the Judge.
+- **Department finances:** balance, withdraw, deposit and history for every department (police, EMS and any you add), selected at the top.
+- **Oversight:** the audit log contains everything from every department, plus full statistics.
 
-ويطلع له في الجهاز "👑 القاضي - صلاحية كاملة على نظام الدولة". رقم الرتبة من `Settings.Panel.FullAccessGrade` في `config.lua`.
+The tablet shows "👑 Judge - full access to State Records". The grade number is `Settings.Panel.FullAccessGrade`.
 
-## 🛡️ الحماية من التلاعب
-- **حد الطلبات:** كل لاعب له حد 25 طلب كل 5 ثواني. أي Executor يحاول يغرق السيرفر ينمنع، ويطلع تنبيه في الكونسول.
-- **محاولة بدون صلاحية:** أي شخص ما له دور ويحاول يستخدم دوال النظام، ينطبع اسمه ورقمه الوطني في الكونسول.
-- **العمليات المالية:** كلها تتحقق من الرصيد في السيرفر، وفيها أوقات انتظار، وما ينفع التراجع مرتين، والخزينة الداخلية ما تسمح برصيد سالب.
+## 🛡️ Abuse protection
+- **Rate limit:** 25 requests per player every 5 seconds. Executors flooding the server are blocked and flagged in the console.
+- **Unauthorized attempts:** anyone without a role calling the system's callbacks is printed with their name and citizen ID.
+- **Money:** every balance is checked server-side, with cooldowns, no double undo, and the internal fund never goes negative.
 
-## 💰 القسم المالي للقطاعات
-- **مين يدخله:** المسؤولين المحددين بس يشوفون **رصيد القطاع** ويسحبون ويودعون، ومعه سجل كامل لكل العمليات:
-  - **الشرطة:** 18 نائب رئيس الشرطة، و19 رئيس الشرطة، و20 القائد الأعلى.
-  - **الصحة:** 8 نائب مسؤول المستشفى، و9 مسؤول المستشفى.
-- **وين يلقونه:**
-  - **مسؤولي الشرطة:** يلقونه كقسم إضافي داخل قسم الشرطة.
-  - **مسؤولي الصحة:** يفتح لهم التابلت بزر 9، وفيه القسم المالي بس.
-- **مصدر الرصيد (`Finance.Provider = 'auto'`):**
-  - إذا سكربت البنك (`Finance.Resource`، الافتراضي `qb-banking`) فيه حسابات للقطاعات، يستخدمها مباشرة.
-  - وإذا ما فيه، يستخدم خزينة داخلية في قاعدة البيانات.
-  - تقرير الجاهزية في الكونسول يوضح أي واحد اشتغل.
-- **الرقابة:** كل عملية تتسجّل في سجل العمليات عند العدل، والقاضي والرقابة التجارية يشوفون أرصدة القطاعات في اقتصاد المدينة.
-- **تضيف قطاع ثاني:** `Finance.Sectors`.
+## 💰 Department finances
+- **Who:** only the listed managers see the **department balance**, withdraw and deposit, with a full transaction history:
+  - **Police:** 18 Assistant Chief, 19 Chief of Police, 20 Commissioner.
+  - **EMS:** 8 Deputy Medical Director, 9 Medical Director.
+- **Where:** police managers get an extra section in the police view; EMS managers open the tablet with key 9 and see finances only.
+- **Balance source (`Finance.Provider = 'auto'`):**
+  - **deep-Banking** business accounts (`getBusinessAccount` / `AddMoney` / `RemoveMoney`), the default `Finance.Resource`.
+  - Otherwise qb-style or Renewed-style banking exports if detected.
+  - Otherwise an internal fund in the database (`justice_sector_funds`).
+  - The startup readiness report shows which one is active.
+- **Oversight:** every transaction is written to the DOJ audit log; the Judge and Commerce Inspector see department balances in the city economy.
+- **Add a department:** `Finance.Sectors`.
 
-## 🚓 قسم الشرطة
-- صلاحيات الشرطة تتوزع بالرتب من `Settings.Police.Permissions`: رقم = أقل رتبة، و`'boss'` = مدير الشرطة، و`false` = مقفلة.
-- **الأشياء الحساسة تحتاج طلب تصريح:** تحديد الموقع، أو كشف الحساب، أو أمر قبض، أو أمر تفتيش. الطلب يوصل للعدل ومعه اسم الشرطي ورتبته ورمز النداء والسبب.
-- **في قسم الشرطة** عند العدل، تقبل الطلب أو ترفضه مع ملاحظة:
-  - **تحديد الموقع:** يوصل للشرطي علامة على الخريطة.
-  - **كشف الحساب:** يفتح له تصريح لمدة `GrantMinutes` دقيقة.
-  - **أمر القبض أو التفتيش:** ينصدر تلقائياً، ويتسجّل مين طلبه.
-- الشرطي يسجّل تنفيذ الأمر من التابلت.
+## 🚓 Police section
+- Police permissions are set per grade in `Settings.Police.Permissions`: number = lowest grade, `'boss'` = command staff, `false` = locked.
+- **Sensitive actions need a DOJ authorization request:** locate, bank statement, arrest warrant or search warrant. The request reaches the DOJ with the officer's name, grade, callsign and reason.
+- In the DOJ **Police Requests** page, approve or reject with a note:
+  - **Locate:** the officer receives a map blip.
+  - **Bank statement:** access is granted for `GrantMinutes` minutes.
+  - **Arrest / search warrant:** issued automatically, recording who requested it.
+- Officers log warrant execution from the tablet.
 
-## 🔨 الأحكام (تتنفذ تلقائياً)
-من ملف المواطن أو من صفحة القضية ← **إصدار حكم**:
-| الحكم | التنفيذ |
+## 🔨 Verdicts (enforced automatically)
+From a citizen record or a case page → **Issue Verdict**:
+| Verdict | Enforcement |
 |---|---|
-| غرامة | تنسحب من بنك المحكوم عليه وتروح حسب `WithdrawTo` |
-| تعويض | تنسحب من بنك المحكوم عليه وتنضاف لبنك المتضرر |
-| حجز مركبة | تنحجز وتنسحب من الشارع (لازم تكون باسمه) |
-| سجن | يتسجّل ويوصل للشرطة. وإذا عندك سكربت سجن، ضع اسم الحدث في `JailEvent` |
-| إيقاف خدمات | تتوقف خدماته |
-| براءة | يتسجّل |
+| Fine | Taken from the defendant's bank and routed by `WithdrawTo` |
+| Damages | Taken from the defendant's bank and paid into the plaintiff's bank |
+| Vehicle impound | Impounded and removed from the street (must be registered to them) |
+| Jail | Recorded and sent to police. If you have a jail script, set its event in `JailEvent` |
+| Service suspension | Their services are suspended |
+| Acquittal | Recorded |
 
-- كل حكم يتحفظ في **أرشيف الأحكام** بملف المواطن، ويشوفه العدل والشرطة. والقضية تنقفل تلقائياً.
-- **إلغاء الحكم:** من سجل العمليات ← ↩️ تراجع. يرجّع الفلوس للطرفين، ويفك حجز المركبة، ويرفع الإيقاف.
+- Every verdict is stored in the citizen's **verdict history**, visible to DOJ and police, and the case closes automatically.
+- **Reverse a verdict:** Audit Log → ↩️ Undo. Refunds both parties, releases the vehicle and lifts the suspension.
 
-## 🚨 أوامر القبض والتفتيش و 🕵️ المشبوهين
-- **الأوامر:** توصل للشرطة اللي في الدوام فوراً، وتظهر كتنبيه أحمر في ملف المواطن لين تنتهي (`WarrantHours`) أو تنلغى أو تتنفذ.
-- **المشبوهين:** قائمة فيها درجة خطورة. إذا كانت الخطورة **عالية**، يوصل تنبيه فوري للشرطة.
+## 🚨 Warrants and 🕵️ persons of interest
+- **Warrants** are pushed to on-duty police instantly and show as a red alert on the citizen record until they expire (`WarrantHours`), are revoked or executed.
+- **Persons of interest:** a list with threat level. A **high** threat level alerts police immediately.
 
-## 📊 الإحصائيات و 🔔 الإشعارات
-- **الإحصائيات:** القضايا بالأسبوع، وأكثر أنواع القضايا، والأحكام حسب النوع، وأداء الموظفين، وساعات الدوام. وكل رسم فيه زر "جدول".
-- **الإشعارات المباشرة:** قضية جديدة، أو طلب شرطة، أو أمر جديد، أو رد على طلب. تطلع داخل التابلت مع صوت، وإذا التابلت مقفل تطلع كإشعار عادي مع صوت.
+## 📊 Statistics and 🔔 notifications
+- **Statistics:** cases per week, top case types, verdicts by type, staff performance and duty hours. Every chart has a "Table" toggle.
+- **Live notifications:** new case, police request, new warrant, request answered. Shown inside the tablet with a sound, or as a regular notification when the tablet is closed.
 
-## 🏦 البنك
-- **وين تروح الفلوس المسحوبة** (سحب أو غرامة): `WithdrawTo = 'officer'` (لحسابك)، أو `'society'`، أو `'none'`.
-- الربط مع RespectBanking انلغى (تجميد الحساب ومزامنة جداوله). الغرامات والسحب تمشي على رصيد البنك في qb-core.
+## 🏦 Bank
+- Citizen money (seizures, fines, compensation) uses the qb-core player bank balance.
+- **Where seized money goes:** `WithdrawTo = 'officer'` (your account), `'society'`, or `'none'`.
+- Department accounts use **deep-Banking** (see Department finances).
 
-## ↩️ التراجع والحذف
-من **سجل العمليات** (في التابلت، أو تبويب "السجل" في ملف المواطن):
-- **↩️ تراجع:** يلغي الإجراء ويرجّع الوضع مثل ما كان. يشمل: السحب (يرجّع الفلوس)، والتعويض، والإيقاف ورفعه، وتعديل البيانات، والوظيفة، والدوام، والعصابة، والتراخيص، وحجز المركبة وفكها، ونقل ملكية المركبة والعقار، والاستدعاء، وحالة القضية.
-- **🗑️ حذف:** يحذف السجل أو الاستدعاء، بس يبقى أثر في السجل يوضح مين حذف وإيش حذف.
-- ما ينفع تتراجع عن نفس الإجراء مرتين، حتى لو ضغط موظفين بنفس اللحظة.
-- الصلاحيات `undo` و `delete` بشكل افتراضي للمدير ورتبة 10.
+## ↩️ Undo and delete
+From the **Audit Log** (tablet, or the "Log" tab of a citizen record):
+- **↩️ Undo:** reverts the action. Covers seizures (refund), compensation, suspensions, identity edits, jobs, duty, gangs, licenses, impounds, vehicle and property transfers, summonses and case status.
+- **🗑️ Delete:** removes the record or summons, leaving a trace of who deleted what.
+- An action cannot be undone twice, even if two employees click at the same moment.
+- `undo` and `delete` default to the Judge (grade 10).
 
-## نظام معلومات المواطنين
-يفتح بزر 9 أو بالأمر `/justice`.
+## Citizen records
+Opened with key 9 or `/justice`.
 
-| الميزة | الصلاحية الافتراضية |
+| Feature | Default permission |
 |---|---|
-| حالة كل مواطن: 🟢 متصل الآن [رقم السيرفر] - دخل منذ... / ⚫ غير متصل - آخر ظهور منذ... | أي موظف |
-| جميع المواطنين (صفحات) مع فلتر: الكل / المتصلين / غير المتصلين | أي موظف |
-| إحصائيات: المتصلين، عدد المواطنين، العدل في الدوام، القضايا الجديدة، الموقوفين | أي موظف |
-| اللاعبين المتصلين، البحث (بالاسم / الرقم الوطني / الجوال / رقم السيرفر، ويشمل غير المتصلين) | أي موظف |
-| ملف المواطن: البيانات الشخصية، المالية، الوظيفة والعصابة، السجن والسجل الجنائي، التراخيص، المركبات، العقارات، الممتلكات، القضايا، عمليات الوزارة | أي موظف |
-| القطاعات: كل القطاعات وموظفينها (متصل / دوام / إجمالي) | أي موظف |
-| **تغيير وظيفة ورتبة المواطن لأي قطاع**، توظيف، ترقية، تنزيل، نقل، فصل، تشغيل وإيقاف الدوام | المدير |
-| تحديد الموقع الحالي | المدير |
-| سحب من البنك (مع سبب، ويشتغل للمتصل وغير المتصل) | المدير |
-| إيقاف الخدمات ورفعها | المدير |
-| تعديل البيانات الشخصية | المدير |
-| التعويض (بحد يومي لكل موظف) | المدير |
-| سجل العمليات | المدير |
+| Live status: 🟢 Online [server ID] - joined ... ago / ⚫ Offline - last seen ... ago | Any employee |
+| Citizen registry (paged) with filter: all / online / offline | Any employee |
+| Dashboard: online, citizens, DOJ on duty, new cases, suspended | Any employee |
+| Online players and search (name / citizen ID / phone / server ID, offline included) | Any employee |
+| Citizen record: identity, finances, employment & gang, jail & criminal record, licenses, vehicles, properties, possessions, cases, DOJ actions | Any employee |
+| Departments: every department and its staff (online / on duty / total) | Any employee |
+| **Change any citizen's job and grade**, hire, promote, demote, transfer, terminate, clock in/out | Judge |
+| Locate | District Attorney |
+| Bank seizure (with reason, works online and offline) | District Attorney |
+| Suspend / lift services | District Attorney |
+| Edit identity | Court Clerk |
+| Compensation (daily cap per employee) | Arbitration Board |
+| Audit log | Court Clerk |
 
-👑 **رتبة المسؤول ورئيس المحكمة (رقم 10):** هذي الرتبة وأي رتبة أعلى منها عندها كل شي متاح مثل المدير بالضبط: كل الصلاحيات، وسجل البصمة، والأرشيف. تقدر تغيّر الرقم من `FullAccessGrade` في `config.lua`.
+Permissions live in `Settings.Panel.Permissions` (number = lowest grade, or `'boss'`). All actions require the employee to be on duty (`RequireDuty`).
+To protect a department (e.g. admin), add it to `JobsBlacklist`.
 
-الصلاحيات في `Settings.Panel.Permissions`: رقم = أقل رتبة، أو `'boss'`. وكل الإجراءات تحتاج الموظف يكون في الدوام (`RequireDuty`).
-لمنع التحكم في قطاع معين (مثل الإدارة): أضفه في `JobsBlacklist`.
-
-## نظام المدينة (RP)
-من نظام المواطنين ← **🏙️ نظام المدينة**:
-
-| الميزة | الصلاحية الافتراضية |
+## City affairs
+| Feature | Default permission |
 |---|---|
-| حالة المدينة: المتصلين، المواطنين، الموقوفين، الاستدعاءات، القطاعات اللي في الدوام الآن | أي موظف |
-| سجل المركبات: بحث باللوحة أو الرقم الوطني، المالك وحالته، هل هي في الشارع | أي موظف |
-| سجل العقارات: بحث بالاسم أو الرقم الوطني، والمالك | أي موظف |
-| تحديد موقع مركبة موجودة في الشارع | المدير |
-| حجز المركبة (وتنسحب من الشارع)، فك الحجز، نقل الملكية | المدير |
-| نقل ملكية عقار | المدير |
-| منح وسحب التراخيص | المدير |
-| تغيير العصابة وإزالتها | المدير |
-| استدعاء للمحكمة (يوصله فوراً، وإذا غير متصل يوصله أول ما يدخل) + متابعة: حضر / لم يحضر / إلغاء | أي موظف |
-| اقتصاد المدينة: مجموع البنوك والكاش، وأغنى 10 مواطنين (بالأرصدة الحية للمتصلين) | المدير |
-| إعلان لكل المدينة | المدير |
+| City status: online, citizens, suspended, summonses, departments on duty | Any employee |
+| Vehicle registry: search by plate or citizen ID, owner and status, on the street or not | Any employee |
+| Property registry: search by name or citizen ID, owner | Any employee |
+| Locate a vehicle on the street | District Attorney |
+| Impound (removed from the street), release, transfer title | District Attorney |
+| Transfer property deed | Arbitration Board |
+| Grant / revoke licenses | Court Clerk |
+| Change / remove gang | District Attorney |
+| Court summons (delivered instantly, or on next join) + follow-up: appeared / failed to appear / cancelled | Court Clerk |
+| City economy: total bank and cash, top 10 richest citizens (live balances for online players) | Commerce Inspector |
+| City-wide announcement | Court Clerk |
 
-المواطن يشوف استدعاءاته من بوت القضايا ← **استدعاءاتي**.
+Citizens see their summonses at the Court Clerk ped → **My Summonses**.
 
-## القضايا
-- المواطن يعبّي: العنوان، النوع، المدعى عليه، الشهود، الأدلة، والتفاصيل، وبعدها يطلع له تأكيد قبل خصم الرسوم.
-- معلومات مقدم الدعوى تنجمع من السيرفر وما تقدر تتزوّر: الميلاد، الجنس، الجنسية، الوظيفة، العصابة، الحساب، موقع التقديم.
-- الموظف: تصفية حسب الحالة، تغيير الحالة، ملاحظات، فتح ملف المدعي أو المدعى عليه، تحديد موقع التقديم، حذف (المدير).
-- المواطن يتابع دعاواه ويوصله إشعار كل ما تغيرت الحالة.
+## Cases
+- Citizens fill in title, type, defendant, witnesses, evidence and details, then confirm before the fee is charged.
+- Plaintiff details are collected server-side and cannot be forged: date of birth, sex, nationality, job, gang, account, filing location.
+- Staff: filter by status, change status, notes, open plaintiff / defendant records, mark filing location, delete.
+- Citizens track their lawsuits and get notified on every status change.
 
-## ربط إيقاف الخدمات بسكربتات ثانية
+## Hooking suspensions into other scripts
 ```lua
 if exports['NomadJustice']:IsCitizenSuspended(citizenid) then return end
 AddEventHandler('NomadJustice:server:suspensionChanged', function(citizenid, suspended, reason) end)
 ```
 
-## التنظيف التلقائي
-`Settings.Cleanup` في `config.lua` يحذف السجلات القديمة عشان قاعدة البيانات ما تثقل: سجل العمليات بعد 120 يوم، والبصمة بعد 60 يوم. أما القضايا المغلقة فما تنحذف إلا إذا فعّلتها. وإذا حطيت `0`، ما ينحذف شي أبداً.
+## Automatic cleanup
+`Settings.Cleanup` deletes old records so the database stays light: audit log after 120 days, duty log after 60 days. Closed cases are only deleted if you enable it. `0` = never delete.
 
-## فحص الجاهزية
-أول ما يشتغل السكربت، يطبع في كونسول السيرفر تقرير يوضح وش سليم (✔)، ووش فيه تنبيه (⚠)، ووش لازم ينصلح (✖). يشمل السكربتات المطلوبة، ووظيفة العدل والرتب، والجداول، وDiscord.
-وتقدر تعيد الفحص بأي وقت بكتابة **`justicecheck`** في كونسول السيرفر.
+## Readiness check
+On start the script prints a report to the server console: what is fine (✔), warnings (⚠) and what must be fixed (✖). It covers dependencies, the DOJ job and grades, tables, finance provider and Discord.
+Run it again any time with **`justicecheck`** in the server console.
 
-## الأخطاء الشائعة يتعامل معها السكربت تلقائياً
-- **خطأ كتابة في `coords.lua` أو `config.lua`** (فاصلة أو قوس ناقص): يطلع لك اسم الملف ورقم السطر بالعربي، والسكربت ما يطيح.
-- **سطر إحداثيات غلط:** يتخطاه وحده، ويطلع لك رقمه واسمه، والباقي يشتغل عادي.
-- **إعداد محذوف أو قيمته غلط:** ياخذ القيمة الافتراضية ويطلع لك تنبيه.
-- **السيرفر ما رد:** القائمة ما تعلق، وبعد 10 ثواني تطلع لك رسالة.
-- **الضغط المزدوج على الأزرار:** ما ينرسل الطلب مرتين.
-- **سكربت اختياري مو موجود** (lb-phone): الميزة المرتبطة فيه بس توقف، والباقي يشتغل طبيعي.
-- **Discord:** الرسايل تطلع بطابور وحدة كل ثانية ونص، عشان ما ينحظر الـ webhook.
+## Common mistakes handled automatically
+- **Syntax error in `coords.lua` or `config.lua`** (missing comma or brace): prints the file name and line number, the script keeps running.
+- **Bad coordinates line:** skipped on its own with its number and name printed; the rest works.
+- **Missing or invalid setting:** falls back to the default with a warning.
+- **Server did not respond:** menus never hang; a message appears after 10 seconds.
+- **Double clicks:** a request is never sent twice.
+- **Optional resource missing** (lb-phone): only the related feature stops.
+- **Discord:** messages are queued one every 1.5 seconds so the webhook is never rate-limited.
 
-## الاختبار
-كل الأنظمة انجربت على قاعدة بيانات MariaDB حقيقية، مع جداول QBCore وكود السكربت الفعلي. النتيجة: 173 فحص نجحت كلها على قاعدة البيانات، يشمل الشرطة والمحامين والأحكام والأوامر والبنك. والواجهة انجربت في متصفح Chromium للأدوار الثلاثة (العدل والشرطة والمحامي) بدون ولا خطأ. وجربنا كمان الترقية من جداول النسخة الأصلية، والبيانات القديمة ما ضاعت.
+## Testing
+Every system was tested against a real MariaDB database with QBCore tables and the actual script code: 219 database checks pass, covering police, attorneys, verdicts, warrants, banking and deep-Banking business accounts. The UI was tested in Chromium for every role (DOJ, police, attorney, department manager) with zero errors, and upgrading from the original tables keeps all old data.
 
-## الحماية
-- **حذف الباكدور:** النسخة الأصلية كان فيها `build/development.js` (يحمّل كود من سيرفر خارجي وينفذه)، وسطر `@rt-taxijob/ai_module_fg-obfuscated.lua` في الـ manifest، وكلها انحذفت. **افحص سكربت `rt-taxijob` وباقي سكربتات سيرفرك.**
-- **كل شي يتحقق منه السيرفر:** الصلاحية، والدوام، والقيم المدخلة، وحدود المبالغ، ومنع تنفيذ الإجراءات على نفسك.
-- **قاعدة البيانات:** كل الاستعلامات بمتغيرات (ما فيها SQL Injection). والتعديل على اللاعب غير المتصل يفشل بأمان إذا تغيرت بياناته أثناء العملية.
-- **تنظيف النصوص:** تنمنع روابط الصور والـ HTML اللي ممكن تكشف IP الموظفين، وأي نص UTF-8 تالف ينرفض.
-- **التكرار:** حماية من الضغط السريع، وأوقات انتظار، وحد يومي للتعويضات.
-- **السجلات:** كل إجراء يتسجّل في `justice_logs`، ويروح لـ Discord إذا فعّلته.
+## Security
+- **Server-side validation of everything:** permission, duty, input values, amount limits, and no actions on yourself.
+- **Database:** every query is parameterized (no SQL injection). Offline edits fail safely if the player's data changes mid-operation.
+- **Text sanitizing:** image links and HTML that could leak staff IPs are blocked, and malformed UTF-8 is rejected.
+- **Spam:** click protection, cooldowns and a daily compensation cap.
+- **Logs:** every action is written to `justice_logs` and sent to Discord when enabled.
 
-### ملاحظة عن الخزائن
-فتح الخزنة يمر عبر حدث سكربت المخزون (`inventory:server:OpenInventory`). الحماية هنا تعتمد على سكربت المخزون نفسه، مو على هذا السكربت.
+### Note on lockers
+Opening a locker goes through the inventory event (`inventory:server:OpenInventory`). Its protection depends on your inventory resource, not this script.

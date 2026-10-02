@@ -1,12 +1,12 @@
 -- ════════════════════════════════════════════════════════════════════════════════
---  NomadJustice - قاعدة البيانات
+-- NomadJustice - Database
 --
---  ملاحظة: السكربت ينشئ هذي الجداول ويحدّثها تلقائياً عند التشغيل،
---  هذا الملف للي يبي يركّبها يدوياً (HeidiSQL / phpMyAdmin) قبل التشغيل.
---  آمن تشغيله أكثر من مرة (CREATE TABLE IF NOT EXISTS) وما يحذف أي بيانات.
+-- Note: the script creates and updates these tables automatically on start,
+-- this file is for anyone who wants to install them manually (HeidiSQL / phpMyAdmin) first.
+-- Safe to run more than once (CREATE TABLE IF NOT EXISTS) and never deletes data.
 -- ════════════════════════════════════════════════════════════════════════════════
 
--- سجل البصمة (دخول وخروج الدوام)
+-- Duty log (clock in / out)
 CREATE TABLE IF NOT EXISTS `justice_duty_history` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `citizenid` varchar(50) NOT NULL,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `justice_duty_history` (
     KEY `citizenid` (`citizenid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- القضايا
+-- Cases
 CREATE TABLE IF NOT EXISTS `justice_reports` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `citizenid` varchar(50) NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS `justice_reports` (
     KEY `defendant_citizenid` (`defendant_citizenid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ملاحظات الموظفين على القضايا
+-- Staff notes on cases
 CREATE TABLE IF NOT EXISTS `justice_report_notes` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `report_id` int(11) NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS `justice_report_notes` (
     KEY `report_id` (`report_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- العمليات المالية (تعويض / سحب)
+-- Financial transactions (compensation / seizure)
 CREATE TABLE IF NOT EXISTS `justice_transactions` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `officer_citizenid` varchar(50) NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS `justice_transactions` (
     KEY `target_citizenid` (`target_citizenid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- إيقاف الخدمات
+-- Suspended services
 CREATE TABLE IF NOT EXISTS `justice_suspensions` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `citizenid` varchar(50) NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS `justice_suspensions` (
     KEY `active` (`active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- سجل كل عمليات موظفي العدل
+-- Audit log of every DOJ staff action
 CREATE TABLE IF NOT EXISTS `justice_logs` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `officer_citizenid` varchar(50) NOT NULL,
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS `justice_logs` (
     KEY `action` (`action`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- استدعاءات المحكمة
+-- Court summonses
 CREATE TABLE IF NOT EXISTS `justice_summons` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `citizenid` varchar(50) NOT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS `justice_summons` (
     KEY `status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ═══ القضاء والشرطة: المشبوهين، الأوامر، طلبات الشرطة، المحامين، المستندات، الأحكام ═══
+-- ═══ Judiciary and police: persons of interest, warrants, police requests, attorneys, documents, verdicts ═══
 CREATE TABLE IF NOT EXISTS `justice_suspects` (
     `id` int(11) NOT NULL AUTO_INCREMENT,
     `citizenid` varchar(50) NOT NULL,
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS `justice_verdicts` (
     KEY `report_id` (`report_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ═══ القسم المالي للقطاعات (الخزينة الداخلية + سجل العمليات) ═══
+-- ═══ Department finances (internal fund + transaction log) ═══
 CREATE TABLE IF NOT EXISTS `justice_sector_funds` (
     `job` varchar(50) NOT NULL,
     `balance` bigint(20) NOT NULL DEFAULT 0,

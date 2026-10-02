@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التابلت: واجهة نظام الدولة (html/) - يفتح بزر 9 من أي مكان
--- كل الصلاحيات والتحقق في السيرفر، الواجهة بس تعرض
+-- Tablet: State Records interface (html/) - opens with key 9 anywhere
+-- All permissions and checks live on the server, the UI only displays
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JC.Settings
@@ -11,7 +11,7 @@ JC.Tablet = {}
 local isOpen = false
 local tabletProp
 
--- الدوال اللي تقدر الواجهة تطلبها من السيرفر (أي اسم ثاني ينرفض)
+-- Calls the UI may request from the server (any other name is rejected)
 local Allowed = {}
 for _, name in ipairs({
     'panelInfo', 'getOnlinePlayers', 'getAllCitizens', 'searchCitizens', 'getProfile', 'getSuspended',
@@ -28,7 +28,7 @@ for _, name in ipairs({
     'financeInfo', 'financeDeposit', 'financeWithdraw',
 }) do Allowed[name] = true end
 
--- ═════ أنيميشن التابلت ═════
+-- ═════ Tablet animation ═════
 local AnimDict, AnimName, PropModel = 'amb@code_human_in_bus_passenger_idles@female@tablet@base', 'base', GetHashKey('prop_cs_tablet')
 
 local function StopAnimation()
@@ -58,7 +58,7 @@ local function StartAnimation()
     TaskPlayAnim(ped, AnimDict, AnimName, 3.0, 3.0, -1, 49, 0, false, false, false)
 end
 
--- ═════ الفتح والإغلاق ═════
+-- ═════ Open and close ═════
 function JC.Tablet.Close()
     if not isOpen then return end
     isOpen = false
@@ -70,7 +70,7 @@ end
 function JC.Tablet.Open(page, arg)
     if isOpen then return end
     if not JC.GuessRole() then
-        return JC.Notify('نظام الدولة لموظفي العدل والشرطة والمحامين فقط', 'error')
+        return JC.Notify('State Records is for DOJ staff, police and attorneys only', 'error')
     end
     if IsPauseMenuActive() or IsNuiFocused() then return end
 
@@ -111,7 +111,7 @@ function JC.Tablet.Open(page, arg)
     })
 end
 
--- ═════ طلبات الواجهة ═════
+-- ═════ UI requests ═════
 RegisterNUICallback('close', function(_, cb)
     JC.Tablet.Close()
     cb({ ok = true })
@@ -119,23 +119,23 @@ end)
 
 RegisterNUICallback('call', function(data, cb)
     if not isOpen or type(data) ~= 'table' or type(data.name) ~= 'string' or not Allowed[data.name] then
-        return cb({ ok = false, err = 'طلب غير مسموح' })
+        return cb({ ok = false, err = 'Request not allowed' })
     end
 
     local args = type(data.args) == 'table' and data.args or {}
     local result = JC.Await('NomadJustice:server:' .. data.name, table.unpack(args, 1, 6))
     if type(result) ~= 'table' then
-        return cb({ ok = false, err = 'السيرفر ما رد، حاول مرة ثانية' })
+        return cb({ ok = false, err = 'The server did not respond, try again' })
     end
 
-    -- معالجة تحتاج العميل: أسماء الشوارع وعلامات الخريطة
+    -- Client-side handling: street names and map blips
     if result.ok ~= false then
         if data.name == 'locateCitizen' and result.coords then
             result.street = JC.GetStreet(result.coords)
-            JC.TempBlip(result.coords, 'موقع ' .. tostring(result.name), Panel.LocateBlipTime, 280, 1)
+            JC.TempBlip(result.coords, 'Location: ' .. tostring(result.name), Panel.LocateBlipTime, 280, 1)
         elseif data.name == 'getVehicle' and result.vehicle and result.vehicle.coords then
             result.vehicle.street = JC.GetStreet(result.vehicle.coords)
-            JC.TempBlip(result.vehicle.coords, 'مركبة ' .. tostring(result.vehicle.plate), Panel.LocateBlipTime, 225, 1)
+            JC.TempBlip(result.vehicle.coords, 'Vehicle ' .. tostring(result.vehicle.plate), Panel.LocateBlipTime, 225, 1)
         elseif data.name == 'getReport' and result.report and result.report.submitter and result.report.submitter.coords then
             result.report.submitter.street = JC.GetStreet(result.report.submitter.coords)
         end
@@ -147,7 +147,7 @@ end)
 RegisterNUICallback('waypoint', function(data, cb)
     local c = type(data) == 'table' and data.coords
     if type(c) == 'table' and tonumber(c.x) and tonumber(c.y) and tonumber(c.z) then
-        JC.TempBlip({ x = tonumber(c.x), y = tonumber(c.y), z = tonumber(c.z) }, tostring(data.label or 'موقع'), Panel.LocateBlipTime, 162, 5)
+        JC.TempBlip({ x = tonumber(c.x), y = tonumber(c.y), z = tonumber(c.z) }, tostring(data.label or 'Location'), Panel.LocateBlipTime, 162, 5)
     end
     cb({ ok = true })
 end)
@@ -159,19 +159,19 @@ RegisterNUICallback('compensate', function(data, cb)
     cb({ ok = true })
 end)
 
--- ═════ زر الفتح (9 افتراضياً، واللاعب يقدر يغيره من إعدادات اللعبة ← Key Bindings ← FiveM) ═════
+-- ═════ Open key (9 by default, players can change it in Settings → Key Bindings → FiveM) ═════
 RegisterCommand('justicetablet', function()
     if isOpen then return end
     if JC.GuessRole() then JC.Tablet.Open() end
 end, false)
 
-RegisterKeyMapping('justicetablet', 'فتح نظام الدولة (العدل / الشرطة / المحامين)', 'keyboard', Panel.Key or '9')
+RegisterKeyMapping('justicetablet', 'Open State Records (Justice / Police / Attorneys)', 'keyboard', Panel.Key or '9')
 
--- ═════ الإشعارات المباشرة (قضية جديدة، طلب شرطة، أمر جديد...) ═════
+-- ═════ Live notifications (new case, police request, new warrant...) ═════
 RegisterNetEvent('NomadJustice:client:tabletEvent', function(event)
     if type(event) ~= 'table' then return end
     if type(event.coords) == 'table' and tonumber(event.coords.x) then
-        JC.TempBlip({ x = tonumber(event.coords.x), y = tonumber(event.coords.y), z = tonumber(event.coords.z) }, tostring(event.label or event.title or 'موقع'), Panel.LocateBlipTime, 280, 1)
+        JC.TempBlip({ x = tonumber(event.coords.x), y = tonumber(event.coords.y), z = tonumber(event.coords.z) }, tostring(event.label or event.title or 'Location'), Panel.LocateBlipTime, 280, 1)
     end
     if isOpen then
         SendNUIMessage({ action = 'event', event = event })
@@ -181,7 +181,7 @@ RegisterNetEvent('NomadJustice:client:tabletEvent', function(event)
     end
 end)
 
--- إغلاق تلقائي إذا مات اللاعب أو تغيرت وظيفته
+-- Auto close if the player dies or their job changes
 CreateThread(function()
     while true do
         Wait(1000)

@@ -8,7 +8,7 @@ local created_peds = {}
 local Target = Settings.TargetResource or 'deep-target'
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- دوال مساعدة
+-- Helpers
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local IsJustice = JC.IsJustice
@@ -19,7 +19,7 @@ local function GetDutyCooldown()
     return math.max(0, math.ceil((dutyCooldownEnd - GetGameTimer()) / 1000))
 end
 
--- منطقة تفاعل حول الإحداثية (مربع بحجم ZoneSize وارتفاع 3 متر)
+-- Interaction zone around a point (ZoneSize box, 3 m tall)
 local function AddZone(name, coords, options)
     local size = data.ZoneSize or 2.5
     exports[Target]:AddBoxZone(name, vector3(coords.x, coords.y, coords.z), size, size, {
@@ -69,13 +69,13 @@ local function SpawnPed(key, pedData, targetOptions)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- القوائم
+-- Menus
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function OpenDutyHistory()
     QBCore.Functions.TriggerCallback('NomadJustice:server:getDutyHistory', function(playersHistory)
         if not playersHistory or not next(playersHistory) then
-            return JC.Notify('لا يوجد سجل بالوقت الحالي', 'error', 5000)
+            return JC.Notify('No duty records yet', 'error', 5000)
         end
 
         local options = {}
@@ -83,13 +83,13 @@ local function OpenDutyHistory()
             options[#options + 1] = {
                 title = history.name,
                 description = ('%s - %s'):format(history.dutyStatus, history.timeFormated),
-                icon = history.dutyStatus == 'بدأ الدوام' and 'fas fa-right-to-bracket' or 'fas fa-right-from-bracket',
+                icon = (history.dutyStatus == 'Clocked in' or history.dutyStatus == 'بدأ الدوام') and 'fas fa-right-to-bracket' or 'fas fa-right-from-bracket',
             }
         end
 
         lib.registerContext({
             id = 'justice_laptop_duty',
-            title = 'سجل البصمة',
+            title = 'Duty Log',
             options = options,
         })
         lib.showContext('justice_laptop_duty')
@@ -97,11 +97,13 @@ local function OpenDutyHistory()
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إنشاء البلبس والمناطق والشخصيات
+-- Create blips, zones and peds
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
--- ترجمة الأنواع المكتوبة في coords.lua
+-- Point types used in coords.lua (English names, old Arabic names still work)
 local TypeNames = {
+    ['Duty'] = 'Duty', ['Stash'] = 'Stash', ['Case Files'] = 'ReportsView', ['Citizen Panel'] = 'CitizenPanel',
+    ['Case Clerk'] = 'ReportPed', ['Motor Pool Clerk'] = 'VehiclePed', ['Vehicle Spawn'] = 'VehicleSpawn', ['Blip'] = 'Blip',
     ['بصمة'] = 'Duty',
     ['خزنة'] = 'Stash',
     ['رؤية القضايا'] = 'ReportsView',
@@ -112,12 +114,12 @@ local TypeNames = {
     ['علامة الخريطة'] = 'Blip',
 }
 
--- تجميع الإحداثيات حسب النوع: Points.Duty = { {name, coords, model}, ... }
+-- Group points by type: Points.Duty = { {name, coords, model}, ... }
 local Points = {}
 for i, entry in ipairs(JC.Coords) do
     local pointType = type(entry) == 'table' and TypeNames[entry.type]
     if not pointType or not entry.coords then
-        print(('^1[NomadJustice]^7 coords.lua سطر %d: نوع غير معروف "%s" (%s)'):format(i, tostring(entry and entry.type), tostring(entry and entry.name)))
+        print(('^1[NomadJustice]^7 coords.lua line %d: unknown type "%s" (%s)'):format(i, tostring(entry and entry.type), tostring(entry and entry.name)))
     else
         Points[pointType] = Points[pointType] or {}
         table.insert(Points[pointType], entry)
@@ -134,33 +136,33 @@ local function create_blips()
         SetBlipAsShortRange(blip, true)
         SetBlipScale(blip, entry.scale or style.scale or 0.45)
         BeginTextCommandSetBlipName("STRING")
-        AddTextComponentString(entry.name or 'وزارة العدل')
+        AddTextComponentString(entry.name or 'Department of Justice')
         EndTextCommandSetBlipName(blip)
         created_blips[#created_blips + 1] = blip
     end
 end
 
--- الخيارات اللي تظهر عند كل نوع من الإحداثيات
+-- Options shown at each point type
 local PointOptions = {
     Duty = {
         {
             icon = 'fas fa-clipboard',
-            label = 'البصمة',
+            label = 'Clock In / Out',
             job = JOB,
             action = function()
                 local remaining = GetDutyCooldown()
                 if remaining > 0 then
-                    return JC.Notify(('يجب ان تنتظر %s ثانية'):format(remaining), 'error', 5000)
+                    return JC.Notify(('You must wait %s seconds'):format(remaining), 'error', 5000)
                 end
                 dutyCooldownEnd = GetGameTimer() + Settings.DutyCooldown * 1000
-                -- الترتيب مهم: نبدل الدوام أولاً ثم نسجل الحالة الجديدة
+                -- Order matters: toggle duty first, then log the new state
                 TriggerServerEvent('QBCore:ToggleDuty')
                 TriggerServerEvent('NomadJustice:server:updateDutyHistory')
             end,
         },
         {
             icon = 'fas fa-laptop',
-            label = 'سجل البصمة',
+            label = 'Duty Log',
             job = JOB,
             canInteract = IsJusticeBoss,
             action = OpenDutyHistory,
@@ -170,7 +172,7 @@ local PointOptions = {
     Stash = {
         {
             icon = 'fas fa-box',
-            label = 'الخزنة الشخصية',
+            label = 'Personal Locker',
             job = JOB,
             action = function()
                 local stashId = 'justice_stash_' .. QBCore.Functions.GetPlayerData().citizenid
@@ -180,12 +182,12 @@ local PointOptions = {
         },
         {
             icon = 'fas fa-box-archive',
-            label = 'الأرشيف',
+            label = 'Evidence Archive',
             job = JOB,
             canInteract = IsJusticeBoss,
             action = function()
-                local input = lib.inputDialog('قائمة الارشيف', {
-                    { type = 'number', label = 'الرقم الوطني للارشيف', required = true, min = 1 },
+                local input = lib.inputDialog('Evidence Archive', {
+                    { type = 'number', label = 'Archive citizen ID', required = true, min = 1 },
                 })
                 local archiveId = input and tonumber(input[1])
                 if not archiveId or archiveId < 1 then return end
@@ -201,7 +203,7 @@ local PointOptions = {
     ReportsView = {
         {
             icon = 'fas fa-scale-balanced',
-            label = 'رؤية القضايا المقدمة',
+            label = 'View Filed Cases',
             job = JOB,
             action = function()
                 if Settings.Panel.UseTablet ~= false and JC.Tablet then return JC.Tablet.Open('reports') end
@@ -213,7 +215,7 @@ local PointOptions = {
     CitizenPanel = {
         {
             icon = 'fas fa-address-card',
-            label = 'نظام الدولة',
+            label = 'State Records',
             job = JOB,
             action = function() JC.Panel.Open() end,
         },
@@ -223,7 +225,7 @@ local PointOptions = {
 local PointOrder = { 'Duty', 'Stash', 'ReportsView', 'CitizenPanel' }
 
 local function create_zones()
-    -- تجميع الإحداثيات المتطابقة في منطقة وحدة حتى ما تغطي منطقة على الثانية
+    -- Merge identical points into one zone so zones never overlap
     local zones, zoneOrder = {}, {}
     for _, pointType in ipairs(PointOrder) do
         for _, entry in ipairs(Points[pointType] or {}) do
@@ -248,42 +250,42 @@ local function create_zones()
         spawns[i] = entry.coords
     end
 
-    -- بوت تقديم القضايا
+    -- Case clerk ped
     local reportPedOptions = {
         {
             icon = 'fa-solid fa-comment',
-            label = 'تحدث',
+            label = 'Talk',
             action = function()
-                -- التحقق من الجوال فقط إذا lb-phone شغال (لو مو موجود ما نمنع تقديم الدعوى)
+                -- Check for a phone only when lb-phone is running (otherwise filing is not blocked)
                 if GetResourceState('lb-phone') == 'started' then
                     local ok, phoneNumber = pcall(function()
                         return exports['lb-phone']:GetEquippedPhoneNumber()
                     end)
                     if ok and not phoneNumber then
-                        return JC.Notify('يجب ان يتوفر لديك رقم جوال', 'error', 5000)
+                        return JC.Notify('You need a phone number', 'error', 5000)
                     end
                 end
 
                 lib.registerContext({
                     id = 'justice_player_select_menu_reports',
-                    title = 'قائمة القضايا',
+                    title = 'Court Clerk',
                     options = {
                         {
-                            title = 'تقديم دعوى قضائية',
+                            title = 'File a Lawsuit',
                             icon = 'fas fa-file-signature',
-                            description = ('اضغط هنا لكتابة ولطلب تقديم دعوى إلى وزارة العدل برسوم %d دولار'):format(Settings.ReportFee),
+                            description = ('Write and file a lawsuit with the Department of Justice. Filing fee: $%d'):format(Settings.ReportFee),
                             onSelect = JC.Reports.OpenSubmit,
                         },
                         {
-                            title = 'متابعة دعاواي',
+                            title = 'Track My Lawsuits',
                             icon = 'fas fa-list-check',
-                            description = 'حالة الدعاوى التي قدمتها',
+                            description = 'Status of the lawsuits you filed',
                             onSelect = function() JC.Reports.OpenMine('justice_player_select_menu_reports') end,
                         },
                         {
-                            title = 'استدعاءاتي',
+                            title = 'My Summonses',
                             icon = 'fas fa-envelope',
-                            description = 'استدعاءات المحكمة الموجهة لك',
+                            description = 'Court summonses addressed to you',
                             onSelect = function() JC.City.OpenMySummons('justice_player_select_menu_reports') end,
                         },
                     },
@@ -293,11 +295,11 @@ local function create_zones()
         },
     }
 
-    -- بوت مركبات العدل
+    -- Motor pool clerk ped
     local vehiclePedOptions = {
         {
             icon = 'fa-solid fa-car',
-            label = 'تحدث',
+            label = 'Talk',
             job = JOB,
             canInteract = IsJustice,
             action = function()
@@ -311,7 +313,7 @@ local function create_zones()
 
     local peds = data.Peds or {}
     for i, entry in ipairs(Points.ReportPed or {}) do
-        local look = peds['بوت القضايا'] or {}
+        local look = peds['Case Clerk'] or peds['بوت القضايا'] or {}
         SpawnPed('report_ped_' .. i, {
             coords = entry.coords,
             model = entry.model or look.model or 'cs_josh',
@@ -320,7 +322,7 @@ local function create_zones()
         }, reportPedOptions)
     end
     for i, entry in ipairs(Points.VehiclePed or {}) do
-        local look = peds['بوت المركبات'] or {}
+        local look = peds['Motor Pool Clerk'] or peds['بوت المركبات'] or {}
         SpawnPed('vehicle_ped_' .. i, {
             coords = entry.coords,
             model = entry.model or look.model or 'csb_trafficwarden',
@@ -351,7 +353,7 @@ local function cleanup()
     created_zones = {}
 end
 
--- كل جزء لحاله: لو فشل واحد ما يوقف الباقي
+-- Each part on its own: one failing does not stop the rest
 CreateThread(function()
     local ok, err = pcall(create_blips)
     if not ok then print('^1[NomadJustice]^7 create_blips: ' .. tostring(err)) end
@@ -366,7 +368,7 @@ AddEventHandler('onResourceStop', function(resource)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- /jcoords : ينسخ إحداثيتك الحالية بنفس شكل ملف coords.lua
+-- /jcoords : copies your current position in the coords.lua format
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 RegisterCommand('jcoords', function()
@@ -375,16 +377,16 @@ RegisterCommand('jcoords', function()
     local text = ('vector4(%.2f, %.2f, %.2f, %.2f)'):format(c.x, c.y, c.z, GetEntityHeading(ped))
     pcall(lib.setClipboard, text)
     print(text)
-    JC.Notify('تم نسخ الإحداثية: ' .. text, 'success', 10000)
+    JC.Notify('Coordinates copied: ' .. text, 'success', 10000)
 end, false)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التعويض
+-- Compensation
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 RegisterNetEvent('NomadJustice:client:giveMoney', function()
     if not IsJustice() then
-        return JC.Notify('يجب أن تكون من موظفي العدل لاستخدام هذه الميزة', 'error', 5000)
+        return JC.Notify('You must be a DOJ employee to use this', 'error', 5000)
     end
 
     local playerPed = PlayerPedId()
@@ -403,19 +405,19 @@ RegisterNetEvent('NomadJustice:client:giveMoney', function()
     end
 
     if not closestPlayer then
-        return JC.Notify('لا يوجد شخص قريب', 'error', 5000)
+        return JC.Notify('Nobody nearby', 'error', 5000)
     end
 
-    local input = lib.inputDialog('تعويض الشخص', {
-        { type = 'input', label = 'الرقم الوطني', required = true },
-        { type = 'number', label = 'المبلغ', required = true, min = 1, max = Settings.CompensationMax },
+    local input = lib.inputDialog('Compensation', {
+        { type = 'input', label = 'Citizen ID', required = true },
+        { type = 'number', label = 'Amount', required = true, min = 1, max = Settings.CompensationMax },
     })
     if not input then return end
 
     local citizenid = JUtil.Functions.trim(input[1])
     local amount = tonumber(input[2])
     if not citizenid or citizenid == '' or not amount or amount <= 0 then
-        return JC.Notify('البيانات المدخلة غير صحيحة', 'error', 5000)
+        return JC.Notify('The data entered is invalid', 'error', 5000)
     end
 
     TriggerServerEvent('NomadJustice:server:giveMoneyToPlayer', citizenid, math.floor(amount))

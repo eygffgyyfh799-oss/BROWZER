@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أدوات مشتركة لملفات العميل (يُحمّل أولاً)
+-- Shared client helpers (loaded first)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JC = {}
@@ -10,7 +10,7 @@ JC.Job = JC.Settings.Job
 
 local LibTypes = { primary = 'inform', success = 'success', error = 'error', inform = 'inform', warning = 'warning' }
 
--- إشعار: يستخدم إشعار الكور، ولو فشل يستخدم إشعار ox_lib
+-- Notification: uses the core notification, falls back to ox_lib
 function JC.Notify(msg, msgType, length)
     msgType, length = msgType or 'primary', length or 5000
     local ok = pcall(QBCore.Functions.Notify, msg, msgType, length)
@@ -19,7 +19,7 @@ function JC.Notify(msg, msgType, length)
     end
 end
 
--- احتياطي: لو إشعار الكور في السيرفر ما اشتغل، السيرفر يرسل هنا
+-- Fallback: if the server-side core notification fails, the server sends it here
 RegisterNetEvent('NomadJustice:client:notify', function(msg, msgType, length)
     if type(msg) == 'string' then JC.Notify(msg, msgType, length) end
 end)
@@ -38,7 +38,7 @@ function JC.IsBoss()
     return fullAccess ~= nil and (tonumber(grade) or 0) >= fullAccess
 end
 
--- الدور المتوقع من بيانات اللاعب (السيرفر هو اللي يقرر فعلياً)
+-- Expected role from player data (the server makes the real decision)
 function JC.GuessRole()
     local pd = QBCore.Functions.GetPlayerData()
     local job = pd.job or {}
@@ -62,7 +62,7 @@ function JC.GuessRole()
     return nil
 end
 
--- ينتظر نتيجة callback من السيرفر (بحد أقصى 10 ثواني عشان ما تعلق القائمة)
+-- Waits for a server callback result (max 10 seconds so menus never hang)
 function JC.Await(name, ...)
     local p = promise.new()
     local finished = false
@@ -79,7 +79,7 @@ function JC.Await(name, ...)
     return Citizen.Await(p)
 end
 
--- مثل Await لكن: يمنع الضغط المزدوج، ويعرض رسالة الخطأ تلقائياً ويرجع nil عند الفشل
+-- Like Await but: blocks double clicks, shows the error automatically and returns nil on failure
 local inFlight = {}
 
 function JC.Call(name, ...)
@@ -90,15 +90,15 @@ function JC.Call(name, ...)
 
     if not ok then
         print(('^1[NomadJustice] %s: %s^7'):format(name, tostring(result)))
-        JC.Notify('حدث خطأ غير متوقع، حاول مرة ثانية', 'error')
+        JC.Notify('An unexpected error occurred, try again', 'error')
         return nil
     end
     if type(result) ~= 'table' then
-        JC.Notify('السيرفر ما رد، حاول مرة ثانية', 'error')
+        JC.Notify('The server did not respond, try again', 'error')
         return nil
     end
     if result.ok == false then
-        JC.Notify(result.err or 'حدث خطأ', 'error')
+        JC.Notify(result.err or 'Something went wrong', 'error')
         return nil
     end
     return result
@@ -111,8 +111,8 @@ function JC.Money(value)
 end
 
 function JC.Gender(value)
-    if tonumber(value) == 0 then return 'ذكر' end
-    if tonumber(value) == 1 then return 'أنثى' end
+    if tonumber(value) == 0 then return 'Male' end
+    if tonumber(value) == 1 then return 'Female' end
     return '-'
 end
 
@@ -125,9 +125,9 @@ function JC.Utf8Len(str)
     return utf8.len(str) or #str
 end
 
--- اسم الشارع والمنطقة من الإحداثيات
+-- Street and area name from coordinates
 function JC.GetStreet(coords)
-    if not coords then return 'غير معروف' end
+    if not coords then return 'Unknown' end
     local streetHash, crossingHash = GetStreetNameAtCoord(coords.x, coords.y, coords.z)
     local street = GetStreetNameFromHashKey(streetHash)
     local crossing = crossingHash ~= 0 and GetStreetNameFromHashKey(crossingHash) or nil
@@ -139,7 +139,7 @@ function JC.GetStreet(coords)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- وضع علامة مؤقتة على الخريطة
+-- Place a temporary map blip
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local tempBlips = {}

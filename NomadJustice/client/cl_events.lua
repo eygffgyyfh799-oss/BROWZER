@@ -43,23 +43,23 @@ local function SpawnJusticeVehicle(data, value)
     CleanupSpawnedVehicles()
 
     if #spawnedVehicles >= Settings.MaxSpawnedVehicles then
-        return JC.Notify('يجب ارجاع المركبة الحالية قبل استخراج مركبة جديدة', 'error', 7500)
+        return JC.Notify('Return your current vehicle before taking a new one', 'error', 7500)
     end
 
     local modelName = GetVehicleModel(value)
     local model = joaat(modelName)
     if not IsModelInCdimage(model) or not IsModelAVehicle(model) then
-        return JC.Notify('المركبة غير متوفرة: ' .. tostring(modelName), 'error', 7500)
+        return JC.Notify('Vehicle not available: ' .. tostring(modelName), 'error', 7500)
     end
 
     local coords = GetSpawn(data.vehSpawns or {})
     if not coords then
-        return JC.Notify('لا يوجد مكان فارغ لاستخراج المركبة', 'error', 7500)
+        return JC.Notify('No free spot to bring the vehicle out', 'error', 7500)
     end
 
     pcall(lib.requestModel, model, 10000)
     if not HasModelLoaded(model) then
-        return JC.Notify('تعذر تحميل المركبة، حاول مرة أخرى', 'error', 7500)
+        return JC.Notify('Could not load the vehicle, try again', 'error', 7500)
     end
 
     DoScreenFadeOut(300)
@@ -71,7 +71,7 @@ local function SpawnJusticeVehicle(data, value)
 
     if not DoesEntityExist(veh) then
         DoScreenFadeIn(500)
-        return JC.Notify('تعذر استخراج المركبة', 'error', 7500)
+        return JC.Notify('Could not take out the vehicle', 'error', 7500)
     end
 
     local netId = NetworkGetNetworkIdFromEntity(veh)
@@ -94,7 +94,7 @@ local function SpawnJusticeVehicle(data, value)
         SetVehicleWindowTint(veh, value.windowTint)
     end
 
-    -- لوحة المركبة لا تتجاوز 8 أحرف
+    -- Plates are at most 8 characters
     SetVehicleNumberPlateText(veh, ('J' .. QBCore.Functions.GetPlayerData().citizenid):sub(1, 8))
 
     SetVehicleFuelLevel(veh, Settings.VehicleFuel + 0.0)
@@ -125,7 +125,7 @@ local function ReturnVehicle(index)
     end
 
     table.remove(spawnedVehicles, index)
-    JC.Notify('تم ارجاع المركبة', 'success', 5000)
+    JC.Notify('Vehicle returned', 'success', 5000)
 end
 
 AddEventHandler('NomadJustice:client:spawnVehicleMenu', function(data)
@@ -138,7 +138,7 @@ AddEventHandler('NomadJustice:client:spawnVehicleMenu', function(data)
     for index, entry in ipairs(spawnedVehicles) do
         options[#options + 1] = {
             title = ('%s | %s'):format(entry.label, GetVehicleNumberPlateText(entry.vehicle)),
-            description = 'ارجاع المركبة',
+            description = 'Return vehicle',
             icon = 'fas fa-rotate-left',
             onSelect = function() ReturnVehicle(index) end,
         }
@@ -154,7 +154,7 @@ AddEventHandler('NomadJustice:client:spawnVehicleMenu', function(data)
 
     lib.registerContext({
         id = 'openJusticeVehiclesGarage',
-        title = 'قائمة سيارات العدل',
+        title = 'DOJ Motor Pool',
         logo = true,
         options = options,
     })

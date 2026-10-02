@@ -1,7 +1,7 @@
 JUtil = {}
 JUtil.Functions = {}
 
--- الكور: qb-core (تقدر تغيّر الاسم من server.cfg:  setr justice_core "qb-core")
+-- Core: qb-core (you can change the name from server.cfg:  setr justice_core "qb-core")
 JCoreResource = GetConvar('justice_core', 'qb-core')
 QBCore = exports[JCoreResource]:GetCoreObject()
 
@@ -12,7 +12,7 @@ local function Warn(msg)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تحميل ملفات modules
+-- Load module files
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Load(name)
@@ -27,29 +27,29 @@ function Load(name)
 	return fn()
 end
 
--- مثل Load لكن ما يوقف السكربت: يطبع الخطأ بشكل واضح (اسم الملف + رقم السطر) ويرجع nil
+-- Like Load but never stops the script: prints the error clearly (file name + line number) and returns nil
 local function SafeLoad(name)
 	local chunk = LoadResourceFile(resourceName, ('modules/%s.lua'):format(name))
 	if not chunk then
-		print(('^1[NomadJustice] الملف modules/%s.lua غير موجود^7'):format(name))
+		print(('^1[NomadJustice] File modules/%s.lua not found^7'):format(name))
 		return nil
 	end
 	local fn, err = load(chunk, ('=%s.lua'):format(name), 't')
 	if not fn then
-		print(('^1[NomadJustice] خطأ كتابة في ملف %s.lua ← %s^7'):format(name, tostring(err)))
-		print('^1[NomadJustice] غالباً فاصلة ناقصة , أو قوس ناقص } أو علامة \' ناقصة في السطر المذكور أو اللي قبله^7')
+		print(('^1[NomadJustice] Syntax error in %s.lua -> %s^7'):format(name, tostring(err)))
+		print('^1[NomadJustice] Usually a missing comma , a missing brace } or a missing quote \' on that line or the one before it^7')
 		return nil
 	end
 	local ok, result = pcall(fn)
 	if not ok then
-		print(('^1[NomadJustice] خطأ في ملف %s.lua ← %s^7'):format(name, tostring(result)))
+		print(('^1[NomadJustice] Error in %s.lua -> %s^7'):format(name, tostring(result)))
 		return nil
 	end
 	return result
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الإعدادات الافتراضية: أي إعداد ينحذف أو ينسى من config.lua ياخذ القيمة هذي بدل ما يعطل السكربت
+-- Defaults: any setting removed or forgotten in config.lua falls back to these values instead of breaking the script
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Defaults = {
@@ -61,7 +61,7 @@ local Defaults = {
 		PersonalStash = { maxweight = 100000, slots = 100 },
 		ArchiveStash = { maxweight = 100000, slots = 200 },
 		MaxSpawnedVehicles = 1, VehicleFuel = 75.0,
-		CaseTypes = { 'مدنية', 'جنائية', 'مرورية', 'عقارية', 'تجارية', 'أسرية', 'عمالية', 'أخرى' },
+		CaseTypes = { 'Civil', 'Criminal', 'Traffic', 'Real Estate', 'Commercial', 'Family', 'Labor', 'Other' },
 		ReportTitleMax = 80, ReportWitnessesMax = 200, ReportEvidenceMax = 500, ReportNoteMax = 500,
 		Panel = {
 			Command = 'justice', RequireDuty = true, FullAccessGrade = 10, UseTablet = true, Key = '9', TabletAnimation = true,
@@ -93,11 +93,11 @@ local Defaults = {
 			Players = 'players', Vehicles = 'player_vehicles',
 			Houses = { table = 'player_houses', owner = 'citizenid', label = 'house', id = 'id' },
 		},
-		Licenses = { driver = 'رخصة القيادة', weapon = 'رخصة السلاح' },
+		Licenses = { driver = 'Driver License', weapon = 'Weapon License' },
 	},
 	Peds = {
-		['بوت القضايا'] = { model = 'cs_josh' },
-		['بوت المركبات'] = { model = 'csb_trafficwarden' },
+		['Case Clerk'] = { model = 'cs_josh' },
+		['Motor Pool Clerk'] = { model = 'csb_trafficwarden' },
 	},
 	Blip = { sprite = 176, colour = 0, scale = 0.45 },
 	Vehicles = {},
@@ -105,12 +105,12 @@ local Defaults = {
 	DebugZones = false,
 }
 
--- القوائم (مصفوفات) تنسخ كاملة، والجداول العادية تنكمل مفتاح مفتاح
+-- Lists (arrays) are copied whole, plain tables are merged key by key
 local function IsArray(t)
 	return type(t) == 'table' and (next(t) == nil or t[1] ~= nil)
 end
 
--- جداول يحددها صاحب السيرفر بالكامل: إذا موجودة ما نضيف فيها شي (عشان ما يرجع شي حذفته)
+-- Tables fully owned by the server owner: if present we add nothing (so removed entries stay removed)
 local NoMerge = { Licenses = true, Peds = true, WebhookSkip = true, Society = true, Houses = true, Sectors = true }
 
 local quiet = false
@@ -119,21 +119,21 @@ local function FillDefaults(target, defaults, path)
 	for key, value in pairs(defaults) do
 		local current = target[key]
 		if NoMerge[key] and type(current) == 'table' then
-			-- موجود: نتركه مثل ما هو
+			-- Present: keep as is
 		elseif current == false and type(value) ~= 'table' then
-			-- false = مقفلة عمداً (مثل صلاحية مقفلة)
+			-- false = intentionally disabled (e.g. a locked permission)
 		elseif current == nil then
 			target[key] = value
-			if path ~= '' and not quiet then Warn(('الإعداد %s%s ناقص في config.lua، تم استخدام القيمة الافتراضية'):format(path, key)) end
+			if path ~= '' and not quiet then Warn(('Setting %s%s is missing in config.lua, using the default'):format(path, key)) end
 		elseif type(value) == 'table' and not IsArray(value) then
 			if type(current) ~= 'table' then
-				Warn(('الإعداد %s%s لازم يكون جدول { }، تم استخدام القيمة الافتراضية'):format(path, key))
+				Warn(('Setting %s%s must be a table { }, using the default'):format(path, key))
 				target[key] = value
 			else
 				FillDefaults(current, value, path .. key .. '.')
 			end
 		elseif type(value) ~= type(current) and not (type(value) == 'number' and tonumber(current)) then
-			Warn(('الإعداد %s%s نوعه غلط (المفروض %s)، تم استخدام القيمة الافتراضية'):format(path, key, type(value)))
+			Warn(('Setting %s%s has the wrong type (expected %s), using the default'):format(path, key, type(value)))
 			target[key] = value
 		end
 	end
@@ -146,7 +146,7 @@ function LoadConfig()
 
 	local cfg = SafeLoad('config')
 	if type(cfg) ~= 'table' then
-		print('^1[NomadJustice] ملف config.lua فيه خطأ، السكربت يشتغل بالإعدادات الافتراضية لين تصلحه^7')
+		print('^1[NomadJustice] config.lua has an error, the script runs on defaults until you fix it^7')
 		cfg = {}
 		quiet = true
 	end
@@ -154,10 +154,10 @@ function LoadConfig()
 	FillDefaults(cfg, Defaults, '')
 	quiet = false
 
-	-- الصلاحيات: القيمة لازم تكون رقم أو 'boss'
+	-- Permissions: the value must be a number or 'boss'
 	for action, value in pairs(cfg.Settings.Panel.Permissions) do
 		if value ~= 'boss' and value ~= false and not tonumber(value) then
-			Warn(("الصلاحية %s قيمتها غلط (%s)، لازم رقم أو 'boss'، تم تحويلها إلى 'boss'"):format(action, tostring(value)))
+			Warn(("Permission %s has an invalid value (%s), it must be a number or 'boss', converted to 'boss'"):format(action, tostring(value)))
 			cfg.Settings.Panel.Permissions[action] = 'boss'
 		end
 	end
@@ -168,7 +168,7 @@ function LoadConfig()
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الإحداثيات: يتأكد من كل سطر ويتخطى السطر الغلط مع رسالة واضحة بدل ما يعطل الكل
+-- Coordinates: validates every line and skips bad ones with a clear message instead of breaking everything
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local coordsCache
@@ -178,7 +178,7 @@ function LoadCoords()
 
 	local list = SafeLoad('coords')
 	if type(list) ~= 'table' then
-		print('^1[NomadJustice] ملف coords.lua فيه خطأ، ما راح تطلع أي نقطة لين تصلحه^7')
+		print('^1[NomadJustice] coords.lua has an error, no points will appear until you fix it^7')
 		coordsCache = {}
 		return coordsCache
 	end
@@ -189,11 +189,11 @@ function LoadCoords()
 		local c = type(entry) == 'table' and entry.coords
 		local ok = c ~= nil and tonumber(c.x) and tonumber(c.y) and tonumber(c.z)
 		if type(entry) ~= 'table' then
-			Warn(('coords.lua السطر رقم %d: لازم يكون بين { }'):format(i))
+			Warn(('coords.lua line %d: must be wrapped in { }'):format(i))
 		elseif type(entry.type) ~= 'string' then
-			Warn(('coords.lua السطر رقم %d (%s): type ناقص'):format(i, label))
+			Warn(('coords.lua line %d (%s): type is missing'):format(i, label))
 		elseif not ok then
-			Warn(('coords.lua السطر رقم %d (%s): coords غلط، لازم vector4(X, Y, Z, الاتجاه)'):format(i, label))
+			Warn(('coords.lua line %d (%s): invalid coords, must be vector4(X, Y, Z, heading)'):format(i, label))
 		else
 			valid[#valid + 1] = entry
 		end
@@ -204,7 +204,7 @@ function LoadCoords()
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أدوات عامة
+-- General helpers
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JUtil.Functions.formatDateReports = function(timestamp)
