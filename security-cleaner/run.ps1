@@ -10,11 +10,11 @@
     Clear-Host
     Write-Host ''
     Write-Host '  ==============================================' -ForegroundColor Cyan
-    Write-Host '               SECURITY CLEANER v3' -ForegroundColor Cyan
+    Write-Host '               SECURITY CLEANER v4' -ForegroundColor Cyan
     Write-Host '  ==============================================' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '   1  Full check + clean + junk cleanup   (recommended, 1-3 hours)' -ForegroundColor Green
-    Write-Host '   2  Fast check + clean + junk cleanup   (about 20-40 minutes)'
+    Write-Host '   2  Fast auto-clean + junk cleanup      (about 10-20 minutes)'
     Write-Host '   3  Only clean temp / junk files        (a few minutes)'
     Write-Host '   4  Only scan (report, change nothing)'
     Write-Host '   5  Undo: restore quarantined files'
@@ -22,8 +22,8 @@
     $choice = Read-Host '  Type a number and press Enter'
 
     switch ($choice.Trim()) {
-        '1' { $opts = '-FullScan -SecondOpinion -Clean -AutoFixHigh -CleanJunk' }
-        '2' { $opts = '-Clean -AutoFixHigh -CleanJunk' }
+        '1' { $opts = '-FullScan -SecondOpinion -Auto -CleanJunk' }
+        '2' { $opts = '-Auto -CleanJunk' }
         '3' { $opts = '-JunkOnly' }
         '4' { $opts = '' }
         '5' { $opts = '-Restore' }

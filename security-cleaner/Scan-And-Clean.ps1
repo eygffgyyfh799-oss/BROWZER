@@ -56,12 +56,13 @@ param(
     [switch]$CleanJunk,
     [switch]$JunkOnly,
     [switch]$Restore,
+    [switch]$Auto,
     [string[]]$Trust = @()
 )
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
-$Version = '3.5'
+$Version = '4.0'
 
 # ---------------------------------------------------------------- setup
 
@@ -382,7 +383,7 @@ function Format-Size([double]$Bytes) {
 }
 
 # Deletes temp/cache/junk files only. Every target is a cache or temp folder that Windows and apps rebuild.
-function Clear-JunkFiles {
+function Clear-JunkFiles([switch]$NoPrompt, [switch]$EmptyRecycleBin) {
     Write-Section 'Cleaning temporary / junk files'
     $targets = New-Object System.Collections.Generic.List[object]
     $add = { param($name, $path, $hours) if ($path) { $targets.Add([pscustomobject]@{ Name = $name; Path = $path; Hours = $hours }) } }
@@ -446,7 +447,8 @@ function Clear-JunkFiles {
         $total += $freed
     }
     try { Delete-DeliveryOptimizationCache -Force -ErrorAction Stop; Write-Host '  Delivery Optimization cache cleared' } catch { }
-    $rb = Read-Host '  Also empty the Recycle Bin? (y/n)'
+    $rb = 'n'
+    if ($EmptyRecycleBin) { $rb = 'y' } elseif (-not $NoPrompt) { $rb = Read-Host '  Also empty the Recycle Bin? (y/n)' }
     if ($rb -match '^[yY]') { try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Host '  Recycle Bin emptied' } catch { } }
     Write-Host ("  Total freed: {0}" -f (Format-Size $total)) -ForegroundColor Green
 }
@@ -1187,6 +1189,8 @@ if ($mpOk -and -not $SkipDefenderScan) {
     } catch { Write-Host "  Scan error: $_" -ForegroundColor Yellow }
     if (-not $FullScan) {
         $customPaths = @($ScanPaths) + @($Downloads, $Desktop, $env:APPDATA, $env:LOCALAPPDATA, $env:TEMP, $env:ProgramData, $SteamPath) + @($resourceDirs.Values)
+        # auto mode = fast: the quick scan already covers memory, startup and system locations
+        if ($Auto) { $customPaths = @($ScanPaths) + @($Downloads, $env:TEMP) }
         foreach ($p in ($customPaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)) {
             Write-Host "  Custom scan: $p"
             try { Start-MpScan -ScanType CustomScan -ScanPath $p -ErrorAction Stop } catch { Write-Host "    error: $_" -ForegroundColor Yellow }
@@ -1339,13 +1343,98 @@ function New-SafetyRestorePoint {
     }
 }
 
+# ---------------------------------------------------------------- auto mode
+# Confirmed threats (High) that do not remove files are fixed automatically (all reversible).
+# Everything that moves or deletes files, and every uncertain (Medium) item, waits for ONE approval at the end.
+
+function Invoke-FixSafe($f) {
+    try { Invoke-Fix $f; return 'done' }
+    catch { if ("$_" -like 'skipped for safety*') { return "protected: $_" } else { return "failed: $_" } }
+}
+
+if ($Auto) {
+    Write-Section 'Automatic cleaning (nothing is deleted in this step)'
+    New-SafetyRestorePoint
+    $autoActions = @('KillProcess','WmiRemove','TaskDisable','ServiceDisable','RegDeleteValue','RegSetValue','MpExclusionRemove',
+                     'MpAllowRemove','FirewallRuleDisable','HostsReset','ProxyDisable')
+    $alwaysSafe  = @('DefenderEnable','MpHarden','FirewallEnable')   # only turn protection back ON
+    $order = @{ KillProcess = 0; WmiRemove = 1; TaskDisable = 1; ServiceDisable = 1; RegDeleteValue = 1; RegSetValue = 1 }
+    $autoList = @($Findings | Where-Object { $_.Action -and $_.Severity -ne 'Info' -and
+        ($_.Action -in $alwaysSafe -or ($_.Severity -eq 'High' -and $_.Action -in $autoActions)) } |
+        Sort-Object @{ Expression = { $o = $order[$_.Action]; if ($null -eq $o) { 2 } else { $o } } }, Id)
+    if ($autoList.Count -eq 0) { Write-Host '  Nothing to fix automatically.' -ForegroundColor Green }
+    foreach ($f in $autoList) {
+        $r = Invoke-FixSafe $f
+        $c = 'Green'; if ($r -like 'failed*') { $c = 'Red' } elseif ($r -like 'protected*') { $c = 'Cyan' }
+        Write-Host ("  [{0}] {1}: {2}" -f $r, $f.FixText, $f.Item) -ForegroundColor $c
+    }
+
+    # ---- final step: one approval for everything that removes files or is not certain
+    $final = New-Object System.Collections.Generic.List[object]
+    foreach ($f in @($Findings | Where-Object { $_.Action -and $_.Severity -ne 'Info' -and $autoList -notcontains $_ } |
+                     Sort-Object @{ Expression = { if ($_.Severity -eq 'High') { 0 } else { 1 } } }, Id)) {
+        $what = $f.FixText
+        if ($f.Action -eq 'Quarantine') { $what = 'Move to quarantine (restorable)' }
+        if ($f.Action -eq 'MpThreatRemove') { $what = 'Let Defender remove detected threats' }
+        $final.Add([pscustomobject]@{ Sev = $f.Severity; What = $what; Item = $f.Item; Why = "$($f.Category): $($f.Detail)"; Finding = $f; Kind = 'fix' })
+    }
+    if ($CleanJunk) {
+        $final.Add([pscustomobject]@{ Sev = 'Info'; What = 'Delete temporary/cache files'; Item = 'Temp, crash dumps, error reports, shader/browser/Discord/FiveM caches'
+            Why = 'Only temporary files that Windows and apps recreate. Your files, passwords and settings are not touched.'; Finding = $null; Kind = 'junk' })
+        $final.Add([pscustomobject]@{ Sev = 'Info'; What = 'Empty the Recycle Bin'; Item = 'Recycle Bin'
+            Why = 'Permanently deletes what is in the Recycle Bin. Skip it if you may need something from there.'; Finding = $null; Kind = 'bin' })
+    }
+
+    if ($final.Count -gt 0) {
+        Write-Section 'FINAL STEP - your approval is needed'
+        Write-Host '  These items remove or move files, or are not 100% certain. Read the reason for each one:' -ForegroundColor Yellow
+        for ($i = 0; $i -lt $final.Count; $i++) {
+            $x = $final[$i]
+            $c = @{ High = 'Red'; Medium = 'Yellow'; Info = 'Gray' }[$x.Sev]
+            Write-Host ''
+            Write-Host ("  {0,2}. [{1}] {2}" -f ($i + 1), $x.Sev, $x.What) -ForegroundColor $c
+            Write-Host ("      Item:   {0}" -f $x.Item)
+            $why = $x.Why; if ($why.Length -gt 300) { $why = $why.Substring(0, 300) + '...' }
+            Write-Host ("      Reason: {0}" -f $why) -ForegroundColor DarkGray
+        }
+        Write-Host ''
+        Write-Host '  y       = approve ALL items above' -ForegroundColor Cyan
+        Write-Host '  n       = approve nothing (leave everything as it is)' -ForegroundColor Cyan
+        Write-Host '  numbers = approve all EXCEPT these, e.g.  3,5,7' -ForegroundColor Cyan
+        $ans = (Read-Host '  Your choice').Trim()
+        $skip = @()
+        $go = $true
+        if ($ans -match '^[nN]') { $go = $false }
+        elseif ($ans -match '^[0-9 ,]+$') { $skip = @($ans -split '[ ,]+' | Where-Object { $_ } | ForEach-Object { [int]$_ }) }
+        elseif ($ans -notmatch '^[yY]') { $go = $false; Write-Host '  Not understood - nothing was changed.' -ForegroundColor Yellow }
+        if ($go) {
+            $wantJunk = $false; $wantBin = $false
+            for ($i = 0; $i -lt $final.Count; $i++) {
+                if ($skip -contains ($i + 1)) { continue }
+                $x = $final[$i]
+                if ($x.Kind -eq 'junk') { $wantJunk = $true; continue }
+                if ($x.Kind -eq 'bin') { $wantBin = $true; continue }
+                $r = Invoke-FixSafe $x.Finding
+                $c = 'Green'; if ($r -like 'failed*') { $c = 'Red' } elseif ($r -like 'protected*') { $c = 'Cyan' }
+                Write-Host ("  {0,2}. [{1}] {2}" -f ($i + 1), $r, $x.Item) -ForegroundColor $c
+            }
+            if ($wantJunk) { Clear-JunkFiles -NoPrompt -EmptyRecycleBin:$wantBin }
+            elseif ($wantBin) { try { Clear-RecycleBin -Force -ErrorAction Stop; Write-Host '  Recycle Bin emptied' } catch { } }
+        }
+    }
+    Write-Host ''
+    if (Test-Path -LiteralPath $QDir) { Write-Host "  Quarantine and backups: $QDir  (undo: .\Scan-And-Clean.ps1 -Restore)" }
+    Write-Host '  Done. Restart the PC to finish.' -ForegroundColor Green
+    if ($high.Count -gt 0) { Write-Host '  High items were found - for the deepest check later run:  Start-MpWDOScan  (restarts the PC)' -ForegroundColor Yellow }
+}
+
 $fixable = @($Findings | Where-Object { $_.Severity -ne 'Info' -and $_.Action })
-if (-not $Clean -and $fixable.Count -gt 0) {
+if (-not $Clean -and -not $Auto -and $fixable.Count -gt 0) {
     $ans = Read-Host "`nFound $($fixable.Count) item(s) that can be cleaned. Start cleaning now? (y/n)"
     if ($ans -match '^[yY]') { $Clean = $true }
 }
 
-if ($Clean -and $fixable.Count -gt 0) {
+if ($Clean -and -not $Auto -and $fixable.Count -gt 0) {
     Write-Section 'Cleaning'
     New-SafetyRestorePoint
     Write-Host '  For each item: y = fix, n = skip, a = fix this and all remaining, q = stop' -ForegroundColor Cyan
@@ -1383,11 +1472,11 @@ if ($Clean -and $fixable.Count -gt 0) {
 }
 
 if ($SecondOpinion) { Invoke-SecondOpinion }
-if ($CleanJunk) { Clear-JunkFiles }
+if ($CleanJunk -and -not $Auto) { Clear-JunkFiles }
 
 if ($mpOk) {
     $doOffline = $OfflineScan
-    if (-not $doOffline -and ($high.Count -gt 0)) {
+    if (-not $doOffline -and -not $Auto -and ($high.Count -gt 0)) {
         $ans = Read-Host "`nHigh items were found. Run Microsoft Defender OFFLINE scan now? It restarts the PC immediately (~15 min). (y/n)"
         if ($ans -match '^[yY]') { $doOffline = $true }
     }
