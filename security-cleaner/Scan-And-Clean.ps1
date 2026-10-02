@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.1'
+$Version = '6.2'
 
 # ---------------------------------------------------------------- setup
 
@@ -100,6 +100,19 @@ $script:ThreatDbAdded = 0
 if (Test-Path -LiteralPath $ThreatDbFile) {
     try { Import-Csv -LiteralPath $ThreatDbFile | ForEach-Object { if ($_.Sha256) { $script:ThreatDb[$_.Sha256.ToUpperInvariant()] = $_ } } } catch { }
 }
+function Test-ReadOnlyMedia([string]$Path) {
+    try { return ((New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($Path))).DriveType -eq [IO.DriveType]::CDRom) } catch { return $false }
+}
+# autorun.inf in the root of a drive other than C: - typically the read-only installer of a USB 4G/5G internet modem
+function Test-RemovableAutorun([string]$Path) {
+    if (-not $Path -or $Path -notmatch '(?i)^([a-z]):\\autorun\.inf$') { return $false }
+    return ($Matches[1] + ':') -ine $env:SystemDrive
+}
+function Get-DetectionPath($Detection) {
+    foreach ($res in @($Detection.Resources)) { if ([string]$res -match '^(file|containerfile):_(.+?)(->.*)?$') { return $Matches[2] } }
+    return $null
+}
+
 function Add-ThreatDbEntry([string]$Path, [string]$Category, [string]$Reason) {
     try {
         if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
@@ -249,7 +262,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\))$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\)|Password stealer was on this PC)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -1767,14 +1780,26 @@ if ($mpOk) {
         $threats = @(Get-MpThreat -ErrorAction SilentlyContinue)
         $detections = @(Get-MpThreatDetection -ErrorAction Stop)
         # 2 cleaned, 3 quarantined, 4 removed, 6 blocked = handled. 5 = "Allowed" by the user, which is exactly what cracks ask you to do.
-        $pending = @($detections | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 })
-        foreach ($d in $detections | Sort-Object InitialDetectionTime -Descending | Select-Object -First 50) {
+        $pending = @($detections | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 -and -not (Test-RemovableAutorun (Get-DetectionPath $_)) })
+        $groups = @($detections | Group-Object { "$($_.ThreatID)|" + [string](@($_.Resources) | Select-Object -First 1) } |
+            Sort-Object { ($_.Group | Sort-Object InitialDetectionTime -Descending | Select-Object -First 1).InitialDetectionTime } -Descending)
+        foreach ($g in $groups | Select-Object -First 50) {
+            $d = $g.Group | Sort-Object InitialDetectionTime -Descending | Select-Object -First 1
             $name = ($threats | Where-Object { $_.ThreatID -eq $d.ThreatID } | Select-Object -First 1).ThreatName
             if (-not $name) { $name = "ThreatID $($d.ThreatID)" }
             $sev = 'Info'; $state = 'handled'
-            if ($d.ThreatStatusID -notin 2, 3, 4, 6) { $sev = 'High'; $state = 'NOT removed' }
+            if (@($g.Group | Where-Object { $_.ThreatStatusID -notin 2, 3, 4, 6 }).Count -gt 0 -and $d.ThreatStatusID -notin 2, 3, 4, 6) { $sev = 'High'; $state = 'NOT removed' }
             if ($d.ThreatStatusID -eq 5) { $state = 'ALLOWED by user' }
-            Add-Finding 'Defender detection' $sev "$name ($state)" ("{0} | {1}" -f $d.InitialDetectionTime, (($d.Resources | Select-Object -First 3) -join ' ; '))
+            $dp = Get-DetectionPath $d
+            if (Test-RemovableAutorun $dp) {
+                $sev = 'Info'; $state = 'autorun.inf on another drive - if it is a USB internet modem this is its read-only installer (harmless); if it is a normal USB stick, back it up and format it'
+            }
+            $when = "$($d.InitialDetectionTime)"; if ($g.Count -gt 1) { $when = "$($g.Count) times, last $($d.InitialDetectionTime)" }
+            Add-Finding 'Defender detection' $sev "$name ($state)" ("{0} | {1}" -f $when, ((@($d.Resources) | Select-Object -First 3) -join ' ; '))
+            # a password stealer that ever ran here means the passwords must be changed, even if it was removed later
+            if ($name -match '(?i)formbook|redline|lumma|vidar|raccoon|agenttesla|lokibot|azorult|stealc|remcos|redcap|risepro|meduza|stealer|PSW[:/]|PWS[:/]|SpyEye|Tesla') {
+                Add-Finding 'Password stealer was on this PC' 'Medium' "$name ($($d.InitialDetectionTime))" "A password stealer was found here. Even though it was removed, assume your saved passwords, cookies and Discord token were stolen: change your passwords from ANOTHER device and log out all sessions." -Tech "Defender detection: $name in $(Get-DetectionPath $d)"
+            }
         }
         if ($pending.Count -gt 0) {
             Add-Finding 'Defender' 'High' "$($pending.Count) threat(s) still waiting for action" '' -Action 'MpThreatRemove' -FixText 'Let Defender remove all detected threats'
@@ -2008,6 +2033,10 @@ if ($Strict) {
             }
             foreach ($v in $left.Values) {
                 $pp = $v[0]; $tn = $names[$v[1]]; if (-not $tn) { $tn = "ThreatID $($v[1])" }
+                if ((Test-ReadOnlyMedia $pp) -or (Test-RemovableAutorun $pp)) {
+                    Write-Op 'Quarantine Defender detection' $pp 'SKIPPED - read-only drive' "$tn. Read-only installer drive (e.g. USB internet modem). It cannot be changed and Windows does not auto-run it - nothing to do."
+                    continue
+                }
                 $refs = $active[$pp.ToLowerInvariant()]
                 if ($refs) { Write-Op 'Quarantine Defender detection' $pp 'SKIPPED - in use' ("$tn. Still used by: " + (($refs | Select-Object -Unique) -join '; ')); continue }
                 $why = Test-ProtectedPath $pp
@@ -2028,7 +2057,8 @@ if ($Strict) {
     # 6. everything else is reported only
     $handled = @($script:Ops | ForEach-Object { $_.Target })
     $reportOnly = @($Findings | Where-Object { $_.Severity -ne 'Info' -and $handled -notcontains $_.Item -and $handled -notcontains [string]$_.Data.Path -and
-        $_.Action -ne 'MpThreatRemove' -and -not ($_.Action -eq 'KillProcess' -and $_.Category -match $killCats -and $_.Severity -eq 'High') })
+        $_.Action -ne 'MpThreatRemove' -and $_.Category -ne 'Defender detection' -and
+        -not ($_.Action -eq 'KillProcess' -and $_.Category -match $killCats -and $_.Severity -eq 'High') })
 
     # ---- detailed report
     $done = @($script:Ops | Where-Object Result -eq 'DONE')
