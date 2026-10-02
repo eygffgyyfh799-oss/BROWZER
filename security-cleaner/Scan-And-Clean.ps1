@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '7.1'
+$Version = '7.2'
 
 # ---------------------------------------------------------------- setup
 
@@ -772,7 +772,7 @@ function Invoke-ServerScan([string[]]$Roots) {
     foreach ($v in $clean) { $plan.Add([pscustomobject]@{ V = $v; Act = 'clean' }) }
     foreach ($v in $malf)  { $plan.Add([pscustomobject]@{ V = $v; Act = 'quarantine' }) }
 
-    $done = @(); $failed = @()
+    $done = @(); $failed = @(); $keptByUser = @()
     foreach ($v in $inf) { $failed += [pscustomobject]@{ Path = $v.Path; Why = "INFECTED - could not be cleaned safely, NOT touched: $($v.Reason)" } }
     if ($plan.Count -gt 0) {
         Write-Section 'FINAL STEP - your approval is needed'
@@ -802,7 +802,7 @@ function Invoke-ServerScan([string[]]$Roots) {
         elseif ($ans -notmatch '^[yY]') { $go = $false; Write-Host '  Not understood - nothing was changed.' -ForegroundColor Yellow }
         if ($go) {
             for ($i = 0; $i -lt $plan.Count; $i++) {
-                if ($skip -contains ($i + 1)) { $failed += [pscustomobject]@{ Path = $plan[$i].V.Path; Why = 'skipped by you - still infected' }; continue }
+                if ($skip -contains ($i + 1)) { $keptByUser += $plan[$i].V.Path; continue }   # your decision: never in the delete command
                 $x = $plan[$i]
                 try {
                     if ($x.Act -eq 'clean') {
@@ -829,6 +829,12 @@ function Invoke-ServerScan([string[]]$Roots) {
     $rep.Add('')
     Write-Section 'Summary'
     foreach ($d in $done) { Write-Host "  $d" -ForegroundColor Green; $rep.Add($d) }
+    if ($keptByUser.Count -gt 0) {
+        Write-Host ''
+        Write-Host '  KEPT AS IS (you chose to keep them - not touched, not in any delete command):' -ForegroundColor Cyan
+        $rep.Add(''); $rep.Add('KEPT AS IS (your choice):')
+        foreach ($k in $keptByUser) { Write-Host "    $k"; $rep.Add("  $k") }
+    }
     if ($failed.Count -gt 0) {
         Write-Host ''
         Write-Host '  INFECTED FILES THAT WERE NOT CLEANED:' -ForegroundColor Red
