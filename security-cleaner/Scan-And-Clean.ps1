@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.3'
+$Version = '6.4'
 
 # ---------------------------------------------------------------- setup
 
@@ -264,7 +264,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\)|Password stealer was on this PC|Ransomware activity|Worm activity|Backdoor listener|System integrity)$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\)|Password stealer was on this PC|Ransomware activity|Worm activity|Backdoor listener|System integrity|Browser hijack|Adware certificate|Adware program|Background downloader|Macros enabled|Stealer leftovers|Injected / side-loaded DLL)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -911,6 +911,9 @@ function Invoke-DeepFileScan {
                         continue
                     }
                 }
+                if ($name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?)\.txt$' -and $full -match '(?i)\\(AppData|Temp|ProgramData|Users\\Public)\\') {
+                    Add-FileFinding 'Stealer leftovers' 'High' $full 'A file typical of password-stealer output (stolen passwords/cookies/tokens). Assume your accounts are compromised.' "Name '$name' in a hidden app/temp folder"
+                }
                 if ($name -match $ransomNote) {
                     $ransomNotes++
                     if ($ransomNotes -le 30) {
@@ -1193,6 +1196,26 @@ foreach ($p in $procs) {
     }
 }
 
+Write-Host '  Checking running programs for injected / side-loaded DLLs...'
+$seenDll = @{}; $hostSig = @{}
+foreach ($pr in Get-Process -ErrorAction SilentlyContinue) {
+    if ($pr.Id -in $SelfPids -or $pr.Id -le 4) { continue }
+    $mods = $null; try { $mods = $pr.Modules } catch { continue }
+    $hp = $null; try { $hp = $pr.Path } catch { }
+    foreach ($m in @($mods)) {
+        $mf = [string]$m.FileName
+        if (-not $mf -or $mf -notmatch '(?i)\.dll$' -or $mf -notmatch $UserDirPattern -or $seenDll.ContainsKey($mf.ToLowerInvariant())) { continue }
+        $seenDll[$mf.ToLowerInvariant()] = $true
+        if ((Get-SigStatus $mf) -eq 'Valid') { continue }
+        if ($hp -and -not $hostSig.ContainsKey($hp)) { $hostSig[$hp] = Get-SigInfo $hp }
+        $hs = $null; if ($hp) { $hs = $hostSig[$hp] }
+        $dsev = 'Medium'
+        if (($hs -and $hs.Microsoft) -or $mf -match '(?i)\\Temp\\') { $dsev = 'High' }
+        $hstate = 'unknown'; if ($hs) { $hstate = $hs.Status; if ($hs.Microsoft) { $hstate = 'signed by Microsoft' } }
+        Add-FileFinding 'Injected / side-loaded DLL' $dsev $mf "Unsigned DLL from a user folder is loaded inside $($pr.ProcessName) (program signature: $hstate). DLL side-loading/injection hides malware inside trusted programs." "Module of PID $($pr.Id): $hp"
+    }
+}
+
 Write-Host '  Measuring CPU usage for 8 seconds...'
 $cores = [Environment]::ProcessorCount
 $cpu1 = @{}
@@ -1286,6 +1309,12 @@ foreach ($k in $runKeys) {
         if ($k -like '*Windows NT\CurrentVersion\Windows' -and $prop.Name -notin 'Load','Run') { continue }
         $cmd = [string]$prop.Value
         if (-not $cmd.Trim()) { continue }
+        $exeP = Get-ExePath $cmd
+        if ($exeP -and $exeP -match '^[A-Za-z]:\\' -and $exeP -notmatch '(?i)^[A-Za-z]:\\Windows\\' -and
+            [IO.Directory]::Exists([IO.Path]::GetPathRoot($exeP)) -and -not (Test-Path -LiteralPath $exeP)) {
+            Add-KeyFinding 'Orphaned startup entry' 'Medium' "$($prop.Name)  [$k]" "Starts a program that no longer exists: $exeP" 'RegDeleteValue' @{ Key = $k; Name = $prop.Name } 'Remove dead startup entry (backed up first)'
+            continue
+        }
         $reasons = @(Test-SuspiciousCommand $cmd)
         $sev = 'Info'
         if ($reasons.Count -gt 0) { $sev = 'Medium' }
@@ -1465,6 +1494,100 @@ if ($wsh) {
             if ($sc.Arguments -match '(?i)--load-extension|--remote-debugging-port|--disable-extensions-except' -or
                 ($sc.TargetPath -match '(?i)\\(powershell|cmd|mshta|wscript|cscript)\.exe$' -and $_.Name -match '(?i)chrome|edge|brave|opera|firefox|discord|steam')) {
                 Add-FileFinding 'Hijacked shortcut' 'High' $_.FullName "-> $($sc.TargetPath) $($sc.Arguments)"
+            }
+        }
+    }
+}
+
+# ---------------------------------------------------------------- 5b. Adware, hijacks, downloaders, macros, stealer leftovers, leftovers
+
+Write-Section 'Adware, browser hijacks, downloaders, macros, leftovers'
+# browser start page / search engine forced by policy (adware / browser hijackers)
+$okUrl = '(?i)^https?://([a-z0-9-]+\.)*(google\.(com|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})|bing\.com|microsoft\.com|msn\.com|duckduckgo\.com|yahoo\.com|brave\.com|startpage\.com|ecosia\.org)(/|$)'
+foreach ($root in 'HKLM:\SOFTWARE\Policies', 'HKCU:\SOFTWARE\Policies') {
+    foreach ($br in 'Google\Chrome', 'Microsoft\Edge', 'BraveSoftware\Brave') {
+        $k = "$root\$br"
+        $p = Get-ItemProperty -LiteralPath $k -ErrorAction SilentlyContinue
+        if ($p) {
+            foreach ($n in 'HomepageLocation', 'NewTabPageLocation', 'DefaultSearchProviderSearchURL', 'DefaultSearchProviderNewTabURL') {
+                $v = [string]$p.$n
+                if ($v -and $v -notmatch $okUrl) {
+                    Add-KeyFinding 'Browser hijack' 'Medium' "$br $n = $v" "Start page / search engine forced by policy - typical adware/browser hijacker." 'RegDeleteValue' @{ Key = $k; Name = $n } 'Remove the forced setting (backed up first)'
+                }
+            }
+        }
+        $rk = "$k\RestoreOnStartupURLs"
+        $rp = Get-ItemProperty -LiteralPath $rk -ErrorAction SilentlyContinue
+        if ($rp) {
+            $rp.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' -and [string]$_.Value -notmatch $okUrl } | ForEach-Object {
+                Add-KeyFinding 'Browser hijack' 'Medium' "$br opens $($_.Value) at startup" 'Page forced to open every time the browser starts.' 'RegDeleteValue' @{ Key = $rk; Name = $_.Name } 'Remove the forced page (backed up first)'
+            }
+        }
+    }
+}
+# fake root certificates that let adware read your encrypted traffic (Superfish-style)
+foreach ($store in 'Cert:\LocalMachine\Root', 'Cert:\CurrentUser\Root') {
+    Get-ChildItem -Path $store -ErrorAction SilentlyContinue |
+        Where-Object { $_.Subject -match '(?i)superfish|edellroot|dsdtestprovider|privdog|komodia|sendori|websecure|adguard personal ca.*expired' } | ForEach-Object {
+            Add-Finding 'Adware certificate' 'High' "$($_.Subject)" "Known malicious root certificate - lets adware read your HTTPS traffic. Remove it: certmgr.msc > Trusted Root Certification Authorities." -Tech "Store $store, thumbprint $($_.Thumbprint)"
+        }
+}
+# known adware / potentially unwanted programs (report - uninstall them from Settings > Apps)
+$pupRx = '(?i)search ?protect|conduit|web ?companion|wave ?browser|webnavigator|onelaunch|shift ?browser|pc ?app ?store|segurazo|saferweb|bytefence|reimage|pc ?accelerate|mypc ?backup|mindspark|ask ?toolbar|babylon|delta ?toolbar|yontoo|crossrider|sweetim|driver ?support|systweak|pc ?speed ?up|pcmatic|restoro|outbyte|auslogics boostspeed|chromium ?(browser)? ?by'
+foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall') {
+    foreach ($k in Get-ChildItem -LiteralPath $uk -ErrorAction SilentlyContinue) {
+        $pr = Get-ItemProperty -LiteralPath $k.PSPath -ErrorAction SilentlyContinue
+        if ($pr -and [string]$pr.DisplayName -match $pupRx) {
+            Add-Finding 'Adware program' 'Medium' "$($pr.DisplayName)" 'Known adware / unwanted program. Uninstall it from Settings > Apps (the tool does not uninstall programs).' -Tech "Uninstall entry: $($k.PSChildName), publisher: $($pr.Publisher)"
+        }
+    }
+}
+# downloaders: hidden background download jobs (BITS) fetching programs/scripts from outside Microsoft
+try {
+    Import-Module BitsTransfer -ErrorAction Stop
+    foreach ($j in @(Get-BitsTransfer -AllUsers -ErrorAction Stop)) {
+        foreach ($fl in @($j.FileList)) {
+            $u = [string]$fl.RemoteName
+            if ($u -match '(?i)^https?://' -and $u -notmatch '(?i)\.(microsoft|windowsupdate|windows|msftconnecttest|office|live|bing|xboxlive|nvidia|amd|intel|google|mozilla)\.(com|net)/' -and
+                ($u -match '(?i)\.(exe|dll|ps1|vbs|js|bat|cmd|scr|zip|rar|7z|msi)(\?|$)' -or [string]$fl.LocalName -match '(?i)\\(AppData|Temp|ProgramData|Users\\Public)\\')) {
+                Add-Finding 'Background downloader' 'High' "BITS job '$($j.DisplayName)' ($($j.OwnerAccount))" "Hidden download of $u to $($fl.LocalName) - downloader/botnet behaviour." -Tech "Get-BitsTransfer JobId $($j.JobId), state $($j.JobState)"
+            }
+        }
+    }
+} catch { }
+# Office: "enable all macros" is the #1 way email attachments infect a PC
+foreach ($base in 'HKCU:\Software\Microsoft\Office', 'HKCU:\Software\Policies\Microsoft\Office') {
+    foreach ($ver in '16.0', '15.0', '14.0') {
+        foreach ($app in 'Word', 'Excel', 'PowerPoint', 'Outlook', 'Access') {
+            $k = "$base\$ver\$app\Security"
+            $v = (Get-ItemProperty -LiteralPath $k -ErrorAction SilentlyContinue).VBAWarnings
+            if ($v -eq 1) {
+                Add-KeyFinding 'Macros enabled' 'Medium' "$app $ver runs ALL macros without asking" 'Any document with a macro can run code on your PC. Recommended: disable macros with notification (Office default).' 'RegSetValue' @{ Key = $k; Name = 'VBAWarnings'; Value = 2 } 'Set macros back to Office default (backed up first)'
+            }
+        }
+    }
+}
+# info-stealer leftovers: stolen data collected into text files before upload
+foreach ($root in @($env:TEMP, $env:APPDATA, $env:LOCALAPPDATA, $env:ProgramData, $env:PUBLIC) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }) {
+    Get-ChildItem -LiteralPath $root -Recurse -Depth 3 -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '(?i)^(all ?passwords|passwords|cookies|autofills?|credit ?cards|discord ?tokens?|steam ?tokens?|userinformation)\.txt$' -and $_.FullName -notmatch '(?i)\\SecurityCleaner\\' } |
+        Select-Object -First 50 | ForEach-Object {
+            Add-FileFinding 'Stealer leftovers' 'High' $_.FullName 'A file typical of password-stealer output (stolen passwords/cookies/tokens collected before upload). Assume your accounts are compromised.' "Name '$($_.Name)' in $($_.DirectoryName), modified $($_.LastWriteTime)"
+        }
+}
+# leftovers: shortcuts pointing to programs that no longer exist (local fixed drives only)
+if ($wsh) {
+    $broken = 0
+    foreach ($dir in @($Desktop, (Join-Path $env:PUBLIC 'Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))) {
+        Get-ChildItem -LiteralPath $dir -Recurse -Depth 3 -Filter '*.lnk' -File -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($broken -ge 200) { return }
+            try { $t = $wsh.CreateShortcut($_.FullName).TargetPath } catch { return }
+            if (-not $t -or $t -notmatch '^[A-Za-z]:\\' -or $t -match '(?i)\\WindowsApps\\') { return }
+            $drv = $null; try { $drv = New-Object IO.DriveInfo ([IO.Path]::GetPathRoot($t)) } catch { }
+            if (-not $drv -or $drv.DriveType -ne [IO.DriveType]::Fixed -or -not $drv.IsReady) { return }
+            if (-not (Test-Path -LiteralPath $t)) {
+                $broken++
+                Add-FileFinding 'Broken shortcut' 'Medium' $_.FullName "Shortcut to a program that no longer exists: $t" "Target missing on fixed drive $($drv.Name)"
             }
         }
     }
