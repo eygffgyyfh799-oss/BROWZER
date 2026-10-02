@@ -68,7 +68,7 @@ if ($Full) { $FullScan = $true; $SecondOpinion = $true; $Auto = $true; $CleanJun
 # -Strict = everything scanned, one command, no questions, only confirmed threats acted on
 if ($Strict) { $FullScan = $true; $SecondOpinion = $true; $CleanJunk = $true; $Auto = $false }
 $ProgressPreference = 'SilentlyContinue'
-$Version = '6.2'
+$Version = '6.3'
 
 # ---------------------------------------------------------------- setup
 
@@ -131,6 +131,8 @@ $SteamPath = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Valve\Steam' -ErrorA
 if ($SteamPath) { $SteamPath = $SteamPath -replace '/', '\' }
 
 $UserDirPattern = '(?i)\\(AppData|Temp|ProgramData|Users\\Public|Downloads)\\'
+# ransomware deletes shadow copies, backups and recovery before/while encrypting
+$RansomCmdRx    = '(?i)vssadmin(\.exe)?["]?\s+(delete\s+shadows|resize\s+shadowstorage)|wmic(\.exe)?["]?\s+shadowcopy\s+delete|wbadmin(\.exe)?["]?\s+delete\s+(catalog|systemstatebackup|backup)|bcdedit(\.exe)?["]?.*(recoveryenabled\s+no|bootstatuspolicy\s+ignoreallfailures)|Win32_Shadow[Cc]opy.*\.Delete\(|Get-WmiObject\s+Win32_ShadowCopy.*Remove|cipher(\.exe)?["]?\s+/w:'
 $LolbinPattern  = '(?i)((powershell|pwsh)(\.exe)?["]?\s.*(-e(nc|ncodedcommand)?\s|-w(indowstyle)?\s+h|iex|invoke-expression|downloadstring|frombase64string|bypass)|mshta(\.exe)?["]?\s|wscript(\.exe)?["]?\s|cscript(\.exe)?["]?\s|regsvr32(\.exe)?["]?\s.*/i:|rundll32(\.exe)?["]?\s+[^,]*\\(appdata|temp|programdata|users\\public)\\|certutil.*-urlcache|bitsadmin.*/transfer|curl.*\|\s*(cmd|powershell))'
 # stricter version used on RUNNING processes (legit tools often run powershell -ExecutionPolicy Bypass)
 $RunningBadCmd  = '(?i)-e(nc|ncodedcommand)?\s+[A-Za-z0-9+/=]{40,}|frombase64string|downloadstring|downloadfile|\biex\s*[\(\$]|invoke-expression|mshta(\.exe)?["]?\s+(https?:|vbscript:|javascript:)|(wscript|cscript)(\.exe)?["]?\s+.*\\(appdata|temp|programdata|users\\public)\\'
@@ -262,7 +264,7 @@ foreach ($uk in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HK
 $InstalledDirs = @($InstalledDirs | Sort-Object -Unique)
 $Allow += $InstalledDirs
 # These are never trusted, even inside a trusted folder (malware hides in legit folders)
-$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\)|Password stealer was on this PC)$'
+$NeverTrust = '(?i)^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|FiveM backdoor|Defender.*|Steam DLL hijack|Steam unlocker|Fake document / dangerous file|Forced browser extension|WMI consumer|Disguised file|Crack tool|Cracked game|Program in media folder|Malicious shortcut|Known threat \(database\)|Rootkit indicator|Ransomware indicator|FiveM backdoor \(hidden file\)|FiveM hidden file|Defender detection \(file\)|Password stealer was on this PC|Ransomware activity|Worm activity|Backdoor listener|System integrity)$'
 
 function Test-Trusted([string]$Text) {
     if (-not $Text) { return $false }
@@ -340,6 +342,7 @@ function Test-SuspiciousCommand([string]$Cmd) {
     if (-not $Cmd) { return $reasons }
     if ($Cmd -match $LolbinPattern) { $reasons += 'launches a hidden/encoded script (LOLBin)' }
     if ($Cmd -match $MinerArgs) { $reasons += 'crypto miner arguments' }
+    if ($Cmd -match $RansomCmdRx) { $reasons += 'deletes backups/recovery (ransomware behaviour)' }
     foreach ($f in Get-ReferencedFiles $Cmd) {
         if ($f -match $UserDirPattern) {
             $sig = Get-SigStatus $f
@@ -1171,6 +1174,18 @@ foreach ($p in $procs) {
         Add-FileFinding 'Fake system process' 'High' $path "Fake $name"
         continue
     }
+    if ($cmd -match $RansomCmdRx) {
+        Add-KeyFinding 'Ransomware activity' 'High' $label "Deleting backups/recovery RIGHT NOW (ransomware behaviour): $cmd" 'KillProcess' @{ Pid = [int]$p.ProcessId; Name = $name } 'Stop the process'
+        $par = $procs | Where-Object { $_.ProcessId -eq $p.ParentProcessId } | Select-Object -First 1
+        if ($par -and $par.ExecutablePath -and $par.ProcessId -notin $SelfPids) {
+            $psig = Get-SigInfo $par.ExecutablePath
+            if (-not $psig.Microsoft -and $psig.Status -ne 'Valid') {
+                Add-KeyFinding 'Ransomware activity' 'High' "$($par.Name) (PID $($par.ProcessId))" "Started the backup deletion: $($par.ExecutablePath) (signature: $($psig.Status))" 'KillProcess' @{ Pid = [int]$par.ProcessId; Name = $par.Name } 'Stop the process'
+                Add-FileFinding 'Ransomware activity' 'High' $par.ExecutablePath 'The program that is deleting your backups (ransomware behaviour).' "Parent process of: $cmd"
+            }
+        }
+        continue
+    }
     if ($cmd -match $RunningBadCmd) {
         $short = $cmd; if ($short.Length -gt 220) { $short = $short.Substring(0, 220) + '...' }
         Add-KeyFinding 'Malicious script running' 'High' $label $short 'KillProcess' @{ Pid = [int]$p.ProcessId; Name = $name } 'Stop the process'
@@ -1218,6 +1233,36 @@ try {
         Add-FileFinding 'Unsigned program online' 'High' $pr.Path "PID $($pr.Id) signature: $sig, connected to $remotes"
     }
 } catch { }
+# worm behaviour: one program contacting many different computers on Windows file-sharing ports
+try {
+    $smb = @(Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.RemotePort -in 445, 139, 135 -and $_.OwningProcess -gt 4 -and $_.RemoteAddress -notmatch '^(127\.|::1$|0\.0\.0\.0)' })
+    foreach ($g in $smb | Group-Object OwningProcess) {
+        $ips = @($g.Group | Select-Object -ExpandProperty RemoteAddress -Unique)
+        if ($ips.Count -lt 10) { continue }
+        $pr = Get-Process -Id $g.Name -ErrorAction SilentlyContinue
+        if (-not $pr -or $pr.Id -in $SelfPids -or -not $pr.Path) { continue }
+        $sig = Get-SigInfo $pr.Path
+        if ($sig.Microsoft) { continue }
+        Add-KeyFinding 'Worm activity' 'High' "$($pr.ProcessName) (PID $($pr.Id))" "Contacting $($ips.Count) different computers on file-sharing ports 445/139/135 - worm spreading behaviour. $($pr.Path)" 'KillProcess' @{ Pid = [int]$pr.Id; Name = $pr.ProcessName } 'Stop the process'
+        Add-FileFinding 'Worm activity' 'High' $pr.Path "Spreads over the network to $($ips.Count) computers." "TCP to ports 445/139/135 on $($ips.Count) distinct IPs; signature: $($sig.Status)"
+    }
+} catch { }
+# backdoor behaviour: unsigned program from a user folder waiting for incoming connections
+try {
+    foreach ($g in @(Get-NetTCPConnection -State Listen -ErrorAction Stop) | Group-Object OwningProcess) {
+        $pr = Get-Process -Id $g.Name -ErrorAction SilentlyContinue
+        if (-not $pr -or -not $pr.Path -or $pr.Id -in $SelfPids -or $pr.Path -notmatch $UserDirPattern) { continue }
+        $sig = Get-SigStatus $pr.Path
+        if ($sig -eq 'Valid') { continue }
+        $ports = ($g.Group | Select-Object -ExpandProperty LocalPort -Unique | Select-Object -First 5) -join ', '
+        Add-FileFinding 'Backdoor listener' 'Medium' $pr.Path "Unsigned program from a user folder is waiting for incoming connections (ports $ports) - backdoor/RAT behaviour, unless it is a game server or tool you run yourself." "Listening TCP ports: $ports; signature: $sig"
+    }
+} catch { }
+try {
+    if ((Get-SmbServerConfiguration -ErrorAction Stop).EnableSMB1Protocol) {
+        Add-Finding 'Worm protection' 'Medium' 'SMBv1 is enabled' 'Old file-sharing protocol abused by WannaCry and other worms. Turn it off unless an old device needs it: Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol' -Tech 'Get-SmbServerConfiguration: EnableSMB1Protocol = True'
+    }
+} catch { }
 
 # ---------------------------------------------------------------- 4. Persistence
 
@@ -1244,7 +1289,7 @@ foreach ($k in $runKeys) {
         $reasons = @(Test-SuspiciousCommand $cmd)
         $sev = 'Info'
         if ($reasons.Count -gt 0) { $sev = 'Medium' }
-        if (($reasons -match 'LOLBin|script-type|miner').Count -gt 0 -or $reasons.Count -gt 1) { $sev = 'High' }
+        if (($reasons -match 'LOLBin|script-type|miner|ransomware').Count -gt 0 -or $reasons.Count -gt 1) { $sev = 'High' }
         $detail = $cmd; if ($reasons) { $detail = "$cmd  <-- " + ($reasons -join '; ') }
         Add-KeyFinding 'Run key' $sev "$($prop.Name)  [$k]" $detail 'RegDeleteValue' @{ Key = $k; Name = $prop.Name } 'Remove startup entry'
         if ($sev -ne 'Info') { Add-ReferencedFileFindings $cmd 'Startup file' $sev "Started by Run key $($prop.Name)" }
@@ -1332,7 +1377,7 @@ foreach ($t in Get-ScheduledTask -ErrorAction SilentlyContinue) {
         if ($t.Settings.Hidden) { $reasons += 'hidden task' }
         # a hidden PowerShell window alone is common for vendor tasks (Intel, ASUS...); High needs a stronger signal
         $sev = 'Medium'
-        if (($reasons -match 'user folder|script-type|hidden task|miner').Count -gt 0 -or $cmd -match $RunningBadCmd -or $isMs) { $sev = 'High' }
+        if (($reasons -match 'user folder|script-type|hidden task|miner|ransomware').Count -gt 0 -or $cmd -match $RunningBadCmd -or $isMs) { $sev = 'High' }
         $wd = ''; if ($a.WorkingDirectory) { $wd = "  (folder: $($a.WorkingDirectory))" }
         Add-KeyFinding 'Scheduled task' $sev "$($t.TaskPath)$($t.TaskName)" ("$cmd$wd  <-- " + ($reasons -join '; ')) `
             'TaskDisable' @{ Path = $t.TaskPath; Name = $t.TaskName } 'Back up and disable task'
@@ -1531,6 +1576,17 @@ foreach ($p in $procs) {
 # ---------------------------------------------------------------- 6c. Rootkits and ransomware protection
 
 Write-Section 'Rootkit checks'
+if ($Strict -or $Full) {
+    Write-Host '  Checking Windows system file integrity (read-only, can take 5-20 minutes)...'
+    try {
+        $hs = "$((Repair-WindowsImage -Online -ScanHealth -ErrorAction Stop).ImageHealthState)"
+        if ($hs -ne 'Healthy') {
+            Add-Finding 'System integrity' 'High' "Windows system image is $hs" 'Some Windows system files are damaged or changed (malware, rootkit or disk errors). The tool never touches them; repair them with Windows own tools: DISM /Online /Cleanup-Image /RestoreHealth  then  sfc /scannow' -Tech "Repair-WindowsImage -Online -ScanHealth: $hs"
+        } else {
+            Add-Finding 'System integrity' 'Info' 'Windows system files are healthy' 'Checked with DISM ScanHealth (read-only).' -Tech 'ImageHealthState: Healthy'
+        }
+    } catch { Write-Host "    (integrity check not available: $_)" -ForegroundColor DarkGray }
+}
 try {
     $bcd = (& bcdedit.exe /enum '{current}' 2>$null) -join "`n"
     if ($bcd -match '(?im)^\s*testsigning\s+Yes') {
@@ -1978,8 +2034,8 @@ function Get-ActiveFileIndex([int[]]$IgnorePids) {
 if ($Strict) {
     Write-Section 'STRICT cleaning - confirmed threats only, nothing is deleted'
     New-SafetyRestorePoint
-    $killCats = '^(Crypto miner|Fake system process|Malicious script running|Mining pool connection)$'
-    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut|Known threat \(database\)|FiveM backdoor \(hidden file\))$'
+    $killCats = '^(Crypto miner|Fake system process|Malicious script running|Mining pool connection|Ransomware activity|Worm activity)$'
+    $fileCats = '^(Disguised file|Crypto miner|Fake system process|Malicious shortcut|Known threat \(database\)|FiveM backdoor \(hidden file\)|Ransomware activity|Worm activity)$'
 
     # 1. stop confirmed malicious processes
     $killed = @()
