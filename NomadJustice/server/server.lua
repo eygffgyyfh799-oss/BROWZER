@@ -4,7 +4,7 @@ local Notify = JS.Notify
 local DutyHistory = {}
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إنشاء جداول قاعدة البيانات وتحديثها وتحميل البيانات
+-- Create, update and load the database tables
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function InitDatabase()
@@ -38,7 +38,7 @@ local function InitDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
-    -- أعمدة جديدة للقضايا (تضاف تلقائياً للجداول القديمة بدون حذف أي بيانات)
+    -- New case columns (added to old tables automatically without deleting any data)
     JS.EnsureColumn('justice_reports', 'title', "varchar(120) NOT NULL DEFAULT ''")
     JS.EnsureColumn('justice_reports', 'case_type', "varchar(50) NOT NULL DEFAULT ''")
     JS.EnsureColumn('justice_reports', 'defendant_name', "varchar(100) NOT NULL DEFAULT ''")
@@ -281,7 +281,7 @@ local function InitDatabase()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     ]])
 
-    -- سجل البصمة
+    -- Duty history
     local history = MySQL.query.await('SELECT * FROM justice_duty_history ORDER BY timestamp DESC, id DESC LIMIT ?', {
         Settings.DutyHistoryLimit
     }) or {}
@@ -297,7 +297,7 @@ local function InitDatabase()
         }
     end
 
-    -- الخدمات الموقوفة
+    -- Suspended services
     local suspensions = MySQL.query.await('SELECT * FROM justice_suspensions WHERE active = 1') or {}
     for i = 1, #suspensions do
         local row = suspensions[i]
@@ -310,7 +310,7 @@ local function InitDatabase()
         }
     end
 
-    -- فحص الجداول الخارجية وإظهار تحذير إذا لم تكن موجودة
+    -- Check external tables and warn if they are missing
     local db = Settings.Database
     for _, tableName in ipairs({ db.Players, db.Vehicles, db.Houses and db.Houses.table }) do
         if tableName and not JS.TableExists(tableName) then
@@ -331,9 +331,9 @@ CreateThread(function()
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- سجل البصمة
--- يُستدعى من العميل بعد QBCore:ToggleDuty، والأحداث تصل للسيرفر بنفس الترتيب
--- لذلك حالة الدوام هنا هي الحالة الجديدة بعد التبديل
+-- Duty history
+-- Called by the client after QBCore:ToggleDuty, and events reach the server in the same order
+-- so the duty state here is the new state after toggling
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 RegisterNetEvent('NomadJustice:server:updateDutyHistory', function()
@@ -347,7 +347,7 @@ RegisterNetEvent('NomadJustice:server:updateDutyHistory', function()
     local entry = {
         citizenid = citizenid,
         name = JS.PlayerName(Player),
-        dutyStatus = Player.PlayerData.job.onduty and 'بدأ الدوام' or 'أنهى الدوام',
+        dutyStatus = Player.PlayerData.job.onduty and 'Clocked in' or 'Clocked out',
         timeFormated = JS.Now(),
         timestamp = os.time(),
     }
@@ -369,7 +369,7 @@ QBCore.Functions.CreateCallback('NomadJustice:server:getDutyHistory', function(s
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التعويض
+-- Compensation
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizenid, amount)
@@ -384,66 +384,66 @@ RegisterNetEvent('NomadJustice:server:giveMoneyToPlayer', function(targetCitizen
 
     local moneyAmount = math.floor(tonumber(amount) or 0)
     if moneyAmount <= 0 then
-        return Notify(src, 'المبلغ المدخل غير صحيح', 'error')
+        return Notify(src, 'The amount entered is invalid', 'error')
     end
 
     if moneyAmount > Settings.CompensationMax then
-        return Notify(src, ('المبلغ المدخل كبير جداً (الحد الأقصى: $%d)'):format(Settings.CompensationMax), 'error')
+        return Notify(src, ('The amount is too large (maximum: $%d)'):format(Settings.CompensationMax), 'error')
     end
 
     targetCitizenid = JS.ValidCitizenId(targetCitizenid)
     if not targetCitizenid then
-        return Notify(src, 'الرقم الوطني غير صحيح', 'error')
+        return Notify(src, 'Invalid citizen ID', 'error')
     end
 
     local TargetPlayer = QBCore.Functions.GetPlayerByCitizenId(targetCitizenid)
     if not TargetPlayer then
-        return Notify(src, 'اللاعب غير متصل أو الرقم الوطني غير صحيح', 'error')
+        return Notify(src, 'The player is offline or the citizen ID is invalid', 'error')
     end
 
     local targetSrc = TargetPlayer.PlayerData.source
     if targetSrc == src then
-        return Notify(src, 'لا يمكنك تعويض نفسك', 'error')
+        return Notify(src, 'You cannot compensate yourself', 'error')
     end
 
-    -- التحقق من السيرفر أن المستفيد قريب فعلاً من الموظف
+    -- Server-side check that the recipient is really near the employee
     local officerPed, targetPed = GetPlayerPed(src), GetPlayerPed(targetSrc)
     if officerPed == 0 or targetPed == 0
         or #(GetEntityCoords(officerPed) - GetEntityCoords(targetPed)) > Settings.CompensationMaxDistance then
-        return Notify(src, 'يجب أن يكون المستفيد بالقرب منك', 'error')
+        return Notify(src, 'The recipient must be near you', 'error')
     end
 
     local blocked, remaining = JS.OnCooldown('compensation', Player.PlayerData.citizenid, Settings.CompensationCooldown)
     if blocked then
-        return Notify(src, ('يجب أن تنتظر %d ثانية'):format(remaining), 'error')
+        return Notify(src, ('You must wait %d seconds'):format(remaining), 'error')
     end
 
-    -- الحد اليومي لكل موظف
+    -- Daily limit per employee
     local todayTotal = tonumber(MySQL.scalar.await(
         "SELECT COALESCE(SUM(amount), 0) FROM justice_transactions WHERE officer_citizenid = ? AND type = 'compensation' AND created_at >= CURDATE()",
         { Player.PlayerData.citizenid })) or 0
     if todayTotal + moneyAmount > Settings.CompensationDailyMax then
-        return Notify(src, ('وصلت الحد اليومي للتعويضات (المتبقي اليوم: $%d)'):format(math.max(0, Settings.CompensationDailyMax - todayTotal)), 'error', 7000)
+        return Notify(src, ('You reached the daily compensation limit (remaining today: $%d)'):format(math.max(0, Settings.CompensationDailyMax - todayTotal)), 'error', 7000)
     end
 
     if not TargetPlayer.Functions.AddMoney('bank', moneyAmount, 'justice-compensation') then
-        return Notify(src, 'تعذر تحويل المبلغ', 'error')
+        return Notify(src, 'Could not transfer the amount', 'error')
     end
 
     local officerName = JS.PlayerName(Player)
     local targetName = JS.PlayerName(TargetPlayer)
 
-    Notify(src, ('تم تحويل $%d إلى %s بنجاح'):format(moneyAmount, targetName), 'success')
-    Notify(targetSrc, ('تم تحويل $%d إلى حسابك البنكي من وزارة العدل - الموظف: %s'):format(moneyAmount, officerName), 'success', 7000)
+    Notify(src, ('$%d transferred to %s successfully'):format(moneyAmount, targetName), 'success')
+    Notify(targetSrc, ('$%d was transferred to your bank account by the Department of Justice - officer: %s'):format(moneyAmount, officerName), 'success', 7000)
 
     MySQL.insert.await('INSERT INTO justice_transactions (officer_citizenid, officer_name, target_citizenid, target_name, amount, reason, date, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
-        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'تعويض', JS.Now(), 'compensation'
+        Player.PlayerData.citizenid, officerName, targetCitizenid, targetName, moneyAmount, 'Compensation', JS.Now(), 'compensation'
     })
-    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['المبلغ'] = moneyAmount }, { amount = moneyAmount })
+    JS.Log(Player, 'compensation', targetCitizenid, targetName, { ['Amount'] = moneyAmount }, { amount = moneyAmount })
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تنظيف السجلات القديمة (عند التشغيل ثم كل 24 ساعة)
+-- Clean up old records (on start, then every 24 hours)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function CleanupOldData()

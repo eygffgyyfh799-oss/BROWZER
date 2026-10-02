@@ -2,14 +2,14 @@ local Settings = JS.Settings
 local Notify = JS.Notify
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تحويل صف القضية لشكل مناسب للعميل
+-- Convert a case row to the client format
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function MapReport(row, full)
     local report = {
         id = row.id,
-        title = (row.title and row.title ~= '') and row.title or ('قضية #' .. row.id),
-        caseType = row.case_type ~= '' and row.case_type or 'غير محدد',
+        title = (row.title and row.title ~= '') and row.title or ('Case #' .. row.id),
+        caseType = row.case_type ~= '' and row.case_type or 'Not specified',
         citizenid = row.citizenid,
         name = row.name,
         date = row.date,
@@ -35,7 +35,7 @@ local function MapReport(row, full)
         report.submitterOnline = QBCore.Functions.GetPlayerByCitizenId(row.citizenid) ~= nil
     end
 
-    -- حماية البيانات القديمة المحفوظة قبل التنظيف
+    -- Protect old data saved before sanitizing
     for _, key in ipairs({ 'title', 'name', 'defendantName', 'report', 'witnesses', 'evidence', 'handledBy' }) do
         report[key] = JS.Safe(report[key])
     end
@@ -44,7 +44,7 @@ local function MapReport(row, full)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تقديم دعوى
+-- Filing a lawsuit
 -- data = { title, caseType, defendantName, defendantCitizenid, witnesses, evidence, report }
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -52,20 +52,20 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
-    if not JS.Ready then return Notify(src, 'النظام قيد التحميل، حاول بعد قليل', 'error') end
+    if not JS.Ready then return Notify(src, 'The system is still loading, try again shortly', 'error') end
 
     if type(data) == 'string' then data = { report = data } end
     if type(data) ~= 'table' then return end
 
-    -- التحقق من الحقول
+    -- Field validation
     local report = JS.CleanText(data.report, Settings.ReportMaxLength, true)
     if not report or JS.Len(report) < Settings.ReportMinLength then
-        return Notify(src, ('تفاصيل الدعوى يجب أن تكون بين %d و %d حرف'):format(Settings.ReportMinLength, Settings.ReportMaxLength), 'error')
+        return Notify(src, ('The complaint must be between %d and %d characters'):format(Settings.ReportMinLength, Settings.ReportMaxLength), 'error')
     end
 
     local title = JS.CleanText(data.title, Settings.ReportTitleMax, false)
     if not title then
-        return Notify(src, ('عنوان الدعوى يجب ألا يتجاوز %d حرف'):format(Settings.ReportTitleMax), 'error')
+        return Notify(src, ('The case title must not exceed %d characters'):format(Settings.ReportTitleMax), 'error')
     end
     if title == '' then
         title = JS.Truncate(report, 60)
@@ -77,18 +77,18 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     local witnesses = JS.CleanText(data.witnesses, Settings.ReportWitnessesMax, false)
     local evidence = JS.CleanText(data.evidence, Settings.ReportEvidenceMax, false)
     if not defendantName or not witnesses or not evidence then
-        return Notify(src, 'أحد الحقول أطول من المسموح', 'error')
+        return Notify(src, 'One of the fields is too long', 'error')
     end
 
     local defendantCitizenid = ''
     if data.defendantCitizenid and tostring(data.defendantCitizenid) ~= '' then
         defendantCitizenid = JS.ValidCitizenId(data.defendantCitizenid)
         if not defendantCitizenid then
-            return Notify(src, 'الرقم الوطني للمدعى عليه غير صحيح', 'error')
+            return Notify(src, 'Invalid defendant citizen ID', 'error')
         end
         local defendant = JS.GetCitizen(defendantCitizenid)
         if not defendant then
-            return Notify(src, 'لا يوجد مواطن بهذا الرقم الوطني', 'error')
+            return Notify(src, 'No citizen with this citizen ID', 'error')
         end
         if defendantName == '' then
             defendantName = JS.FullName(defendant.charinfo)
@@ -98,16 +98,16 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     local citizenid = Player.PlayerData.citizenid
     local blocked, remaining = JS.OnCooldown('report', citizenid, Settings.ReportCooldown)
     if blocked then
-        return Notify(src, ('يجب أن تنتظر %d ثانية قبل تقديم دعوى جديدة'):format(remaining), 'error')
+        return Notify(src, ('You must wait %d seconds before filing another lawsuit'):format(remaining), 'error')
     end
 
     local fee = Settings.ReportFee
     if (Player.PlayerData.money.cash or 0) < fee or not Player.Functions.RemoveMoney('cash', fee, 'justice-report-fee') then
         JS.ClearCooldown('report', citizenid)
-        return Notify(src, ('ليس لديك مبلغ كافٍ لتقديم الدعوى (تحتاج إلى $%d)'):format(fee), 'error')
+        return Notify(src, ('You do not have enough cash to file (you need $%d)'):format(fee), 'error')
     end
 
-    -- معلومات مقدم الدعوى تُجمع من السيرفر (لا يمكن تزويرها من العميل)
+    -- Filer info is collected on the server (cannot be forged by the client)
     local charinfo = Player.PlayerData.charinfo or {}
     local job = Player.PlayerData.job or {}
     local gang = Player.PlayerData.gang or {}
@@ -127,7 +127,7 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     }
 
     local name = JS.PlayerName(Player)
-    local phoneNumber = tostring(charinfo.phone or 'غير متوفر')
+    local phoneNumber = tostring(charinfo.phone or 'Not available')
     local date = JS.Now()
 
     local insertId = MySQL.insert.await([[
@@ -142,15 +142,15 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
     if not insertId then
         Player.Functions.AddMoney('cash', fee, 'justice-report-refund')
         JS.ClearCooldown('report', citizenid)
-        return Notify(src, 'حدث خطأ أثناء تقديم الدعوى، تم إرجاع المبلغ', 'error')
+        return Notify(src, 'An error occurred while filing, your fee was refunded', 'error')
     end
 
-    Notify(src, ('تم تقديم الدعوى بنجاح برقم #%d مقابل $%d، سيتم التواصل معك على رقمك %s'):format(insertId, fee, phoneNumber), 'success', 8000)
+    Notify(src, ('Lawsuit #%d filed for $%d. You will be contacted on %s'):format(insertId, fee, phoneNumber), 'success', 8000)
 
     JS.BroadcastTablet(JS.JusticeOnDuty, {
         type = 'new_case',
-        title = ('⚖️ دعوى جديدة #%d (%s)'):format(insertId, caseType),
-        text = ('من %s: %s'):format(name, title),
+        title = ('⚖️ New lawsuit #%d (%s)'):format(insertId, caseType),
+        text = ('From %s: %s'):format(name, title),
         id = insertId,
     })
 
@@ -158,7 +158,7 @@ RegisterNetEvent('NomadJustice:server:submitReport', function(data)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- قائمة القضايا
+-- Case list
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:getJobReports', 'reports', function(src, Player, statusFilter)
@@ -183,15 +183,15 @@ JS.RegisterCallback('NomadJustice:server:getJobReports', 'reports', function(src
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تفاصيل قضية
+-- Case details
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:getReport', 'reports', function(src, Player, reportId)
     reportId = tonumber(reportId)
-    if not reportId then return { ok = false, err = 'رقم القضية غير صحيح' } end
+    if not reportId then return { ok = false, err = 'Invalid case number' } end
 
     local row = MySQL.single.await('SELECT * FROM justice_reports WHERE id = ? AND job = ?', { reportId, JS.Job })
-    if not row then return { ok = false, err = 'القضية غير موجودة' } end
+    if not row then return { ok = false, err = 'Case not found' } end
 
     local notes = {}
     for i, note in ipairs(MySQL.query.await('SELECT * FROM justice_report_notes WHERE report_id = ? ORDER BY id DESC', { reportId }) or {}) do
@@ -209,13 +209,13 @@ JS.RegisterCallback('NomadJustice:server:getReport', 'reports', function(src, Pl
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تغيير حالة قضية
+-- Change case status
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:setReportStatus', 'reports', function(src, Player, reportId, status)
     reportId = tonumber(reportId)
     if not reportId or not JS.StatusLabels[status] then
-        return { ok = false, err = 'بيانات غير صحيحة' }
+        return { ok = false, err = 'Invalid data' }
     end
 
     local officerName = JS.PlayerName(Player)
@@ -224,67 +224,67 @@ JS.RegisterCallback('NomadJustice:server:setReportStatus', 'reports', function(s
         status, officerName, reportId, JS.Job
     })
     if not affected or affected == 0 then
-        return { ok = false, err = 'القضية غير موجودة' }
+        return { ok = false, err = 'Case not found' }
     end
 
     MySQL.insert('INSERT INTO justice_report_notes (report_id, author_citizenid, author_name, note) VALUES (?, ?, ?, ?)', {
-        reportId, Player.PlayerData.citizenid, officerName, ('تم تغيير الحالة إلى: %s'):format(JS.StatusLabels[status])
+        reportId, Player.PlayerData.citizenid, officerName, ('Status changed to: %s'):format(JS.StatusLabels[status])
     })
-    JS.Log(Player, 'report_status', nil, nil, { ['القضية'] = reportId, ['الحالة'] = JS.StatusLabels[status] }, previousStatus and { id = reportId, status = previousStatus } or nil)
+    JS.Log(Player, 'report_status', nil, nil, { ['Case'] = reportId, ['Status'] = JS.StatusLabels[status] }, previousStatus and { id = reportId, status = previousStatus } or nil)
 
-    -- إشعار مقدم الدعوى إذا كان متصلاً
+    -- Notify the filer if online
     local row = MySQL.single.await('SELECT citizenid FROM justice_reports WHERE id = ?', { reportId })
     local owner = row and QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
     if owner then
-        Notify(owner.PlayerData.source, ('تم تحديث حالة دعواك #%d إلى: %s'):format(reportId, JS.StatusLabels[status]), 'primary', 8000)
+        Notify(owner.PlayerData.source, ('Your lawsuit #%d status is now: %s'):format(reportId, JS.StatusLabels[status]), 'primary', 8000)
     end
 
     return { ok = true }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إضافة ملاحظة على قضية
+-- Add a note to a case
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:addReportNote', 'reports', function(src, Player, reportId, note)
     reportId = tonumber(reportId)
     note = JS.CleanText(note, Settings.ReportNoteMax, true)
     if not reportId or not note then
-        return { ok = false, err = ('الملاحظة مطلوبة ويجب ألا تتجاوز %d حرف'):format(Settings.ReportNoteMax) }
+        return { ok = false, err = ('A note is required and must not exceed %d characters'):format(Settings.ReportNoteMax) }
     end
 
     local exists = MySQL.scalar.await('SELECT id FROM justice_reports WHERE id = ? AND job = ?', { reportId, JS.Job })
-    if not exists then return { ok = false, err = 'القضية غير موجودة' } end
+    if not exists then return { ok = false, err = 'Case not found' } end
 
     MySQL.insert.await('INSERT INTO justice_report_notes (report_id, author_citizenid, author_name, note) VALUES (?, ?, ?, ?)', {
         reportId, Player.PlayerData.citizenid, JS.PlayerName(Player), note
     })
-    JS.Log(Player, 'report_note', nil, nil, { ['القضية'] = reportId, ['الملاحظة'] = note })
+    JS.Log(Player, 'report_note', nil, nil, { ['Case'] = reportId, ['Note'] = note })
 
     return { ok = true }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- حذف قضية
+-- Delete a case
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:deleteReport', 'deleteReport', function(src, Player, reportId)
     reportId = tonumber(reportId)
-    if not reportId then return { ok = false, err = 'رقم القضية غير صحيح' } end
+    if not reportId then return { ok = false, err = 'Invalid case number' } end
 
     local affected = MySQL.update.await('DELETE FROM justice_reports WHERE id = ? AND job = ?', { reportId, JS.Job })
     if not affected or affected == 0 then
-        return { ok = false, err = 'القضية غير موجودة أو تم حذفها مسبقاً' }
+        return { ok = false, err = 'Case not found or already deleted' }
     end
 
     MySQL.update('DELETE FROM justice_report_notes WHERE report_id = ?', { reportId })
-    JS.Log(Player, 'report_delete', nil, nil, { ['القضية'] = reportId })
+    JS.Log(Player, 'report_delete', nil, nil, { ['Case'] = reportId })
 
     return { ok = true }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- دعاوى المواطن نفسه (لمتابعة حالتها)
+-- The citizen's own lawsuits (to follow their status)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:getMyReports', nil, function(src, Player)

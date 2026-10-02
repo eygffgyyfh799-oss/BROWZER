@@ -1,9 +1,9 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أدوات مشتركة لملفات السيرفر (يُحمّل أولاً)
+-- Shared server helpers (loaded first)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
--- [أمان] أي رقم يجي من اللاعب يمر على tonumber: نرفض NaN و inf
--- (math.floor(NaN) = NaN ويعدّي شرط "amount <= 0" فيوصل للفلوس)
+-- [security] every number from a player goes through tonumber: reject NaN and inf
+-- (math.floor(NaN) = NaN passes the "amount <= 0" check and reaches money code)
 local rawtonumber = tonumber
 function tonumber(value, base)
     local n
@@ -22,10 +22,10 @@ JS.Suspended = {}
 local Settings = JS.Settings
 local schemaCache = {}
 
-JS.StatusLabels = { new = 'جديدة', review = 'قيد النظر', closed = 'مغلقة' }
+JS.StatusLabels = { new = 'New', review = 'Under Review', closed = 'Closed' }
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- نصوص وتنسيق
+-- Text and formatting
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.Notify(src, msg, msgType, length)
@@ -44,15 +44,15 @@ function JS.Len(str)
     return utf8.len(str) or #str
 end
 
--- يمنع حقن HTML و Markdown (مثل صور خارجية تكشف IP الموظفين عند فتح القائمة)
+-- Blocks HTML and Markdown injection (e.g. external images that leak staff IPs when a list is opened)
 function JS.Safe(str)
     if type(str) ~= 'string' then return str end
     str = str:gsub('[<>]', ''):gsub('!%[', '['):gsub('%]%(', '] ('):gsub('`', "'")
     return str
 end
 
--- ينظف النص: يحذف المسافات الزائدة ورموز التحكم و < >
--- يرجع nil إذا كان النص غير صالح أو أطول من الحد
+-- Cleans text: removes extra spaces, control characters and < >
+-- Returns nil if the text is invalid or longer than the limit
 function JS.CleanText(value, maxLen, required)
     if value == nil then
         return (not required) and '' or nil
@@ -60,14 +60,14 @@ function JS.CleanText(value, maxLen, required)
     if type(value) ~= 'string' and type(value) ~= 'number' then return nil end
 
     local str = JUtil.Functions.trim(tostring(value)) or ''
-    if not utf8.len(str) then return nil end -- نص تالف (UTF-8 غير صالح)
+    if not utf8.len(str) then return nil end -- broken text (invalid UTF-8)
     str = JS.Safe(str:gsub('[\0-\9\11-\31]', ''))
     if required and str == '' then return nil end
     if maxLen and JS.Len(str) > maxLen then return nil end
     return str
 end
 
--- قص النص بعدد أحرف بدون كسر الأحرف العربية
+-- Cut text by character count without breaking multi-byte characters
 function JS.Truncate(str, maxChars)
     local ok, cut = pcall(utf8.offset, str, maxChars + 1)
     if ok and cut then return str:sub(1, cut - 1) end
@@ -98,7 +98,7 @@ function JS.PlayerName(Player)
     return JS.FullName(Player.PlayerData.charinfo)
 end
 
--- oxmysql يرجع التواريخ كأرقام (ميلي ثانية)
+-- oxmysql returns dates as numbers (milliseconds)
 function JS.FormatDbDate(value)
     if type(value) == 'number' then
         return os.date('%d/%m/%Y %H:%M', math.floor(value / 1000))
@@ -107,11 +107,11 @@ function JS.FormatDbDate(value)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- حالة الاتصال: متصل / غير متصل + منذ متى
+-- Connection status: online / offline + since when
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
-local joinTimes = {}   -- [source] = وقت الدخول
-local lastSeen = {}    -- [citizenid] = وقت الخروج (خلال تشغيل السيرفر الحالي)
+local joinTimes = {}   -- [source] = join time
+local lastSeen = {}    -- [citizenid] = leave time (during the current server run)
 
 AddEventHandler('playerJoining', function()
     joinTimes[source] = os.time()
@@ -126,30 +126,27 @@ AddEventHandler('playerDropped', function()
     end
 end)
 
--- صيغة عربية صحيحة: دقيقة / دقيقتين / 3 دقائق / 11 دقيقة
-local function Plural(n, one, two, few, many)
-    if n == 1 then return one end
-    if n == 2 then return two end
-    if n >= 3 and n <= 10 then return ('%d %s'):format(n, few) end
-    return ('%d %s'):format(n, many)
+-- "1 minute" / "5 minutes"
+local function Plural(n, unit)
+    return ('%d %s%s'):format(n, unit, n == 1 and '' or 's')
 end
 
 function JS.Ago(seconds)
     seconds = math.max(0, math.floor(tonumber(seconds) or 0))
-    if seconds < 60 then return 'الآن' end
+    if seconds < 60 then return 'just now' end
     local minutes = math.floor(seconds / 60)
-    if minutes < 60 then return 'منذ ' .. Plural(minutes, 'دقيقة', 'دقيقتين', 'دقائق', 'دقيقة') end
+    if minutes < 60 then return Plural(minutes, 'minute') .. ' ago' end
     local hours = math.floor(minutes / 60)
-    if hours < 24 then return 'منذ ' .. Plural(hours, 'ساعة', 'ساعتين', 'ساعات', 'ساعة') end
+    if hours < 24 then return Plural(hours, 'hour') .. ' ago' end
     local days = math.floor(hours / 24)
-    if days < 30 then return 'منذ ' .. Plural(days, 'يوم', 'يومين', 'أيام', 'يوم') end
+    if days < 30 then return Plural(days, 'day') .. ' ago' end
     local months = math.floor(days / 30)
-    if months < 12 then return 'منذ ' .. Plural(months, 'شهر', 'شهرين', 'أشهر', 'شهر') end
-    return 'منذ ' .. Plural(math.floor(months / 12), 'سنة', 'سنتين', 'سنوات', 'سنة')
+    if months < 12 then return Plural(months, 'month') .. ' ago' end
+    return Plural(math.floor(months / 12), 'year') .. ' ago'
 end
 
--- lastUpdated: قيمة last_updated من جدول players (ميلي ثانية) إن وجدت
--- يرجع { online, serverId, text }
+-- lastUpdated: last_updated value from the players table (milliseconds) if present
+-- Returns { online, serverId, text }
 function JS.GetStatus(citizenid, lastUpdated)
     local Player = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if Player then
@@ -158,7 +155,7 @@ function JS.GetStatus(citizenid, lastUpdated)
         return {
             online = true,
             serverId = src,
-            text = ('🟢 متصل الآن [%d]%s'):format(src, joined and (' - دخل ' .. JS.Ago(os.time() - joined)) or ''),
+            text = ('🟢 Online now [%d]%s'):format(src, joined and (' - joined ' .. JS.Ago(os.time() - joined)) or ''),
         }
     end
 
@@ -168,12 +165,12 @@ function JS.GetStatus(citizenid, lastUpdated)
     end
     return {
         online = false,
-        text = seen and ('⚫ غير متصل - آخر ظهور ' .. JS.Ago(os.time() - seen)) or '⚫ غير متصل',
+        text = seen and ('⚫ Offline - last seen ' .. JS.Ago(os.time() - seen)) or '⚫ Offline',
     }
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الصلاحيات
+-- Permissions
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.GetGrade(Player)
@@ -185,7 +182,7 @@ function JS.IsJustice(Player)
     return Player ~= nil and Player.PlayerData.job ~= nil and Player.PlayerData.job.name == JS.Job
 end
 
--- المدير أو رتبة المسؤول ورئيس المحكمة (FullAccessGrade) وأعلى
+-- Manager, or the full access grade (FullAccessGrade) and above
 function JS.IsBoss(Player)
     if not JS.IsJustice(Player) then return false end
     if Player.PlayerData.job.isboss == true then return true end
@@ -195,30 +192,30 @@ end
 
 function JS.Can(Player, action)
     if not JS.IsJustice(Player) then
-        return false, 'يجب أن تكون من موظفي العدل'
+        return false, 'You must be a Department of Justice employee'
     end
 
     local job = Player.PlayerData.job
     if Settings.Panel.RequireDuty and not job.onduty then
-        return false, 'يجب أن تكون في الدوام'
+        return false, 'You must be on duty'
     end
 
     local required = Settings.Panel.Permissions[action]
-    if required == nil then return false, 'صلاحية غير معروفة' end
-    if required == false then return false, 'هذه الصلاحية مقفلة' end
+    if required == nil then return false, 'Unknown permission' end
+    if required == false then return false, 'This permission is disabled' end
 
-    -- رتبة الصلاحية الكاملة (القاضي) = كل شي
+    -- Full access grade (judge) = everything
     local fullAccess = tonumber(Settings.Panel.FullAccessGrade)
     local grade = JS.GetGrade(Player)
     if fullAccess and grade >= fullAccess then return true end
 
-    -- 'boss' = الرتب اللي عليها isboss | رقم = هذي الرتبة وأعلى فقط
+    -- 'boss' = grades flagged isboss | number = that grade and above only
     if required == 'boss' then
         if job.isboss then return true end
-        return false, 'هذه الصلاحية للإدارة فقط'
+        return false, 'This permission is for management only'
     end
     if grade < (tonumber(required) or 0) then
-        return false, 'رتبتك لا تسمح بهذا الإجراء'
+        return false, 'Your grade does not allow this action'
     end
     return true
 end
@@ -232,7 +229,7 @@ function JS.GetPermissions(Player)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الأدوار: العدل / الشرطة / المحامي
+-- Roles: Justice / Police / Attorney
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function InList(list, value)
@@ -247,7 +244,7 @@ function JS.IsPolice(Player)
     return job ~= nil and InList(Settings.Police.Jobs, job.name)
 end
 
--- القاضي (رتبة الصلاحية الكاملة) = فل أكسس على كل نظام الدولة
+-- The judge (full access grade) has full access to the whole state system
 function JS.IsJudge(Player)
     local full = tonumber(Settings.Panel.FullAccessGrade)
     return JS.IsJustice(Player) and full ~= nil and JS.GetGrade(Player) >= full
@@ -255,20 +252,20 @@ end
 
 function JS.CanPolice(Player, action)
     if JS.IsJudge(Player) then
-        if Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return false, 'يجب أن تكون في الدوام' end
-        if Settings.Police.Permissions[action] == nil then return false, 'صلاحية غير معروفة' end
+        if Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return false, 'You must be on duty' end
+        if Settings.Police.Permissions[action] == nil then return false, 'Unknown permission' end
         return true
     end
-    if not JS.IsPolice(Player) then return false, 'هذا القسم للشرطة فقط' end
+    if not JS.IsPolice(Player) then return false, 'This section is for police only' end
     local job = Player.PlayerData.job
-    if Settings.Police.RequireDuty and not job.onduty then return false, 'يجب أن تكون في الدوام' end
+    if Settings.Police.RequireDuty and not job.onduty then return false, 'You must be on duty' end
     local required = Settings.Police.Permissions[action]
-    if required == nil or required == false then return false, 'هذه الصلاحية غير متاحة للشرطة' end
+    if required == nil or required == false then return false, 'This permission is not available to police' end
     if required == 'boss' then
         if job.isboss then return true end
-        return false, 'هذه الصلاحية لضباط الشرطة فقط'
+        return false, 'This permission is for police officers only'
     end
-    if JS.GetGrade(Player) < (tonumber(required) or 0) then return false, 'رتبتك لا تسمح بهذا الإجراء' end
+    if JS.GetGrade(Player) < (tonumber(required) or 0) then return false, 'Your grade does not allow this action' end
     return true
 end
 
@@ -280,12 +277,12 @@ function JS.GetPolicePermissions(Player)
     return perms
 end
 
--- يرجع دالة تحقق تُستخدم مع JS.RegisterCallback
+-- Returns a check function used with JS.RegisterCallback
 function JS.PoliceOnly(action)
     return function(Player) return JS.CanPolice(Player, action) end
 end
 
--- المحامي: عنده رخصة محاماة أو وظيفته من وظائف المحامين
+-- Attorney: holds a law license or has one of the attorney jobs
 function JS.HasLawyerLicense(metadata, job)
     local licenses = metadata and (metadata.licences or metadata.licenses) or {}
     if licenses[Settings.Lawyers.License] == true then return true end
@@ -316,7 +313,7 @@ function JS.PoliceInfo(Player)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إشعارات مباشرة للتابلت (مع صوت إذا التابلت مفتوح، وإشعار عادي إذا مقفل)
+-- Live tablet notifications (sound when the tablet is open, normal notification when closed)
 -- event = { type, title, text, coords? }
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -340,7 +337,7 @@ function JS.PoliceOnDuty(target)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تحريك الفلوس (بنك) للمتصل وغير المتصل
+-- Moving money (bank) for online and offline citizens
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.GetBank(citizenid)
@@ -350,8 +347,8 @@ function JS.GetBank(citizenid)
     return row and math.floor(tonumber(JS.OfflineMoney(row).bank) or 0) or nil
 end
 
--- يسحب من بنك المواطن (يرفض إذا الرصيد ما يكفي)
--- خصم من بنك لاعب متصل بقرار العدل
+-- Takes from the citizen's bank (refuses if the balance is not enough)
+-- Deduct from an online player's bank by DOJ order
 function JS.RemoveBank(target, amount, reason)
     local ok, removed = pcall(target.Functions.RemoveMoney, 'bank', amount, reason)
     return ok and removed ~= false
@@ -359,47 +356,47 @@ end
 
 function JS.TakeMoney(citizenid, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return false, 'مبلغ غير صحيح' end
+    if amount <= 0 then return false, 'Invalid amount' end
     local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
-        if (tonumber(target.PlayerData.money.bank) or 0) < amount then return false, 'الرصيد غير كافٍ' end
-        if not JS.RemoveBank(target, amount, reason) then return false, 'تعذر السحب' end
+        if (tonumber(target.PlayerData.money.bank) or 0) < amount then return false, 'Insufficient balance' end
+        if not JS.RemoveBank(target, amount, reason) then return false, 'Could not withdraw' end
         return true
     end
     local row = JS.GetPlayerRow(citizenid)
-    if not row then return false, 'المواطن غير موجود' end
+    if not row then return false, 'Citizen not found' end
     local money = JS.OfflineMoney(row)
     local bank = tonumber(money.bank) or 0
-    if bank < amount then return false, 'الرصيد غير كافٍ' end
+    if bank < amount then return false, 'Insufficient balance' end
     money.bank = bank - amount
-    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'تغيرت بيانات المواطن، حاول مرة أخرى' end
+    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'Citizen data changed, try again' end
     return true
 end
 
--- يضيف لبنك المواطن
+-- Adds to the citizen's bank
 function JS.GiveMoney(citizenid, amount, reason)
     amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return false, 'مبلغ غير صحيح' end
+    if amount <= 0 then return false, 'Invalid amount' end
     local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
-        if not target.Functions.AddMoney('bank', amount, reason) then return false, 'تعذر الإيداع' end
+        if not target.Functions.AddMoney('bank', amount, reason) then return false, 'Could not deposit' end
         return true
     end
     local row = JS.GetPlayerRow(citizenid)
-    if not row then return false, 'المواطن غير موجود' end
+    if not row then return false, 'Citizen not found' end
     local money = JS.OfflineMoney(row)
     money.bank = (tonumber(money.bank) or 0) + amount
-    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'تغيرت بيانات المواطن، حاول مرة أخرى' end
+    if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then return false, 'Citizen data changed, try again' end
     return true
 end
 
--- وين تروح الفلوس المسحوبة (WithdrawTo) - يرجع وجهة التحويل عشان التراجع
+-- Where seized money goes (WithdrawTo) - returns the destination for undo
 function JS.DepositWithdrawn(Player, amount, reason)
     local to = Settings.Panel.WithdrawTo
     if to == 'officer' and Player then
         local ok = JS.GiveMoney(Player.PlayerData.citizenid, amount, reason)
         if ok then
-            JS.Notify(Player.PlayerData.source, ('تم إيداع $%d في حسابك'):format(amount), 'success')
+            JS.Notify(Player.PlayerData.source, ('$%d has been deposited to your account'):format(amount), 'success')
             return { to = 'officer', cid = Player.PlayerData.citizenid }
         end
     elseif to == 'society' then
@@ -409,22 +406,22 @@ function JS.DepositWithdrawn(Player, amount, reason)
     return { to = 'none' }
 end
 
--- عكس DepositWithdrawn (للتراجع): يسحب المبلغ من الموظف اللي استلمه
+-- Reverse of DepositWithdrawn (for undo): takes the amount back from the officer who received it
 function JS.ReverseDeposit(dest, amount)
     if type(dest) ~= 'table' or dest.to ~= 'officer' or not dest.cid then return true end
     local ok, err = JS.TakeMoney(dest.cid, amount, 'justice-undo')
-    if not ok then return false, 'الموظف اللي استلم المبلغ رصيده ما يكفي لإرجاعه (' .. tostring(err) .. ')' end
+    if not ok then return false, 'The officer who received the money does not have enough to return it (' .. tostring(err) .. ')' end
     return true
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- فترات الانتظار والحماية من التكرار
+-- Cooldowns and duplicate protection
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local cooldowns = {}
 local throttles = {}
 
--- يرجع true والوقت المتبقي إذا كان في فترة انتظار، وإلا يبدأ فترة جديدة
+-- Returns true and the remaining time while on cooldown, otherwise starts a new one
 function JS.OnCooldown(kind, key, seconds)
     cooldowns[kind] = cooldowns[kind] or {}
     local now = os.time()
@@ -449,7 +446,7 @@ function JS.Throttle(src, name, ms)
     return false
 end
 
--- حد عام: 25 طلب كل 5 ثواني لكل لاعب (يمنع إغراق السيرفر وقاعدة البيانات)
+-- Global limit: 25 requests per 5 seconds per player (prevents flooding the server and database)
 local floods = {}
 
 function JS.Flooding(src)
@@ -461,7 +458,7 @@ function JS.Flooding(src)
     end
     f.count = f.count + 1
     if f.count == 26 then
-        print(('^3[NomadJustice] ⚠ اللاعب [%d] أرسل طلبات كثيرة جداً (احتمال تلاعب)^7'):format(src))
+        print(('^3[NomadJustice] ⚠ Player [%d] sent too many requests (possible tampering)^7'):format(src))
     end
     return f.count > 25
 end
@@ -484,11 +481,11 @@ CreateThread(function()
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- Callbacks آمنة: تتحقق من الجاهزية والصلاحية وتلتقط الأخطاء
--- كل callback يرجع { ok = true, ... } أو { ok = false, err = '...' }
+-- Safe callbacks: check readiness and permission and catch errors
+-- Every callback returns { ok = true, ... } or { ok = false, err = '...' }
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
--- كل الإجراءات مسجلة هنا عشان نظام التراجع يستخدم نفس الكود بنفس التحققات
+-- Every action is registered here so undo reuses the same code with the same checks
 JS.Handlers = {}
 
 function JS.RegisterCallback(name, action, handler)
@@ -497,18 +494,18 @@ function JS.RegisterCallback(name, action, handler)
         local src = source
 
         if not JS.Ready then
-            return cb({ ok = false, err = 'النظام قيد التحميل، حاول بعد قليل' })
+            return cb({ ok = false, err = 'The system is still loading, try again shortly' })
         end
         if JS.Throttle(src, name, 300) then
-            return cb({ ok = false, err = 'الرجاء الانتظار قليلاً' })
+            return cb({ ok = false, err = 'Please wait a moment' })
         end
         if JS.Flooding(src) then
-            return cb({ ok = false, err = 'طلبات كثيرة، انتظر ثواني' })
+            return cb({ ok = false, err = 'Too many requests, wait a few seconds' })
         end
 
         local Player = QBCore.Functions.GetPlayer(src)
         if not Player then
-            return cb({ ok = false, err = 'تعذر العثور على بياناتك' })
+            return cb({ ok = false, err = 'Could not find your character data' })
         end
 
         if action then
@@ -519,19 +516,19 @@ function JS.RegisterCallback(name, action, handler)
                 allowed, err = JS.Can(Player, action)
             end
             if not allowed then
-                -- محاولة من شخص ما له أي دور = غالباً تلاعب (Executor)
+                -- An attempt from someone with no role is usually tampering (executor)
                 if not JS.GetRole(Player) then
-                    print(('^3[NomadJustice] ⚠ محاولة بدون صلاحية: %s [%d] (%s) → %s^7'):format(
+                    print(('^3[NomadJustice] ⚠ Unauthorized attempt: %s [%d] (%s) → %s^7'):format(
                         JS.PlayerName(Player), src, Player.PlayerData.citizenid, name))
                 end
-                return cb({ ok = false, err = err or 'غير مسموح' })
+                return cb({ ok = false, err = err or 'Not allowed' })
             end
         end
 
         local success, result = pcall(handler, src, Player, ...)
         if not success then
             print(('^1[NomadJustice] %s error: %s^7'):format(name, tostring(result)))
-            return cb({ ok = false, err = 'حدث خطأ غير متوقع' })
+            return cb({ ok = false, err = 'An unexpected error occurred' })
         end
 
         cb(result or { ok = true })
@@ -539,7 +536,7 @@ function JS.RegisterCallback(name, action, handler)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- قاعدة البيانات
+-- Database
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.SafeIdentifier(name)
@@ -570,7 +567,7 @@ function JS.ColumnExists(tableName, column)
     return schemaCache[key]
 end
 
--- تنفيذ استعلام تحديث للجداول بدون ما يوقف التشغيل لو فشل
+-- Run a schema update query without stopping startup if it fails
 function JS.TryQuery(query, params)
     local ok, err = pcall(MySQL.query.await, query, params)
     if not ok then
@@ -587,7 +584,7 @@ function JS.EnsureColumn(tableName, column, definition)
     end
 end
 
--- أعمدة خفيفة من جدول players (بدون المخزون الثقيل) + last_updated إذا موجود
+-- Light columns from the players table (without the heavy inventory) + last_updated if present
 function JS.PlayerListColumns()
     local cols = 'citizenid, charinfo, job'
     if JS.ColumnExists(Settings.Database.Players, 'last_updated') then
@@ -606,11 +603,11 @@ function JS.EnsureIndex(tableName, column)
     end
 end
 
--- تحديث عمود JSON لمواطن غير متصل بأمان:
--- يتأكد إن البيانات ما تغيرت أثناء العملية، ويعتبر العملية ناجحة إذا القيمة الجديدة نفس القديمة
+-- Safely update a JSON column for an offline citizen:
+-- makes sure the data did not change meanwhile, and counts it as success if the new value equals the old
 local PlayerJsonColumns = { money = true, charinfo = true, job = true, gang = true, metadata = true }
 
--- فلوس لاعب غير متصل (من صف قاعدة البيانات)
+-- Money of an offline player (from the database row)
 function JS.OfflineMoney(row)
     return JS.Decode(row.money)
 end
@@ -626,7 +623,7 @@ function JS.UpdatePlayerJson(citizenid, column, newValue, oldRaw)
     })
     if affected and affected > 0 then return true end
 
-    -- بعض قواعد البيانات ترجع 0 إذا القيمة ما تغيرت فعلياً
+    -- Some databases return 0 when the value did not actually change
     local current = MySQL.scalar.await(('SELECT `%s` FROM `%s` WHERE citizenid = ?'):format(column, tableName), { citizenid })
     return current == encoded
 end
@@ -637,7 +634,7 @@ function JS.GetPlayerRow(citizenid)
     return MySQL.single.await(('SELECT * FROM `%s` WHERE citizenid = ? LIMIT 1'):format(tableName), { citizenid })
 end
 
--- يرجع بيانات المواطن سواء كان متصلاً أو غير متصل
+-- Returns citizen data whether online or offline
 -- { online = Player|nil, citizenid, charinfo, money, job, gang, metadata, items, lastUpdated }
 function JS.GetCitizen(citizenid)
     local Player = QBCore.Functions.GetPlayerByCitizenId(citizenid)
@@ -672,53 +669,53 @@ function JS.GetCitizen(citizenid)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- السجلات (قاعدة البيانات + Discord اختياري)
--- ضع في server.cfg:  set justice_webhook "https://discord.com/api/webhooks/..."
+-- Logs (database + optional Discord)
+-- Put in server.cfg:  set justice_webhook "https://discord.com/api/webhooks/..."
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.ActionLabels = {
-    view = 'فتح ملف مواطن',
-    locate = 'تحديد موقع',
-    withdraw = 'سحب من البنك',
-    suspend = 'إيقاف خدمات',
-    unsuspend = 'رفع إيقاف الخدمات',
-    edit = 'تعديل بيانات',
-    compensation = 'تعويض',
-    report_status = 'تغيير حالة قضية',
-    report_note = 'ملاحظة على قضية',
-    report_delete = 'حذف قضية',
-    job = 'تغيير وظيفة',
-    duty = 'تغيير دوام موظف',
-    vehicle_impound = 'حجز مركبة',
-    vehicle_release = 'فك حجز مركبة',
-    vehicle_transfer = 'نقل ملكية مركبة',
-    property_transfer = 'نقل ملكية عقار',
-    license_grant = 'منح ترخيص',
-    license_revoke = 'سحب ترخيص',
-    gang = 'تغيير عصابة',
-    summon = 'استدعاء للمحكمة',
-    announce = 'إعلان للمدينة',
-    log_delete = 'حذف سجل',
-    undo = 'تراجع عن إجراء',
-    verdict = 'إصدار حكم',
-    suspect_add = 'إضافة مشبوه',
-    suspect_remove = 'إزالة مشبوه',
-    warrant_issue = 'إصدار أمر',
-    warrant_cancel = 'إلغاء أمر',
-    warrant_execute = 'تنفيذ أمر (شرطة)',
-    lawyer_assign = 'تعيين محامي',
-    lawyer_remove = 'إزالة محامي',
-    police_request = 'طلب تصريح (شرطة)',
-    police_answer = 'الرد على طلب شرطة',
-    police_view = 'اطلاع شرطي على ملف',
-    sector_deposit = 'إيداع في حساب قطاع',
-    sector_withdraw = 'سحب من حساب قطاع',
-    summon_delete = 'حذف استدعاء',
+    view = 'Viewed citizen record',
+    locate = 'Located citizen',
+    withdraw = 'Bank seizure',
+    suspend = 'Service suspension',
+    unsuspend = 'Suspension lifted',
+    edit = 'Identity edited',
+    compensation = 'Compensation',
+    report_status = 'Case status changed',
+    report_note = 'Case note',
+    report_delete = 'Case deleted',
+    job = 'Job changed',
+    duty = 'Employee duty changed',
+    vehicle_impound = 'Vehicle impounded',
+    vehicle_release = 'Vehicle released',
+    vehicle_transfer = 'Vehicle title transferred',
+    property_transfer = 'Property deed transferred',
+    license_grant = 'License granted',
+    license_revoke = 'License revoked',
+    gang = 'Gang changed',
+    summon = 'Court summons',
+    announce = 'City announcement',
+    log_delete = 'Log entry deleted',
+    undo = 'Action undone',
+    verdict = 'Verdict issued',
+    suspect_add = 'Person of interest added',
+    suspect_remove = 'Person of interest removed',
+    warrant_issue = 'Warrant issued',
+    warrant_cancel = 'Warrant cancelled',
+    warrant_execute = 'Warrant executed (police)',
+    lawyer_assign = 'Attorney assigned',
+    lawyer_remove = 'Attorney removed',
+    police_request = 'Clearance request (police)',
+    police_answer = 'Police request answered',
+    police_view = 'Officer viewed record',
+    sector_deposit = 'Department deposit',
+    sector_withdraw = 'Department withdrawal',
+    summon_delete = 'Summons deleted',
 }
 
 local webhook = GetConvar('justice_webhook', '')
 
--- undo: بيانات التراجع عن الإجراء (nil = ما يمكن التراجع عنه)
+-- undo: data needed to reverse the action (nil = cannot be undone)
 function JS.Log(Player, action, targetCitizenid, targetName, details, undo)
     local officerCid = Player and Player.PlayerData.citizenid or 'system'
     local officerName = Player and JS.PlayerName(Player) or 'system'
@@ -731,10 +728,10 @@ function JS.Log(Player, action, targetCitizenid, targetName, details, undo)
     if webhook == '' or (Settings.Panel.WebhookSkip or {})[action] then return end
 
     local lines = {
-        ('**الموظف:** %s (%s)'):format(officerName, officerCid),
+        ('**Officer:** %s (%s)'):format(officerName, officerCid),
     }
     if targetCitizenid then
-        lines[#lines + 1] = ('**المواطن:** %s (%s)'):format(targetName or '-', targetCitizenid)
+        lines[#lines + 1] = ('**Citizen:** %s (%s)'):format(targetName or '-', targetCitizenid)
     end
     for key, value in pairs(details or {}) do
         lines[#lines + 1] = ('**%s:** %s'):format(key, type(value) == 'table' and json.encode(value) or tostring(value))
@@ -748,7 +745,7 @@ function JS.Log(Player, action, targetCitizenid, targetName, details, undo)
     })
 end
 
--- طابور Discord: رسالة كل ثانية ونص عشان ما ينحظر الـ webhook (حد Discord للطلبات)
+-- Discord queue: one message every 1.5 seconds so the webhook is not rate limited
 local webhookQueue = {}
 
 function JS.QueueWebhook(embed)
@@ -770,7 +767,7 @@ CreateThread(function()
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- حساب الوزارة (اختياري)
+-- Department society account (optional)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 function JS.AddSocietyMoney(amount, reason)
@@ -786,7 +783,7 @@ function JS.AddSocietyMoney(amount, reason)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إيقاف الخدمات - Exports لباقي السكربتات
+-- Service suspension - exports for other scripts
 -- exports['NomadJustice']:IsCitizenSuspended(citizenid) -> boolean
 -- exports['NomadJustice']:GetCitizenSuspension(citizenid) -> { reason, officer, date } | nil
 -- ════════════════════════════════════════════════════════════════════════════════════════════════

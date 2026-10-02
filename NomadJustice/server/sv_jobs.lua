@@ -3,7 +3,7 @@ local Panel = Settings.Panel
 local Notify = JS.Notify
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أدوات القطاعات (الوظائف)
+-- Department (job) tools
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function IsBlacklisted(jobName)
@@ -19,7 +19,7 @@ local function GetSharedJob(jobName)
     return jobs[jobName]
 end
 
--- الرتب في QBCore مفاتيحها نصوص ('0', '1') وأحياناً أرقام
+-- QBCore grade keys are strings ('0', '1') and sometimes numbers
 local function GetGrade(job, level)
     level = tonumber(level)
     if not job or not job.grades or not level then return nil end
@@ -33,7 +33,7 @@ local function GetGradeList(job)
         if level then
             list[#list + 1] = {
                 level = level,
-                name = grade.name or ('رتبة ' .. level),
+                name = grade.name or ('Grade ' .. level),
                 isboss = grade.isboss == true,
                 payment = grade.payment,
             }
@@ -43,7 +43,7 @@ local function GetGradeList(job)
     return list
 end
 
--- بناء بيانات الوظيفة بنفس شكل QBCore (للمواطن غير المتصل)
+-- Build job data in the QBCore format (for offline citizens)
 local function BuildJobData(jobName, job, level, grade)
     return {
         name = jobName,
@@ -63,7 +63,7 @@ local function JobLabel(jobData)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- قائمة كل القطاعات مع عدد الموظفين
+-- List of all departments with staff counts
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:getJobs', 'view', function(src, Player)
@@ -109,12 +109,12 @@ JS.RegisterCallback('NomadJustice:server:getJobs', 'view', function(src, Player)
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أعضاء قطاع (متصلين + غير متصلين)
+-- Department members (online + offline)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:getJobMembers', 'view', function(src, Player, jobName)
     local job = GetSharedJob(jobName)
-    if not job or IsBlacklisted(jobName) then return { ok = false, err = 'القطاع غير موجود' } end
+    if not job or IsBlacklisted(jobName) then return { ok = false, err = 'Department not found' } end
 
     local members, seen = {}, {}
     local function add(cid, charinfo, jobData, target, lastUpdated)
@@ -165,32 +165,32 @@ JS.RegisterCallback('NomadJustice:server:getJobMembers', 'view', function(src, P
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تغيير وظيفة ورتبة المواطن (توظيف / ترقية / تنزيل / فصل)
+-- Change a citizen's job and grade (hire / promote / demote / terminate)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:setCitizenJob', 'jobs', function(src, Player, citizenid, jobName, level)
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
-    if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
+    if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
     if citizenid == Player.PlayerData.citizenid then
-        return { ok = false, err = 'لا يمكنك تغيير وظيفتك بنفسك' }
+        return { ok = false, err = 'You cannot change your own job' }
     end
 
     local job = GetSharedJob(jobName)
-    if not job or IsBlacklisted(jobName) then return { ok = false, err = 'القطاع غير موجود أو غير مسموح' } end
+    if not job or IsBlacklisted(jobName) then return { ok = false, err = 'Department not found or not allowed' } end
 
     local grade = GetGrade(job, level)
-    if not grade then return { ok = false, err = 'الرتبة غير موجودة في هذا القطاع' } end
+    if not grade then return { ok = false, err = 'That grade does not exist in this department' } end
 
     if JS.OnCooldown('jobs', Player.PlayerData.citizenid .. ':' .. citizenid, 2) then
-        return { ok = false, err = 'انتظر ثانيتين قبل تعديل نفس المواطن مرة ثانية' }
+        return { ok = false, err = 'Wait two seconds before editing the same citizen again' }
     end
 
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     if citizen.job and citizen.job.name and IsBlacklisted(citizen.job.name) then
-        return { ok = false, err = 'لا يمكن تغيير وظيفة هذا المواطن' }
+        return { ok = false, err = 'This citizen\'s job cannot be changed' }
     end
 
     local oldJob = JobLabel(citizen.job)
@@ -200,33 +200,33 @@ JS.RegisterCallback('NomadJustice:server:setCitizenJob', 'jobs', function(src, P
 
     if citizen.online then
         if not citizen.online.Functions.SetJob(jobName, level) then
-            return { ok = false, err = 'تعذر تغيير الوظيفة' }
+            return { ok = false, err = 'Could not change the job' }
         end
         Notify(citizen.online.PlayerData.source,
-            ('تم تغيير وظيفتك من وزارة العدل إلى: %s - %s'):format(job.label or jobName, grade.name or level), 'primary', 10000)
+            ('The Department of Justice changed your job to: %s - %s'):format(job.label or jobName, grade.name or level), 'primary', 10000)
     else
         if not JS.UpdatePlayerJson(citizenid, 'job', BuildJobData(jobName, job, level, grade), citizen.raw.job) then
-            return { ok = false, err = 'تغيرت بيانات المواطن أثناء العملية، حاول مرة أخرى' }
+            return { ok = false, err = 'Citizen data changed during the operation, try again' }
         end
     end
 
     local newJob = ('%s - %s'):format(job.label or jobName, grade.name or level)
-    JS.Log(Player, 'job', citizenid, name, { ['من'] = oldJob, ['إلى'] = newJob }, oldName and { job = oldName, level = oldLevel } or nil)
+    JS.Log(Player, 'job', citizenid, name, { ['From'] = oldJob, ['To'] = newJob }, oldName and { job = oldName, level = oldLevel } or nil)
 
     return { ok = true, newJob = newJob }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- تشغيل / إيقاف دوام موظف (متصل فقط)
+-- Clock an employee in / out (online only)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:setCitizenDuty', 'jobs', function(src, Player, citizenid, state)
     citizenid = JS.ValidCitizenId(citizenid)
     state = state == true
     local target = citizenid and QBCore.Functions.GetPlayerByCitizenId(citizenid)
-    if not target then return { ok = false, err = 'المواطن غير متصل' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'استخدم البصمة لتغيير دوامك' } end
-    if IsBlacklisted(target.PlayerData.job.name) then return { ok = false, err = 'القطاع غير مسموح' } end
+    if not target then return { ok = false, err = 'The citizen is offline' } end
+    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'Use the clock-in point to change your own duty' } end
+    if IsBlacklisted(target.PlayerData.job.name) then return { ok = false, err = 'Department not allowed' } end
 
     local targetSrc = target.PlayerData.source
     local previousDuty = target.PlayerData.job.onduty == true
@@ -234,10 +234,10 @@ JS.RegisterCallback('NomadJustice:server:setCitizenDuty', 'jobs', function(src, 
     TriggerEvent('QBCore:Server:SetDuty', targetSrc, state)
     TriggerClientEvent('QBCore:Client:SetDuty', targetSrc, state)
 
-    Notify(targetSrc, state and 'تم تسجيل دخولك للدوام من وزارة العدل' or 'تم إنهاء دوامك من وزارة العدل', 'primary', 8000)
+    Notify(targetSrc, state and 'You were clocked in by the Department of Justice' or 'You were clocked out by the Department of Justice', 'primary', 8000)
     JS.Log(Player, 'duty', citizenid, JS.PlayerName(target), {
-        ['القطاع'] = target.PlayerData.job.label or target.PlayerData.job.name,
-        ['الحالة'] = state and 'في الدوام' or 'خارج الدوام',
+        ['Department'] = target.PlayerData.job.label or target.PlayerData.job.name,
+        ['Status'] = state and 'On duty' or 'Off duty',
     }, { state = previousDuty })
 
     return { ok = true }

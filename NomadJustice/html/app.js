@@ -1,7 +1,7 @@
 'use strict';
 /* ════════════════════════════════════════════════════════════════════════════
-   NomadJustice - واجهة نظام الدولة
-   كل النصوص تنضاف كنص (textContent) وليس HTML: ما يمكن حقن كود من البيانات
+   NomadJustice - State Records interface
+   All text is added as textContent (never HTML), so data cannot inject code
    ════════════════════════════════════════════════════════════════════════════ */
 
 const RES = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'NomadJustice';
@@ -18,7 +18,7 @@ const S = {
     busy: 0,
 };
 
-// ═════ أدوات DOM ═════
+// ═════ DOM helpers ═════
 function h(tag, props, ...kids) {
     const el = document.createElement(tag);
     if (props) {
@@ -38,17 +38,17 @@ function h(tag, props, ...kids) {
     return el;
 }
 
-// القوائم من Lua: القائمة الفاضية ممكن توصل {} بدل [] - هذي تضمن إنها دايماً مصفوفة
+// Lists from Lua: an empty list may arrive as {} instead of [] - this always returns an array
 const arr = (x) => (Array.isArray(x) ? x : x && typeof x === 'object' ? Object.values(x) : []);
 const val = (v) => (v === null || v === undefined || v === '' ? '-' : String(v));
 const money = (n) => {
     const x = Math.floor(Number(n) || 0);
     return (x < 0 ? '-$' : '$') + Math.abs(x).toLocaleString('en-US');
 };
-const gender = (g) => (Number(g) === 0 ? 'ذكر' : Number(g) === 1 ? 'أنثى' : '-');
+const gender = (g) => (Number(g) === 0 ? 'Male' : Number(g) === 1 ? 'Female' : '-');
 const dot = (online) => (online ? '🟢' : '⚫');
 
-// ═════ الاتصال بـ Lua ═════
+// ═════ Lua bridge ═════
 async function nui(endpoint, data) {
     try {
         const res = await fetch(`https://${RES}/${endpoint}`, {
@@ -58,7 +58,7 @@ async function nui(endpoint, data) {
         });
         return await res.json();
     } catch (e) {
-        return { ok: false, err: 'تعذر الاتصال' };
+        return { ok: false, err: 'Connection failed' };
     }
 }
 
@@ -72,21 +72,21 @@ async function call(name, ...args) {
     const res = await nui('call', { name, args });
     setBusy(-1);
     if (!res || res.ok === false) {
-        toast((res && res.err) || 'حدث خطأ', 'error');
+        toast((res && res.err) || 'Something went wrong', 'error');
         return null;
     }
     if (res.perms) S.perms = res.perms;
     return res;
 }
 
-// ═════ إشعارات ═════
+// ═════ Toasts ═════
 function toast(text, type = 'info', ms = 4000) {
     const el = h('div', { class: `toast ${type}` }, text);
     $('toasts').append(el);
     setTimeout(() => el.remove(), ms);
 }
 
-// ═════ نوافذ الإدخال والتأكيد ═════
+// ═════ Input and confirm dialogs ═════
 function closeModal() {
     const finish = S.modalFinish;
     S.modalFinish = null;
@@ -94,7 +94,7 @@ function closeModal() {
     if (finish) finish(null);
 }
 
-function modal({ title, text, fields = [], okText = 'تأكيد', danger = false }) {
+function modal({ title, text, fields = [], okText = 'Confirm', danger = false }) {
     return new Promise((resolve) => {
         const inputs = {};
         const body = h('div', { class: 'modal-body' });
@@ -126,11 +126,11 @@ function modal({ title, text, fields = [], okText = 'تأكيد', danger = false
             const out = {};
             for (const [name, { input, field }] of Object.entries(inputs)) {
                 let v = input.value.trim();
-                if (field.required && v === '') { input.focus(); toast(`${field.label} مطلوب`, 'error'); return; }
+                if (field.required && v === '') { input.focus(); toast(`${field.label} is required`, 'error'); return; }
                 if (field.type === 'number') {
                     v = v === '' ? null : Number(v);
-                    if (v !== null && (!Number.isFinite(v) || (field.min != null && v < field.min))) { input.focus(); toast(`${field.label} غير صحيح`, 'error'); return; }
-                    if (v !== null && field.maxValue != null && v > field.maxValue) { input.focus(); toast(`${field.label}: الحد الأقصى ${field.maxValue.toLocaleString('en-US')}`, 'error'); return; }
+                    if (v !== null && (!Number.isFinite(v) || (field.min != null && v < field.min))) { input.focus(); toast(`${field.label} is invalid`, 'error'); return; }
+                    if (v !== null && field.maxValue != null && v > field.maxValue) { input.focus(); toast(`${field.label}: maximum is ${field.maxValue.toLocaleString('en-US')}`, 'error'); return; }
                 }
                 out[name] = v;
             }
@@ -143,7 +143,7 @@ function modal({ title, text, fields = [], okText = 'تأكيد', danger = false
                 body,
                 h('div', { class: 'modal-foot' },
                     h('button', { class: danger ? 'btn red' : 'btn primary', onclick: submit }, okText),
-                    h('button', { class: 'btn', onclick: () => finish(null) }, 'إلغاء'),
+                    h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancel'),
                 ),
             ),
         );
@@ -158,9 +158,9 @@ function modal({ title, text, fields = [], okText = 'تأكيد', danger = false
     });
 }
 
-const confirmBox = (title, text, danger) => modal({ title, text, danger, okText: danger ? 'نعم، متأكد' : 'تأكيد' });
+const confirmBox = (title, text, danger) => modal({ title, text, danger, okText: danger ? 'Yes, I am sure' : 'Confirm' });
 
-// ═════ عناصر جاهزة ═════
+// ═════ Building blocks ═════
 function empty(text, icon = '📭') {
     return h('div', { class: 'empty' }, h('div', { class: 'big' }, icon), text);
 }
@@ -197,9 +197,9 @@ function btn(text, onclick, cls = '') {
 function citizenItem(c) {
     return item({
         icon: c.suspended ? '⛔' : dot(c.online),
-        title: `${c.serverId ? `[${c.serverId}] ` : ''}${c.name || 'بدون اسم'}`,
-        sub: `${c.status ? c.status.text : ''}\nالرقم الوطني: ${c.citizenid} | ${val(c.job)} | الجوال: ${val(c.phone)}`,
-        side: c.suspended ? badge('خدماته موقوفة', 'red') : null,
+        title: `${c.serverId ? `[${c.serverId}] ` : ''}${c.name || 'Unnamed'}`,
+        sub: `${c.status ? c.status.text : ''}\nCitizen ID: ${c.citizenid} | ${val(c.job)} | Phone: ${val(c.phone)}`,
+        side: c.suspended ? badge('Services suspended', 'red') : null,
         onclick: () => go('profile', c.citizenid),
     });
 }
@@ -207,44 +207,44 @@ function citizenItem(c) {
 function pager(page, pages, onPage) {
     if (pages <= 1) return null;
     return h('div', { class: 'pager' },
-        h('button', { class: 'btn small', disabled: page <= 0 || null, onclick: () => onPage(page - 1) }, '→ السابق'),
-        `صفحة ${page + 1} من ${pages}`,
-        h('button', { class: 'btn small', disabled: page + 1 >= pages || null, onclick: () => onPage(page + 1) }, 'التالي ←'),
+        h('button', { class: 'btn small', disabled: page <= 0 || null, onclick: () => onPage(page - 1) }, '← Previous'),
+        `Page ${page + 1} of ${pages}`,
+        h('button', { class: 'btn small', disabled: page + 1 >= pages || null, onclick: () => onPage(page + 1) }, 'Next →'),
     );
 }
 
-// ═════ التنقل ═════
+// ═════ Navigation ═════
 const NAV_BY_ROLE = {};
 NAV_BY_ROLE.justice = [
-    { page: 'home', icon: '🏠', label: 'الرئيسية' },
-    { page: 'online', icon: '🟢', label: 'المتصلين' },
-    { page: 'citizens', icon: '👥', label: 'جميع المواطنين' },
-    { page: 'search', icon: '🔎', label: 'البحث' },
-    { page: 'reports', icon: '⚖️', label: 'القضايا', perm: 'reports', badge: () => S.info.newReports },
-    { page: 'jobs', icon: '🏢', label: 'القطاعات' },
-    { page: 'city', icon: '🏙️', label: 'المدينة', perm: 'city' },
-    { page: 'summons', icon: '📜', label: 'الاستدعاءات', perm: 'summon' },
-    { page: 'suspended', icon: '⛔', label: 'الموقوفين', badge: () => S.info.suspended },
-    { page: 'suspects', icon: '🕵️', label: 'المشبوهين', badge: () => S.info.suspects },
-    { page: 'warrants', icon: '🚨', label: 'أوامر القبض والتفتيش' },
-    { page: 'policeRequests', icon: '🚓', label: 'قسم الشرطة', perm: 'policeRequests', badge: () => S.info.policeRequests },
-    { page: 'stats', icon: '📊', label: 'الإحصائيات', perm: 'stats' },
-    { page: 'finance', icon: '💰', label: 'مالية القطاعات', show: () => !!S.info.finance },
-    { page: 'logs', icon: '🗂️', label: 'سجل العمليات', perm: 'logs' },
+    { page: 'home', icon: '🏠', label: 'Dashboard' },
+    { page: 'online', icon: '🟢', label: 'Online Citizens' },
+    { page: 'citizens', icon: '👥', label: 'Citizen Registry' },
+    { page: 'search', icon: '🔎', label: 'Records Search' },
+    { page: 'reports', icon: '⚖️', label: 'Case Files', perm: 'reports', badge: () => S.info.newReports },
+    { page: 'jobs', icon: '🏢', label: 'Departments' },
+    { page: 'city', icon: '🏙️', label: 'City Affairs', perm: 'city' },
+    { page: 'summons', icon: '📜', label: 'Court Summonses', perm: 'summon' },
+    { page: 'suspended', icon: '⛔', label: 'Suspended Services', badge: () => S.info.suspended },
+    { page: 'suspects', icon: '🕵️', label: 'Persons of Interest', badge: () => S.info.suspects },
+    { page: 'warrants', icon: '🚨', label: 'Warrants' },
+    { page: 'policeRequests', icon: '🚓', label: 'Police Requests', perm: 'policeRequests', badge: () => S.info.policeRequests },
+    { page: 'stats', icon: '📊', label: 'Statistics', perm: 'stats' },
+    { page: 'finance', icon: '💰', label: 'Department Finance', show: () => !!S.info.finance },
+    { page: 'logs', icon: '🗂️', label: 'Audit Log', perm: 'logs' },
 ];
 NAV_BY_ROLE.police = [
-    { page: 'phome', icon: '🏠', label: 'الرئيسية' },
-    { page: 'psearch', icon: '🔎', label: 'البحث عن مواطن', perm: 'search' },
-    { page: 'pwarrants', icon: '🚨', label: 'الأوامر السارية', perm: 'warrants', badge: () => S.info.warrants },
-    { page: 'psuspects', icon: '🕵️', label: 'المشبوهين', perm: 'suspects' },
-    { page: 'prequests', icon: '📨', label: 'طلباتي للعدل', perm: 'requests', badge: () => S.info.myPending },
-    { page: 'finance', icon: '💰', label: 'القسم المالي', show: () => !!S.info.finance },
+    { page: 'phome', icon: '🏠', label: 'Dashboard' },
+    { page: 'psearch', icon: '🔎', label: 'Citizen Lookup', perm: 'search' },
+    { page: 'pwarrants', icon: '🚨', label: 'Active Warrants', perm: 'warrants', badge: () => S.info.warrants },
+    { page: 'psuspects', icon: '🕵️', label: 'Persons of Interest', perm: 'suspects' },
+    { page: 'prequests', icon: '📨', label: 'My DOJ Requests', perm: 'requests', badge: () => S.info.myPending },
+    { page: 'finance', icon: '💰', label: 'Finance Office', show: () => !!S.info.finance },
 ];
 NAV_BY_ROLE.sector = [
-    { page: 'finance', icon: '💰', label: 'القسم المالي' },
+    { page: 'finance', icon: '💰', label: 'Finance Office' },
 ];
 NAV_BY_ROLE.lawyer = [
-    { page: 'lcases', icon: '💼', label: 'قضاياي' },
+    { page: 'lcases', icon: '💼', label: 'My Cases' },
 ];
 const currentNav = () => NAV_BY_ROLE[S.role] || [];
 const homePage = () => ({ justice: 'home', police: 'phome', lawyer: 'lcases', sector: 'finance' })[S.role] || 'home';
@@ -291,65 +291,65 @@ async function render() {
         node = await def.render(arg);
     } catch (e) {
         console.error(e);
-        node = empty('حدث خطأ في عرض الصفحة', '⚠️');
+        node = empty('Could not render this page', '⚠️');
     }
-    if (S.renderToken !== token) return; // صفحة ثانية انفتحت أثناء التحميل
-    content.replaceChildren(node || empty('تعذر تحميل البيانات', '⚠️'));
+    if (S.renderToken !== token) return; // another page was opened while loading
+    content.replaceChildren(node || empty('Could not load data', '⚠️'));
     content.scrollTop = 0;
     renderNav();
 }
 
 const refresh = () => render();
 
-// ═════ الصفحات ═════
+// ═════ Pages ═════
 const PAGES = {};
 
 PAGES.home = {
-    title: 'الرئيسية',
+    title: 'Dashboard',
     async render() {
         const info = await call('panelInfo');
         if (!info) return null;
         S.info = info;
-        const quick = h('input', { placeholder: 'بحث سريع: الاسم / الرقم الوطني / الجوال / رقم السيرفر' });
+        const quick = h('input', { placeholder: 'Quick search: name / citizen ID / phone / server ID' });
         quick.addEventListener('keydown', (e) => { if (e.key === 'Enter' && quick.value.trim()) go('search', quick.value.trim()); });
 
         return h('div', null,
             h('div', { class: 'grid stats' },
-                stat('المتصلين الآن', info.online, 'green', () => go('online')),
-                stat('المواطنين', info.totalCitizens, 'gold', () => go('citizens')),
-                stat('العدل في الدوام', info.justiceOnDuty, 'blue', () => go('jobs')),
-                S.perms.reports ? stat('قضايا جديدة', info.newReports, 'yellow', () => go('reports')) : null,
-                stat('خدمات موقوفة', info.suspended, 'red', () => go('suspended')),
-                stat('أوامر سارية', info.warrants, 'red', () => go('warrants')),
-                stat('المشبوهين', info.suspects, 'purple', () => go('suspects')),
-                S.perms.policeRequests ? stat('طلبات الشرطة', info.policeRequests, 'blue', () => go('policeRequests')) : null,
+                stat('Online Now', info.online, 'green', () => go('online')),
+                stat('Registered Citizens', info.totalCitizens, 'gold', () => go('citizens')),
+                stat('DOJ On Duty', info.justiceOnDuty, 'blue', () => go('jobs')),
+                S.perms.reports ? stat('New Cases', info.newReports, 'yellow', () => go('reports')) : null,
+                stat('Suspended Services', info.suspended, 'red', () => go('suspended')),
+                stat('Active Warrants', info.warrants, 'red', () => go('warrants')),
+                stat('Persons of Interest', info.suspects, 'purple', () => go('suspects')),
+                S.perms.policeRequests ? stat('Police Requests', info.policeRequests, 'blue', () => go('policeRequests')) : null,
             ),
             h('div', { style: 'height:14px' }),
-            card('🔎 بحث سريع', h('div', { class: 'searchbar' }, quick, btn('بحث', () => quick.value.trim() && go('search', quick.value.trim()), 'primary'))),
-            card('⚡ اختصارات', h('div', { class: 'actions' },
-                btn('🟢 المتصلين', () => go('online')),
-                btn('👥 جميع المواطنين', () => go('citizens')),
-                S.perms.reports ? btn('⚖️ القضايا', () => go('reports')) : null,
-                btn('🏢 القطاعات', () => go('jobs')),
-                S.perms.city ? btn('🏙️ المدينة', () => go('city')) : null,
-                S.perms.logs ? btn('🗂️ سجل العمليات', () => go('logs')) : null,
+            card('🔎 Quick Search', h('div', { class: 'searchbar' }, quick, btn('Search', () => quick.value.trim() && go('search', quick.value.trim()), 'primary'))),
+            card('⚡ Shortcuts', h('div', { class: 'actions' },
+                btn('🟢 Online Citizens', () => go('online')),
+                btn('👥 Citizen Registry', () => go('citizens')),
+                S.perms.reports ? btn('⚖️ Case Files', () => go('reports')) : null,
+                btn('🏢 Departments', () => go('jobs')),
+                S.perms.city ? btn('🏙️ City Affairs', () => go('city')) : null,
+                S.perms.logs ? btn('🗂️ Audit Log', () => go('logs')) : null,
             )),
         );
     },
 };
 
 PAGES.online = {
-    title: 'اللاعبين المتصلين',
+    title: 'Online Citizens',
     async render() {
         const res = await call('getOnlinePlayers');
         if (!res) return null;
-        return card(`🟢 المتصلين الآن (${arr(res.players).length})`,
-            arr(res.players).length ? h('div', { class: 'list' }, arr(res.players).map(citizenItem)) : empty('لا يوجد لاعبين'));
+        return card(`🟢 Online Now (${arr(res.players).length})`,
+            arr(res.players).length ? h('div', { class: 'list' }, arr(res.players).map(citizenItem)) : empty('No players online'));
     },
 };
 
 PAGES.citizens = {
-    title: 'جميع المواطنين',
+    title: 'Citizen Registry',
     async render(arg) {
         const state = arg || { page: 0, filter: 'all' };
         const res = await call('getAllCitizens', state.page, state.filter);
@@ -357,9 +357,9 @@ PAGES.citizens = {
         const set = (patch) => { S.current.arg = { ...state, ...patch }; render(); };
         const chip = (f, label) => h('button', { class: 'chip' + (res.filter === f ? ' active' : ''), onclick: () => set({ filter: f, page: 0 }) }, label);
         return h('div', null,
-            h('div', { class: 'chips' }, chip('all', `الكل`), chip('online', `🟢 المتصلين (${res.online})`), chip('offline', '⚫ غير المتصلين')),
-            card(`👥 ${res.total} مواطن`,
-                arr(res.list).length ? h('div', { class: 'list' }, arr(res.list).map(citizenItem)) : empty('لا يوجد مواطنين'),
+            h('div', { class: 'chips' }, chip('all', `All`), chip('online', `🟢 Online (${res.online})`), chip('offline', '⚫ Offline')),
+            card(`👥 ${res.total} citizens`,
+                arr(res.list).length ? h('div', { class: 'list' }, arr(res.list).map(citizenItem)) : empty('No citizens found'),
                 pager(res.page, res.pages, (p) => set({ page: p })),
             ),
         );
@@ -367,9 +367,9 @@ PAGES.citizens = {
 };
 
 PAGES.search = {
-    title: 'البحث عن مواطن',
+    title: 'Records Search',
     async render(query) {
-        const input = h('input', { placeholder: 'الاسم / الرقم الوطني / الجوال / رقم السيرفر', value: query || '' });
+        const input = h('input', { placeholder: 'Name / citizen ID / phone / server ID', value: query || '' });
         const doSearch = () => { const q = input.value.trim(); if (q) { S.current.arg = q; render(); } };
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
         setTimeout(() => input.focus(), 50);
@@ -377,29 +377,29 @@ PAGES.search = {
         let results = null;
         if (query) {
             const res = await call('searchCitizens', query);
-            results = res ? card(`النتائج (${arr(res.results).length})`, arr(res.results).length ? h('div', { class: 'list' }, arr(res.results).map(citizenItem)) : empty('لا توجد نتائج', '🔍')) : null;
+            results = res ? card(`Results (${arr(res.results).length})`, arr(res.results).length ? h('div', { class: 'list' }, arr(res.results).map(citizenItem)) : empty('No results', '🔍')) : null;
         }
-        return h('div', null, h('div', { class: 'searchbar' }, input, btn('بحث', doSearch, 'primary')), results || empty('اكتب في خانة البحث (يشمل غير المتصلين)', '🔎'));
+        return h('div', null, h('div', { class: 'searchbar' }, input, btn('Search', doSearch, 'primary')), results || empty('Type in the search box (includes offline citizens)', '🔎'));
     },
 };
 
 PAGES.suspended = {
-    title: 'الموقوفة خدماتهم',
+    title: 'Suspended Services',
     async render() {
         const res = await call('getSuspended');
         if (!res) return null;
-        return card(`⛔ الموقوفين (${arr(res.list).length})`, arr(res.list).length ? h('div', { class: 'list' }, arr(res.list).map((s) => item({
+        return card(`⛔ Suspended (${arr(res.list).length})`, arr(res.list).length ? h('div', { class: 'list' }, arr(res.list).map((s) => item({
             icon: '⛔',
             title: `${s.status && s.status.online ? '🟢 ' : ''}${s.name} (${s.citizenid})`,
-            sub: `السبب: ${val(s.reason)}\nبواسطة ${val(s.officer)} - ${val(s.date)}`,
+            sub: `Reason: ${val(s.reason)}\nBy ${val(s.officer)} - ${val(s.date)}`,
             onclick: () => go('profile', s.citizenid),
-        }))) : empty('لا يوجد مواطنين موقوفين', '✅'));
+        }))) : empty('No suspended citizens', '✅'));
     },
 };
 
-// ═════ ملف المواطن ═════
+// ═════ Citizen record ═════
 PAGES.profile = {
-    title: (cid) => `ملف المواطن ${cid}`,
+    title: (cid) => `Citizen Record ${cid}`,
     async render(cid) {
         const res = await call('getProfile', cid);
         if (!res) return null;
@@ -411,30 +411,30 @@ PAGES.profile = {
         const head = h('div', { class: 'profile-head' },
             h('div', { class: 'avatar' }, (p.firstname || '?').slice(0, 1)),
             h('div', { style: 'flex:1;min-width:0' },
-                h('div', { class: 'profile-name' }, p.name || 'بدون اسم'),
+                h('div', { class: 'profile-name' }, p.name || 'Unnamed'),
                 h('div', { class: 'profile-meta' },
-                    badge(p.status ? p.status.text : (p.online ? 'متصل' : 'غير متصل'), p.online ? 'green' : 'gray'),
-                    badge(`الرقم الوطني: ${p.citizenid}`),
+                    badge(p.status ? p.status.text : (p.online ? 'Online' : 'Offline'), p.online ? 'green' : 'gray'),
+                    badge(`Citizen ID: ${p.citizenid}`),
                     badge(`${val(p.job.label)} - ${val(p.job.grade)}`, 'blue'),
                     p.gang ? badge(`🎭 ${p.gang.label}`, 'yellow') : null,
-                    p.online ? badge(`البنق ${val(p.ping)}ms`, 'gray') : null,
+                    p.online ? badge(`Ping ${val(p.ping)}ms`, 'gray') : null,
                 ),
             ),
         );
 
         const alert = h('div', null,
-            p.suspension ? h('div', { class: 'alert red' }, `⛔ الخدمات موقوفة: ${val(p.suspension.reason)} (بواسطة ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null,
+            p.suspension ? h('div', { class: 'alert red' }, `⛔ Services suspended: ${val(p.suspension.reason)} (by ${val(p.suspension.officer)} - ${val(p.suspension.date)})`) : null,
             courtAlerts(p.court));
 
         const actions = h('div', { class: 'actions', style: 'margin-bottom:14px' }, profileActions(p, perms, reload));
 
         const tabs = [
-            ['personal', '🪪 البيانات'], ['money', '💰 المالية'], ['job', '💼 الوظيفة والسجل'],
-            ['licenses', '📄 التراخيص'], ['vehicles', `🚗 المركبات${p.vehicles ? ` (${arr(p.vehicles).length})` : ''}`],
-            ['houses', `🏠 العقارات${p.houses ? ` (${arr(p.houses).length})` : ''}`], ['items', `📦 الممتلكات (${arr(p.items).length})`],
-            ['reports', `⚖️ القضايا (${arr(p.reports).length})`], ['summons', `📜 الاستدعاءات (${arr(p.summons).length})`],
-            ['court', `🔨 الأحكام والأوامر (${arr(p.court && p.court.verdicts).length})`],
-            perms.logs ? ['logs', '🗂️ السجل'] : null,
+            ['personal', '🪪 Identity'], ['money', '💰 Finances'], ['job', '💼 Employment & Record'],
+            ['licenses', '📄 Licenses'], ['vehicles', `🚗 Vehicles${p.vehicles ? ` (${arr(p.vehicles).length})` : ''}`],
+            ['houses', `🏠 Properties${p.houses ? ` (${arr(p.houses).length})` : ''}`], ['items', `📦 Possessions (${arr(p.items).length})`],
+            ['reports', `⚖️ Cases (${arr(p.reports).length})`], ['summons', `📜 Summonses (${arr(p.summons).length})`],
+            ['court', `🔨 Verdicts & Warrants (${arr(p.court && p.court.verdicts).length})`],
+            perms.logs ? ['logs', '🗂️ Audit Log'] : null,
         ].filter(Boolean);
 
         const tabBar = h('div', { class: 'tabs' }, tabs.map(([key, label]) => h('button', {
@@ -451,36 +451,36 @@ function profileActions(p, perms, reload) {
     const list = [];
     const self = p.isSelf;
 
-    if (perms.locate) list.push(btn('📍 تحديد الموقع', async () => {
+    if (perms.locate) list.push(btn('📍 Locate', async () => {
         const r = await call('locateCitizen', p.citizenid);
-        if (r) toast(`${r.name} موجود في: ${val(r.street)}${r.inVehicle ? ' (داخل مركبة)' : ''} - تم وضع علامة على الخريطة`, 'success', 7000);
+        if (r) toast(`${r.name} is at: ${val(r.street)}${r.inVehicle ? ' (in a vehicle)' : ''} - marked on the map`, 'success', 7000);
     }, 'blue'));
 
-    if (perms.summon) list.push(btn('📜 استدعاء', async () => {
-        const v = await modal({ title: `استدعاء ${p.name} للمحكمة`, okText: 'إرسال', fields: [
-            { name: 'reason', label: 'السبب', required: true, max: S.config.summonMax || 200 },
-            { name: 'appointment', label: 'الموعد', placeholder: 'مثال: الخميس 9 مساءً', max: 100 },
-            { name: 'location', label: 'المكان', placeholder: 'مثال: قاعة المحكمة الرئيسية', max: 100 },
+    if (perms.summon) list.push(btn('📜 Summon', async () => {
+        const v = await modal({ title: `Summon ${p.name} to Court`, okText: 'Send', fields: [
+            { name: 'reason', label: 'Reason', required: true, max: S.config.summonMax || 200 },
+            { name: 'appointment', label: 'Date & Time', placeholder: 'e.g. Thursday 9 PM', max: 100 },
+            { name: 'location', label: 'Location', placeholder: 'e.g. Main Courtroom', max: 100 },
         ] });
         if (!v) return;
         const r = await call('sendSummon', p.citizenid, v.reason, v.appointment || '', v.location || '');
-        if (r) { toast(r.delivered ? 'تم إرسال الاستدعاء ووصله الآن' : 'تم الحفظ، يوصله أول ما يدخل', 'success'); reload(); }
+        if (r) { toast(r.delivered ? 'Summons delivered' : 'Saved, it will be delivered when they connect', 'success'); reload(); }
     }));
 
-    if (!self && perms.withdraw) list.push(btn('💸 سحب من البنك', async () => {
+    if (!self && perms.withdraw) list.push(btn('💸 Bank Seizure', async () => {
         const maxValue = Math.min(S.config.withdrawMax || 5000000, Math.max(0, p.money.bank));
-        const v = await modal({ title: `سحب من حساب ${p.name}`, text: `الرصيد الحالي: ${money(p.money.bank)}`, okText: 'متابعة', fields: [
-            { name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue },
-            { name: 'reason', label: 'السبب', required: true, max: 200 },
+        const v = await modal({ title: `Seize from ${p.name}'s account`, text: `Current balance: ${money(p.money.bank)}`, okText: 'Continue', fields: [
+            { name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue },
+            { name: 'reason', label: 'Reason', required: true, max: 200 },
         ] });
-        if (!v || !await confirmBox('تأكيد السحب', `سحب ${money(v.amount)} من ${p.name}\nالسبب: ${v.reason}`, true)) return;
+        if (!v || !await confirmBox('Confirm Seizure', `Seize ${money(v.amount)} from ${p.name}\nReason: ${v.reason}`, true)) return;
         const r = await call('withdrawBank', p.citizenid, v.amount, v.reason);
-        if (r) { toast(`تم السحب، الرصيد الجديد: ${money(r.newBalance)}`, 'success'); reload(); }
+        if (r) { toast(`Seized. New balance: ${money(r.newBalance)}`, 'success'); reload(); }
     }, 'red'));
 
-    if (!self && perms.compensation && p.online) list.push(btn('🤝 تعويض', async () => {
-        const v = await modal({ title: `تعويض ${p.name}`, text: `يجب أن يكون بالقرب منك (${S.config.compensationDistance || 5} متر)`, fields: [
-            { name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue: S.config.compensationMax },
+    if (!self && perms.compensation && p.online) list.push(btn('🤝 Compensation', async () => {
+        const v = await modal({ title: `Compensate ${p.name}`, text: `They must be near you (${S.config.compensationDistance || 5} m)`, fields: [
+            { name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue: S.config.compensationMax },
         ] });
         if (!v) return;
         await nui('compensate', { citizenid: p.citizenid, amount: v.amount });
@@ -488,42 +488,42 @@ function profileActions(p, perms, reload) {
     }, 'green'));
 
     if (!self && perms.suspend) {
-        if (p.suspension) list.push(btn('🔓 رفع الإيقاف', async () => {
-            if (!await confirmBox('رفع إيقاف الخدمات', `رفع إيقاف خدمات ${p.name}؟`)) return;
-            if (await call('unsuspendCitizen', p.citizenid)) { toast('تم رفع الإيقاف', 'success'); reload(); }
+        if (p.suspension) list.push(btn('🔓 Lift Suspension', async () => {
+            if (!await confirmBox('Lift Service Suspension', `Lift the service suspension for ${p.name}?`)) return;
+            if (await call('unsuspendCitizen', p.citizenid)) { toast('Suspension lifted', 'success'); reload(); }
         }, 'green'));
-        else list.push(btn('⛔ إيقاف الخدمات', async () => {
-            const v = await modal({ title: `إيقاف خدمات ${p.name}`, okText: 'إيقاف', danger: true, fields: [{ name: 'reason', label: 'السبب', required: true, max: 200 }] });
-            if (v && await call('suspendCitizen', p.citizenid, v.reason)) { toast('تم إيقاف الخدمات', 'success'); reload(); }
+        else list.push(btn('⛔ Suspend Services', async () => {
+            const v = await modal({ title: `Suspend services for ${p.name}`, okText: 'Suspend', danger: true, fields: [{ name: 'reason', label: 'Reason', required: true, max: 200 }] });
+            if (v && await call('suspendCitizen', p.citizenid, v.reason)) { toast('Services suspended', 'success'); reload(); }
         }, 'red'));
     }
 
-    if (!self && perms.jobs) list.push(btn('💼 الوظيفة والرتبة', async () => { if (await changeJob(p.citizenid, p.name)) reload(); }, 'blue'));
-    if (!self && perms.jobs && p.job.name !== S.config.unemployed) list.push(btn('❌ فصل', async () => { if (await fire(p.citizenid, p.name)) reload(); }, 'red'));
-    if (!self && perms.gangs) list.push(btn('🎭 العصابة', async () => { if (await changeGang(p.citizenid, p.name)) reload(); }));
+    if (!self && perms.jobs) list.push(btn('💼 Job & Grade', async () => { if (await changeJob(p.citizenid, p.name)) reload(); }, 'blue'));
+    if (!self && perms.jobs && p.job.name !== S.config.unemployed) list.push(btn('❌ Terminate', async () => { if (await fire(p.citizenid, p.name)) reload(); }, 'red'));
+    if (!self && perms.gangs) list.push(btn('🎭 Gang', async () => { if (await changeGang(p.citizenid, p.name)) reload(); }));
 
-    if (!self && perms.verdicts) list.push(btn('🔨 إصدار حكم', async () => { if (await verdictFlow({ citizenid: p.citizenid, name: p.name })) reload(); }, 'red'));
-    if (!self && perms.warrants) list.push(btn('🚨 أمر قبض / تفتيش', async () => { if (await warrantFlow(p.citizenid, p.name)) reload(); }, 'red'));
+    if (!self && perms.verdicts) list.push(btn('🔨 Issue Verdict', async () => { if (await verdictFlow({ citizenid: p.citizenid, name: p.name })) reload(); }, 'red'));
+    if (!self && perms.warrants) list.push(btn('🚨 Arrest / Search Warrant', async () => { if (await warrantFlow(p.citizenid, p.name)) reload(); }, 'red'));
     if (!self && perms.suspects) {
         const suspect = p.court && p.court.suspect;
         list.push(suspect
-            ? btn('🕵️ إزالة من المشبوهين', async () => {
-                if (await confirmBox('إزالة من المشبوهين', `إزالة ${p.name} من قائمة المشبوهين؟`) && await call('removeSuspect', suspect.id)) { toast('تمت الإزالة', 'success'); reload(); }
+            ? btn('🕵️ Remove from Persons of Interest', async () => {
+                if (await confirmBox('Remove Person of Interest', `Remove ${p.name} from the persons of interest list?`) && await call('removeSuspect', suspect.id)) { toast('Removed', 'success'); reload(); }
             })
-            : btn('🕵️ إضافة للمشبوهين', async () => { if (await suspectFlow(p.citizenid, p.name)) reload(); }, 'yellow'));
+            : btn('🕵️ Flag as Person of Interest', async () => { if (await suspectFlow(p.citizenid, p.name)) reload(); }, 'yellow'));
     }
 
-    if (!self && perms.edit) list.push(btn('✏️ تعديل البيانات', async () => {
-        const v = await modal({ title: `تعديل بيانات ${p.name}`, okText: 'حفظ', fields: [
-            { name: 'firstname', label: 'الاسم الأول', required: true, value: p.firstname, max: 20 },
-            { name: 'lastname', label: 'اسم العائلة', required: true, value: p.lastname, max: 20 },
-            { name: 'birthdate', label: 'تاريخ الميلاد', required: true, value: p.birthdate, max: 10, placeholder: 'YYYY-MM-DD' },
-            { name: 'gender', label: 'الجنس', type: 'select', value: p.gender === 1 ? '1' : '0', options: [{ value: '0', label: 'ذكر' }, { value: '1', label: 'أنثى' }] },
-            { name: 'nationality', label: 'الجنسية', required: true, value: p.nationality, max: 30 },
+    if (!self && perms.edit) list.push(btn('✏️ Edit Identity', async () => {
+        const v = await modal({ title: `Edit identity of ${p.name}`, okText: 'Save', fields: [
+            { name: 'firstname', label: 'First Name', required: true, value: p.firstname, max: 20 },
+            { name: 'lastname', label: 'Last Name', required: true, value: p.lastname, max: 20 },
+            { name: 'birthdate', label: 'Date of Birth', required: true, value: p.birthdate, max: 10, placeholder: 'YYYY-MM-DD' },
+            { name: 'gender', label: 'Sex', type: 'select', value: p.gender === 1 ? '1' : '0', options: [{ value: '0', label: 'Male' }, { value: '1', label: 'Female' }] },
+            { name: 'nationality', label: 'Nationality', required: true, value: p.nationality, max: 30 },
         ] });
         if (!v) return;
         v.gender = Number(v.gender);
-        if (await call('editCitizen', p.citizenid, v)) { toast('تم تحديث البيانات', 'success'); reload(); }
+        if (await call('editCitizen', p.citizenid, v)) { toast('Identity updated', 'success'); reload(); }
     }));
 
     return list;
@@ -534,59 +534,59 @@ async function profileTab(tab, p, perms, reload) {
     switch (tab) {
         case 'personal':
             return card(null, kv([
-                ['الاسم الكامل', p.name], ['الرقم الوطني', p.citizenid], ['تاريخ الميلاد', p.birthdate], ['الجنس', gender(p.gender)],
-                ['الجنسية', p.nationality], ['رقم الجوال', p.phone], ['رقم الحساب', p.account], ['فصيلة الدم', i.bloodtype],
-                ['البصمة', i.fingerprint], ['رقم المحفظة', i.walletid], ['آخر حفظ للبيانات', p.lastUpdated],
+                ['Full Name', p.name], ['Citizen ID', p.citizenid], ['Date of Birth', p.birthdate], ['Sex', gender(p.gender)],
+                ['Nationality', p.nationality], ['Phone Number', p.phone], ['Bank Account', p.account], ['Blood Type', i.bloodtype],
+                ['Fingerprint', i.fingerprint], ['Wallet ID', i.walletid], ['Last Saved', p.lastUpdated],
             ]));
         case 'money':
             return h('div', null,
                 h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                    stat('رصيد البنك', money(p.money.bank), 'green'), stat('الكاش', money(p.money.cash), 'gold'),
-                    p.money.crypto != null ? stat('الكريبتو', val(p.money.crypto), 'purple') : null),
-                card('عمليات وزارة العدل', (p.transactions || []).length ? h('div', { class: 'list' }, arr(p.transactions).map((t) => item({
+                    stat('Bank Balance', money(p.money.bank), 'green'), stat('Cash', money(p.money.cash), 'gold'),
+                    p.money.crypto != null ? stat('Crypto', val(p.money.crypto), 'purple') : null),
+                card('DOJ Transactions', (p.transactions || []).length ? h('div', { class: 'list' }, arr(p.transactions).map((t) => item({
                     icon: t.type === 'withdraw' ? '🔻' : '🔺',
-                    title: `${t.type === 'withdraw' ? 'سحب' : 'تعويض'} ${money(t.amount)}`,
-                    sub: `${val(t.reason)}\nبواسطة ${val(t.officer)} - ${val(t.date)}`,
-                }))) : empty('لا توجد عمليات')));
+                    title: `${t.type === 'withdraw' ? 'Seizure' : 'Compensation'} ${money(t.amount)}`,
+                    sub: `${val(t.reason)}\nBy ${val(t.officer)} - ${val(t.date)}`,
+                }))) : empty('No transactions')));
         case 'job':
             return card(null, kv([
-                ['الوظيفة', `${val(p.job.label)} - ${val(p.job.grade)}`], ['الدوام', p.job.onduty ? 'في الدوام' : 'خارج الدوام'],
-                ['مدير', p.job.isboss ? 'نعم' : 'لا'], ['العصابة', p.gang ? `${p.gang.label} - ${val(p.gang.grade)}` : 'لا يوجد'],
-                ['السجن', i.injail > 0 ? `مسجون (${i.injail} شهر)` : 'غير مسجون'],
-                ['السجل الجنائي', i.criminalRecord ? `يوجد سجل${i.criminalRecordDate ? ' - ' + i.criminalRecordDate : ''}` : 'نظيف'],
-                ['الحالة الصحية', i.isdead ? 'ميت / مصاب' : 'سليم'], ['رمز النداء', i.callsign],
+                ['Job', `${val(p.job.label)} - ${val(p.job.grade)}`], ['Duty', p.job.onduty ? 'On duty' : 'Off duty'],
+                ['Manager', p.job.isboss ? 'Yes' : 'No'], ['Gang', p.gang ? `${p.gang.label} - ${val(p.gang.grade)}` : 'None'],
+                ['Jail', i.injail > 0 ? `Incarcerated (${i.injail} months)` : 'Not incarcerated'],
+                ['Criminal Record', i.criminalRecord ? `On file${i.criminalRecordDate ? ' - ' + i.criminalRecordDate : ''}` : 'Clean'],
+                ['Medical Status', i.isdead ? 'Deceased / Injured' : 'Healthy'], ['Callsign', i.callsign],
             ]));
         case 'licenses': {
             const canToggle = perms.licenses && !p.isSelf;
             return card(null, (p.licenses || []).length ? h('div', { class: 'list' }, arr(p.licenses).map((l) => item({
                 icon: l.active ? '✅' : '❌',
                 title: l.label,
-                sub: l.active ? 'فعالة' : 'غير فعالة',
-                side: canToggle ? btn(l.active ? 'سحب' : 'منح', async () => {
-                    if (!await confirmBox(`${l.active ? 'سحب' : 'منح'} ترخيص`, `${l.active ? 'سحب' : 'منح'} ${l.label} للمواطن ${p.name}؟`, l.active)) return;
-                    if (await call('setLicense', p.citizenid, l.key, !l.active)) { toast('تم', 'success'); reload(); }
+                sub: l.active ? 'Valid' : 'Not held',
+                side: canToggle ? btn(l.active ? 'Revoke' : 'Grant', async () => {
+                    if (!await confirmBox(`${l.active ? 'Revoke' : 'Grant'} License`, `${l.active ? 'Revoke' : 'Grant'} ${l.label} for ${p.name}?`, l.active)) return;
+                    if (await call('setLicense', p.citizenid, l.key, !l.active)) { toast('Done', 'success'); reload(); }
                 }, `small ${l.active ? 'red' : 'green'}`) : null,
-            }))) : empty('لا توجد تراخيص'));
+            }))) : empty('No licenses'));
         }
         case 'vehicles':
-            if (!p.vehicles) return empty('جدول المركبات غير مفعل');
+            if (!p.vehicles) return empty('Vehicle registry is not enabled');
             return card(null, arr(p.vehicles).length ? h('div', { class: 'list' }, arr(p.vehicles).map((v) => item({
                 icon: '🚗', title: `${v.label} | ${val(v.plate)}`,
-                sub: `${v.state} | الكراج: ${val(v.garage)} | الوقود ${val(v.fuel)}% | المحرك ${val(v.engine)}% | الهيكل ${val(v.body)}%`,
+                sub: `${v.state} | Garage: ${val(v.garage)} | Fuel ${val(v.fuel)}% | Engine ${val(v.engine)}% | Body ${val(v.body)}%`,
                 onclick: perms.city && v.plate ? () => go('vehicle', v.plate) : null,
-            }))) : empty('لا توجد مركبات', '🚗'));
+            }))) : empty('No registered vehicles', '🚗'));
         case 'houses':
-            if (!p.houses) return empty('جدول العقارات غير مفعل');
-            return card(null, arr(p.houses).length ? h('div', { class: 'list' }, arr(p.houses).map((x) => item({ icon: '🏠', title: x.label }))) : empty('لا توجد عقارات', '🏠'));
+            if (!p.houses) return empty('Property registry is not enabled');
+            return card(null, arr(p.houses).length ? h('div', { class: 'list' }, arr(p.houses).map((x) => item({ icon: '🏠', title: x.label }))) : empty('No properties', '🏠'));
         case 'items':
-            return card(null, arr(p.items).length ? h('div', { class: 'list' }, arr(p.items).map((x) => item({ icon: '📦', title: x.label, side: badge(`× ${x.amount}`) }))) : empty('لا توجد ممتلكات', '📦'));
+            return card(null, arr(p.items).length ? h('div', { class: 'list' }, arr(p.items).map((x) => item({ icon: '📦', title: x.label, side: badge(`× ${x.amount}`) }))) : empty('No possessions', '📦'));
         case 'reports':
             return card(null, arr(p.reports).length ? h('div', { class: 'list' }, arr(p.reports).map((r) => item({
                 icon: '⚖️', title: `#${r.id} | ${r.title}`, sub: `${r.role} | ${val(r.caseType)} | ${val(r.status)} | ${val(r.date)}`,
                 onclick: perms.reports ? () => go('report', r.id) : null,
-            }))) : empty('لا توجد قضايا', '⚖️'));
+            }))) : empty('No cases', '⚖️'));
         case 'summons':
-            return card(null, arr(p.summons).length ? h('div', { class: 'list' }, arr(p.summons).map((s) => summonItem(s, reload))) : empty('لا توجد استدعاءات', '📜'));
+            return card(null, arr(p.summons).length ? h('div', { class: 'list' }, arr(p.summons).map((s) => summonItem(s, reload))) : empty('No summonses', '📜'));
         case 'court':
             return courtView(p.court || {}, perms, reload, { citizenid: p.citizenid, name: p.name });
         case 'logs':
@@ -600,27 +600,27 @@ function summonItem(s, reload) {
     return item({
         icon: '📜',
         title: `#${s.id}${s.name ? ' | ' + s.name : ''} | ${s.statusLabel}`,
-        sub: `${s.reason}\nالموعد: ${val(s.appointment)} | المكان: ${val(s.location)}\nبواسطة ${val(s.officer)} - ${val(s.date)}`,
+        sub: `${s.reason}\nWhen: ${val(s.appointment)} | Where: ${val(s.location)}\nBy ${val(s.officer)} - ${val(s.date)}`,
         side: [
-            s.citizenid ? btn('الملف', () => go('profile', s.citizenid), 'small') : null,
-            open && S.perms.summon ? btn('تحديث', async () => {
-                const v = await modal({ title: `تحديث الاستدعاء #${s.id}`, fields: [{ name: 'status', label: 'الحالة', type: 'select', options: [
-                    { value: 'attended', label: 'حضر' }, { value: 'absent', label: 'لم يحضر' }, { value: 'cancelled', label: 'إلغاء الاستدعاء' }] }] });
-                if (v && await call('setSummonStatus', s.id, v.status)) { toast('تم تحديث الاستدعاء', 'success'); reload(); }
+            s.citizenid ? btn('Record', () => go('profile', s.citizenid), 'small') : null,
+            open && S.perms.summon ? btn('Update', async () => {
+                const v = await modal({ title: `Update Summons #${s.id}`, fields: [{ name: 'status', label: 'Status', type: 'select', options: [
+                    { value: 'attended', label: 'Appeared' }, { value: 'absent', label: 'Failed to appear' }, { value: 'cancelled', label: 'Cancel summons' }] }] });
+                if (v && await call('setSummonStatus', s.id, v.status)) { toast('Summons updated', 'success'); reload(); }
             }, 'small') : null,
-            S.perms.delete ? btn('حذف', async () => {
-                if (await confirmBox('حذف الاستدعاء', `حذف الاستدعاء #${s.id} نهائياً؟`, true) && await call('deleteSummon', s.id)) { toast('تم الحذف', 'success'); reload(); }
+            S.perms.delete ? btn('Delete', async () => {
+                if (await confirmBox('Delete Summons', `Permanently delete summons #${s.id}?`, true) && await call('deleteSummon', s.id)) { toast('Deleted', 'success'); reload(); }
             }, 'small red') : null,
         ],
     });
 }
 
-// ═════ الوظائف والعصابات ═════
+// ═════ Jobs and gangs ═════
 async function pickGrade(title, grades, current) {
     grades = arr(grades);
-    if (!grades.length) { toast('لا توجد رتب', 'error'); return null; }
-    const v = await modal({ title, fields: [{ name: 'level', label: 'الرتبة', type: 'select', value: current != null ? String(current) : String(grades[0].level),
-        options: grades.map((g) => ({ value: g.level, label: `${g.level} - ${g.name}${g.isboss ? ' (مدير)' : ''}` })) }] });
+    if (!grades.length) { toast('No grades available', 'error'); return null; }
+    const v = await modal({ title, fields: [{ name: 'level', label: 'Grade', type: 'select', value: current != null ? String(current) : String(grades[0].level),
+        options: grades.map((g) => ({ value: g.level, label: `${g.level} - ${g.name}${g.isboss ? ' (manager)' : ''}` })) }] });
     return v ? Number(v.level) : null;
 }
 
@@ -629,54 +629,54 @@ async function changeJob(cid, name, presetJob) {
     if (!res) return false;
     let job = presetJob ? arr(res.jobs).find((j) => j.name === presetJob) : null;
     if (!job) {
-        const v = await modal({ title: `وظيفة ${name}`, okText: 'التالي', fields: [{ name: 'job', label: 'القطاع', type: 'select',
+        const v = await modal({ title: `Employment of ${name}`, okText: 'Next', fields: [{ name: 'job', label: 'Department', type: 'select',
             options: arr(res.jobs).map((j, i) => ({ value: i, label: `${j.label} (${j.name})` })) }] });
         if (!v) return false;
         job = arr(res.jobs)[Number(v.job)];
     }
-    const level = await pickGrade(`الرتبة في ${job.label}`, arr(job.grades));
+    const level = await pickGrade(`Grade in ${job.label}`, arr(job.grades));
     if (level == null) return false;
     const grade = arr(job.grades).find((g) => g.level === level);
-    if (!await confirmBox('تأكيد', `تعيين ${name} في ${job.label} برتبة ${grade ? grade.name : level}؟`)) return false;
+    if (!await confirmBox('Confirm', `Appoint ${name} to ${job.label} as ${grade ? grade.name : level}?`)) return false;
     const r = await call('setCitizenJob', cid, job.name, level);
-    if (r) toast(`تم التعيين: ${r.newJob}`, 'success');
+    if (r) toast(`Appointed: ${r.newJob}`, 'success');
     return !!r;
 }
 
 async function fire(cid, name) {
-    if (!await confirmBox('فصل من الوظيفة', `فصل ${name} من وظيفته؟`, true)) return false;
+    if (!await confirmBox('Terminate Employment', `Terminate ${name} from their job?`, true)) return false;
     const r = await call('setCitizenJob', cid, S.config.unemployed, 0);
-    if (r) toast('تم الفصل', 'success');
+    if (r) toast('Employment terminated', 'success');
     return !!r;
 }
 
 async function changeGang(cid, name) {
     const res = await call('getGangs');
     if (!res) return false;
-    const v = await modal({ title: `عصابة ${name}`, okText: 'التالي', fields: [{ name: 'gang', label: 'العصابة', type: 'select',
+    const v = await modal({ title: `Gang of ${name}`, okText: 'Next', fields: [{ name: 'gang', label: 'Gang', type: 'select',
         options: arr(res.gangs).map((g, i) => ({ value: i, label: `${g.label} (${g.name})` })) }] });
     if (!v) return false;
     const gang = arr(res.gangs)[Number(v.gang)];
-    const level = await pickGrade(`الرتبة في ${gang.label}`, arr(gang.grades));
+    const level = await pickGrade(`Rank in ${gang.label}`, arr(gang.grades));
     if (level == null) return false;
     const r = await call('setGang', cid, gang.name, level);
-    if (r) toast('تم تغيير العصابة', 'success');
+    if (r) toast('Gang updated', 'success');
     return !!r;
 }
 
 PAGES.jobs = {
-    title: 'القطاعات',
+    title: 'Departments',
     async render() {
         const res = await call('getJobs');
         if (!res) return null;
         return h('div', { class: 'grid two' }, arr(res.jobs).map((j) => h('div', { class: 'stat clickable', style: j.onduty > 0 ? '--tone: var(--green)' : '--tone: var(--border)', onclick: () => go('job', j.name) },
             h('div', { class: 'value', style: 'font-size:17px' }, j.label),
-            h('div', { class: 'label', style: 'margin-top:6px' }, `🟢 متصل ${j.online} | 🟩 في الدوام ${j.onduty} | 👥 الإجمالي ${j.total} | رتب ${arr(j.grades).length}`))));
+            h('div', { class: 'label', style: 'margin-top:6px' }, `🟢 Online ${j.online} | 🟩 On duty ${j.onduty} | 👥 Total ${j.total} | Grades ${arr(j.grades).length}`))));
     },
 };
 
 PAGES.job = {
-    title: (name) => `القطاع: ${name}`,
+    title: (name) => `Department: ${name}`,
     async render(name) {
         const res = await call('getJobMembers', name);
         if (!res) return null;
@@ -684,43 +684,43 @@ PAGES.job = {
         job.grades = arr(job.grades);
         const members = arr(res.members);
         const perms = res.perms || {};
-        $('page-title').textContent = `قطاع ${job.label}`;
+        $('page-title').textContent = `Department: ${job.label}`;
         const online = members.filter((m) => m.online).length;
         const onduty = members.filter((m) => m.onduty).length;
 
         return h('div', null,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                stat('الموظفين', members.length), stat('المتصلين', online, 'green'), stat('في الدوام', onduty, 'blue')),
-            card(h('span', null, `👥 موظفين ${job.label}`), perms.jobs ? h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ توظيف مواطن', async () => {
-                const v = await modal({ title: `توظيف في ${job.label}`, okText: 'التالي', fields: [{ name: 'cid', label: 'الرقم الوطني', required: true, max: 50 }] });
+                stat('Employees', members.length), stat('Online', online, 'green'), stat('On Duty', onduty, 'blue')),
+            card(h('span', null, `👥 ${job.label} Staff`), perms.jobs ? h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ Hire Citizen', async () => {
+                const v = await modal({ title: `Hire into ${job.label}`, okText: 'Next', fields: [{ name: 'cid', label: 'Citizen ID', required: true, max: 50 }] });
                 if (v && await changeJob(v.cid, v.cid, job.name)) render();
             }, 'primary')) : null,
             members.length ? h('div', { class: 'list' }, members.map((m) => item({
                 icon: m.isboss ? '👔' : dot(m.online),
                 title: `${m.online ? `[${m.serverId}] ` : ''}${m.name || m.citizenid}`,
-                sub: `${m.gradeLevel} - ${m.gradeName}${m.isboss ? ' (مدير)' : ''} | ${m.online ? (m.onduty ? 'في الدوام' : 'متصل - خارج الدوام') : (m.status ? m.status.text : 'غير متصل')}`,
+                sub: `${m.gradeLevel} - ${m.gradeName}${m.isboss ? ' (manager)' : ''} | ${m.online ? (m.onduty ? 'On duty' : 'Online - off duty') : (m.status ? m.status.text : 'Offline')}`,
                 side: [
-                    btn('الملف', () => go('profile', m.citizenid), 'small'),
-                    perms.jobs ? btn('الرتبة', async () => {
-                        const level = await pickGrade(`رتبة ${m.name}`, arr(job.grades), m.gradeLevel);
+                    btn('Record', () => go('profile', m.citizenid), 'small'),
+                    perms.jobs ? btn('Grade', async () => {
+                        const level = await pickGrade(`Grade for ${m.name}`, arr(job.grades), m.gradeLevel);
                         if (level == null || level === m.gradeLevel) return;
-                        if (await call('setCitizenJob', m.citizenid, job.name, level)) { toast('تم تغيير الرتبة', 'success'); render(); }
+                        if (await call('setCitizenJob', m.citizenid, job.name, level)) { toast('Grade updated', 'success'); render(); }
                     }, 'small blue') : null,
-                    perms.jobs && m.online ? btn(m.onduty ? 'إنهاء الدوام' : 'تسجيل دوام', async () => {
-                        if (await call('setCitizenDuty', m.citizenid, !m.onduty)) { toast('تم', 'success'); render(); }
+                    perms.jobs && m.online ? btn(m.onduty ? 'Clock Out' : 'Clock In', async () => {
+                        if (await call('setCitizenDuty', m.citizenid, !m.onduty)) { toast('Done', 'success'); render(); }
                     }, 'small') : null,
-                    perms.jobs && job.name !== S.config.unemployed ? btn('فصل', async () => { if (await fire(m.citizenid, m.name)) render(); }, 'small red') : null,
+                    perms.jobs && job.name !== S.config.unemployed ? btn('Terminate', async () => { if (await fire(m.citizenid, m.name)) render(); }, 'small red') : null,
                 ],
-            }))) : empty('لا يوجد موظفين')),
+            }))) : empty('No employees')),
         );
     },
 };
 
-// ═════ القضايا ═════
-const STATUS = { new: ['جديدة', 'red'], review: ['قيد النظر', 'yellow'], closed: ['مغلقة', 'green'] };
+// ═════ Case files ═════
+const STATUS = { new: ['New', 'red'], review: ['Under Review', 'yellow'], closed: ['Closed', 'green'] };
 
 PAGES.reports = {
-    title: 'القضايا',
+    title: 'Case Files',
     async render(filter) {
         const res = await call('getJobReports', filter || null);
         if (!res) return null;
@@ -728,20 +728,20 @@ PAGES.reports = {
         S.info.newReports = c.new || 0;
         const chip = (f, label) => h('button', { class: 'chip' + ((filter || null) === f ? ' active' : ''), onclick: () => { S.current.arg = f; render(); } }, label);
         return h('div', null,
-            h('div', { class: 'chips' }, chip(null, 'الكل'), chip('new', `🔴 جديدة (${c.new || 0})`), chip('review', `🟡 قيد النظر (${c.review || 0})`), chip('closed', `🟢 مغلقة (${c.closed || 0})`)),
+            h('div', { class: 'chips' }, chip(null, 'All'), chip('new', `🔴 New (${c.new || 0})`), chip('review', `🟡 Under Review (${c.review || 0})`), chip('closed', `🟢 Closed (${c.closed || 0})`)),
             card(null, arr(res.reports).length ? h('div', { class: 'list' }, arr(res.reports).map((r) => item({
                 icon: '⚖️',
                 title: `#${r.id} | ${r.title}`,
-                sub: `${r.caseType} | ${dot(r.submitterOnline)} ${r.name} | ${r.date}${r.defendantName ? ' | ضد: ' + r.defendantName : ''}${r.handledBy ? '\nالمعالج: ' + r.handledBy : ''}`,
+                sub: `${r.caseType} | ${dot(r.submitterOnline)} ${r.name} | ${r.date}${r.defendantName ? ' | v. ' + r.defendantName : ''}${r.handledBy ? '\nHandled by: ' + r.handledBy : ''}`,
                 side: badge(STATUS[r.status] ? STATUS[r.status][0] : r.statusLabel, STATUS[r.status] ? STATUS[r.status][1] : ''),
                 onclick: () => go('report', r.id),
-            }))) : empty('لا توجد قضايا', '⚖️')),
+            }))) : empty('No cases', '⚖️')),
         );
     },
 };
 
 PAGES.report = {
-    title: (id) => `القضية #${id}`,
+    title: (id) => `Case #${id}`,
     async render(id) {
         const res = await call('getReport', id);
         if (!res) return null;
@@ -756,113 +756,113 @@ PAGES.report = {
                 h('div', { style: 'flex:1;min-width:0' },
                     h('div', { class: 'profile-name' }, r.title),
                     h('div', { class: 'profile-meta' }, badge(r.statusLabel, STATUS[r.status] ? STATUS[r.status][1] : ''), badge(r.caseType, 'blue'), badge(r.date, 'gray'),
-                        r.handledBy ? badge(`المعالج: ${r.handledBy}`, 'gray') : null)),
+                        r.handledBy ? badge(`Handled by: ${r.handledBy}`, 'gray') : null)),
             ),
             h('div', { class: 'actions', style: 'margin-bottom:14px' },
-                btn('🔁 تغيير الحالة', async () => {
-                    const v = await modal({ title: 'حالة القضية', fields: [{ name: 's', label: 'الحالة', type: 'select', value: r.status,
-                        options: [{ value: 'new', label: 'جديدة' }, { value: 'review', label: 'قيد النظر' }, { value: 'closed', label: 'مغلقة' }] }] });
-                    if (v && v.s !== r.status && await call('setReportStatus', r.id, v.s)) { toast('تم تحديث الحالة', 'success'); reload(); }
+                btn('🔁 Change Status', async () => {
+                    const v = await modal({ title: 'Case Status', fields: [{ name: 's', label: 'Status', type: 'select', value: r.status,
+                        options: [{ value: 'new', label: 'New' }, { value: 'review', label: 'Under Review' }, { value: 'closed', label: 'Closed' }] }] });
+                    if (v && v.s !== r.status && await call('setReportStatus', r.id, v.s)) { toast('Status updated', 'success'); reload(); }
                 }, 'blue'),
-                btn('📝 إضافة ملاحظة', async () => {
-                    const v = await modal({ title: 'ملاحظة على القضية', fields: [{ name: 'note', label: 'الملاحظة', type: 'textarea', required: true, max: S.config.noteMax || 500 }] });
-                    if (v && await call('addReportNote', r.id, v.note)) { toast('تمت إضافة الملاحظة', 'success'); reload(); }
+                btn('📝 Add Note', async () => {
+                    const v = await modal({ title: 'Case Note', fields: [{ name: 'note', label: 'Note', type: 'textarea', required: true, max: S.config.noteMax || 500 }] });
+                    if (v && await call('addReportNote', r.id, v.note)) { toast('Note added', 'success'); reload(); }
                 }),
-                sub.coords ? btn('📍 موقع التقديم', () => { nui('waypoint', { coords: sub.coords, label: `دعوى #${r.id}` }); toast('تم وضع علامة على الخريطة', 'success'); }) : null,
-                perms.verdicts ? btn('🔨 إصدار حكم', async () => {
+                sub.coords ? btn('📍 Filing Location', () => { nui('waypoint', { coords: sub.coords, label: `Case #${r.id}` }); toast('Marked on the map', 'success'); }) : null,
+                perms.verdicts ? btn('🔨 Issue Verdict', async () => {
                     if (await verdictFlow({ reportId: r.id, citizenid: r.defendantCitizenid, name: r.defendantName, plaintiff: r.citizenid })) reload();
                 }, 'red') : null,
-                perms.deleteReport ? btn('🗑️ حذف القضية', async () => {
-                    if (await confirmBox('حذف القضية', `حذف القضية #${r.id} وكل ملاحظاتها نهائياً؟`, true) && await call('deleteReport', r.id)) { toast('تم حذف القضية', 'success'); back(); }
+                perms.deleteReport ? btn('🗑️ Delete Case', async () => {
+                    if (await confirmBox('Delete Case', `Permanently delete case #${r.id} and all its notes?`, true) && await call('deleteReport', r.id)) { toast('Case deleted', 'success'); back(); }
                 }, 'red') : null,
             ),
             h('div', { class: 'grid two' },
-                card('👤 مقدم الدعوى',
+                card('👤 Plaintiff',
                     h('div', { class: 'item-sub', style: 'margin-bottom:10px' }, r.submitterStatus || ''),
-                    kv([['الاسم', r.name], ['الرقم الوطني', r.citizenid], ['الجوال', r.phoneNumber], ['تاريخ الميلاد', sub.birthdate],
-                        ['الجنس', gender(sub.gender)], ['الجنسية', sub.nationality], ['الوظيفة', `${val(sub.job)}${sub.jobGrade ? ' - ' + sub.jobGrade : ''}`],
-                        ['العصابة', sub.gang], ['رقم الحساب', sub.account], ['موقع التقديم', sub.street]]),
-                    perms.view ? h('div', { class: 'actions', style: 'margin-top:10px' }, btn('فتح الملف', () => go('profile', r.citizenid), 'small')) : null),
-                card('🎯 المدعى عليه',
+                    kv([['Name', r.name], ['Citizen ID', r.citizenid], ['Phone', r.phoneNumber], ['Date of Birth', sub.birthdate],
+                        ['Sex', gender(sub.gender)], ['Nationality', sub.nationality], ['Job', `${val(sub.job)}${sub.jobGrade ? ' - ' + sub.jobGrade : ''}`],
+                        ['Gang', sub.gang], ['Bank Account', sub.account], ['Filing Location', sub.street]]),
+                    perms.view ? h('div', { class: 'actions', style: 'margin-top:10px' }, btn('Open Record', () => go('profile', r.citizenid), 'small')) : null),
+                card('🎯 Defendant',
                     r.defendantStatus ? h('div', { class: 'item-sub', style: 'margin-bottom:10px' }, r.defendantStatus) : null,
-                    kv([['الاسم', r.defendantName || 'غير محدد'], ['الرقم الوطني', r.defendantCitizenid || 'غير محدد']]),
-                    perms.view && r.defendantCitizenid ? h('div', { class: 'actions', style: 'margin-top:10px' }, btn('فتح الملف', () => go('profile', r.defendantCitizenid), 'small')) : null),
+                    kv([['Name', r.defendantName || 'Not specified'], ['Citizen ID', r.defendantCitizenid || 'Not specified']]),
+                    perms.view && r.defendantCitizenid ? h('div', { class: 'actions', style: 'margin-top:10px' }, btn('Open Record', () => go('profile', r.defendantCitizenid), 'small')) : null),
             ),
-            card('📄 تفاصيل الدعوى', h('div', { class: 'textblock' }, r.report)),
-            r.witnesses ? card('👥 الشهود', h('div', { class: 'textblock' }, r.witnesses)) : null,
-            r.evidence ? card('🔍 الأدلة', h('div', { class: 'textblock' }, r.evidence)) : null,
+            card('📄 Complaint', h('div', { class: 'textblock' }, r.report)),
+            r.witnesses ? card('👥 Witnesses', h('div', { class: 'textblock' }, r.witnesses)) : null,
+            r.evidence ? card('🔍 Evidence', h('div', { class: 'textblock' }, r.evidence)) : null,
             caseLawyersCard(r, perms, reload),
             caseDocumentsCard(r, reload, true),
-            arr(r.verdicts).length ? card(`🔨 الأحكام في القضية (${arr(r.verdicts).length})`, h('div', { class: 'list' }, arr(r.verdicts).map(verdictItem))) : null,
-            card(`🗒️ ملاحظات الموظفين (${arr(r.notes).length})`, arr(r.notes).length ? h('div', { class: 'list' }, arr(r.notes).map((n) => h('div', { class: 'note' },
-                h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('لا توجد ملاحظات', '🗒️')),
+            arr(r.verdicts).length ? card(`🔨 Verdicts in this case (${arr(r.verdicts).length})`, h('div', { class: 'list' }, arr(r.verdicts).map(verdictItem))) : null,
+            card(`🗒️ Staff Notes (${arr(r.notes).length})`, arr(r.notes).length ? h('div', { class: 'list' }, arr(r.notes).map((n) => h('div', { class: 'note' },
+                h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('No notes', '🗒️')),
         );
     },
 };
 
-// ═════ المدينة ═════
+// ═════ City affairs ═════
 PAGES.city = {
-    title: 'نظام المدينة',
+    title: 'City Affairs',
     async render() {
         const res = await call('getCityOverview');
         if (!res) return null;
         const o = res.overview;
         const perms = res.perms || {};
 
-        const vInput = h('input', { placeholder: 'رقم اللوحة أو الرقم الوطني للمالك' });
+        const vInput = h('input', { placeholder: 'Plate number or owner citizen ID' });
         const vSearch = () => vInput.value.trim().length >= 2 && go('vehicles', vInput.value.trim());
         vInput.addEventListener('keydown', (e) => e.key === 'Enter' && vSearch());
-        const pInput = h('input', { placeholder: 'اسم العقار أو الرقم الوطني للمالك' });
+        const pInput = h('input', { placeholder: 'Property name or owner citizen ID' });
         const pSearch = () => pInput.value.trim().length >= 2 && go('properties', pInput.value.trim());
         pInput.addEventListener('keydown', (e) => e.key === 'Enter' && pSearch());
 
         const e = o.economy;
         return h('div', null,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                stat('المتصلين', o.online, 'green'), stat('المواطنين', val(o.citizens)),
-                arr(o.vehicles) ? stat('المركبات', arr(o.vehicles).total, 'blue') : null,
-                arr(o.vehicles) ? stat('محجوزة', val(o.vehicles.impounded), 'red') : null,
-                arr(o.houses) != null ? stat('العقارات', arr(o.houses), 'purple') : null,
-                stat('استدعاءات مفتوحة', o.pendingSummons, 'yellow', perms.summon ? () => go('summons') : null),
+                stat('Online', o.online, 'green'), stat('Citizens', val(o.citizens)),
+                arr(o.vehicles) ? stat('Vehicles', arr(o.vehicles).total, 'blue') : null,
+                arr(o.vehicles) ? stat('Impounded', val(o.vehicles.impounded), 'red') : null,
+                arr(o.houses) != null ? stat('Properties', arr(o.houses), 'purple') : null,
+                stat('Open Summonses', o.pendingSummons, 'yellow', perms.summon ? () => go('summons') : null),
             ),
-            card('🏢 القطاعات في الدوام الآن', (o.duty || []).length ? h('div', { class: 'chips', style: 'margin:0' }, arr(o.duty).map((d) => badge(`${d.label}: ${d.count}`, 'green'))) : empty('لا أحد في الدوام')),
+            card('🏢 Departments On Duty', (o.duty || []).length ? h('div', { class: 'chips', style: 'margin:0' }, arr(o.duty).map((d) => badge(`${d.label}: ${d.count}`, 'green'))) : empty('Nobody on duty')),
             h('div', { class: 'grid two' },
-                arr(o.vehicles) ? card('🚗 سجل المركبات', h('div', { class: 'searchbar', style: 'margin:0' }, vInput, btn('بحث', vSearch, 'primary'))) : null,
-                arr(o.houses) != null ? card('🏠 سجل العقارات', h('div', { class: 'searchbar', style: 'margin:0' }, pInput, btn('بحث', pSearch, 'primary'))) : null,
+                arr(o.vehicles) ? card('🚗 Vehicle Registry', h('div', { class: 'searchbar', style: 'margin:0' }, vInput, btn('Search', vSearch, 'primary'))) : null,
+                arr(o.houses) != null ? card('🏠 Property Registry', h('div', { class: 'searchbar', style: 'margin:0' }, pInput, btn('Search', pSearch, 'primary'))) : null,
             ),
-            e && arr(e.sectors).length ? card('🏛️ أرصدة القطاعات', h('div', { class: 'grid stats' }, arr(e.sectors).map((x) => stat(x.label, x.balance != null ? money(x.balance) : '-', 'blue')))) : null,
-            e ? card(`💰 اقتصاد المدينة: ${money(e.total)}`,
-                h('div', { class: 'grid stats', style: 'margin-bottom:12px' }, stat('البنوك', money(e.bank), 'green'), stat('الكاش', money(e.cash), 'gold')),
+            e && arr(e.sectors).length ? card('🏛️ Department Balances', h('div', { class: 'grid stats' }, arr(e.sectors).map((x) => stat(x.label, x.balance != null ? money(x.balance) : '-', 'blue')))) : null,
+            e ? card(`💰 City Economy: ${money(e.total)}`,
+                h('div', { class: 'grid stats', style: 'margin-bottom:12px' }, stat('Bank Deposits', money(e.bank), 'green'), stat('Cash', money(e.cash), 'gold')),
                 h('div', { class: 'list' }, arr(e.richest).map((x, n) => item({
                     icon: n < 3 ? ['🥇', '🥈', '🥉'][n] : `${n + 1}`,
                     title: `${dot(x.status && x.status.online)} ${x.name}`,
-                    sub: `المجموع ${money(x.bank + x.cash)} | البنك ${money(x.bank)} | الكاش ${money(x.cash)}`,
+                    sub: `Total ${money(x.bank + x.cash)} | Bank ${money(x.bank)} | Cash ${money(x.cash)}`,
                     onclick: () => go('profile', x.citizenid),
                 })))) : null,
-            perms.announce ? card('📢 إعلان لكل المدينة', btn('كتابة إعلان', async () => {
-                const v = await modal({ title: 'إعلان لكل المدينة', okText: 'إرسال', fields: [{ name: 'text', label: 'نص الإعلان', type: 'textarea', required: true, max: S.config.announceMax || 250 }] });
-                if (v && await confirmBox('تأكيد الإعلان', `سيظهر لكل اللاعبين:\n\n${v.text}`) && await call('announce', v.text)) toast('تم إرسال الإعلان', 'success');
+            perms.announce ? card('📢 City-wide Announcement', btn('Write Announcement', async () => {
+                const v = await modal({ title: 'City-wide Announcement', okText: 'Send', fields: [{ name: 'text', label: 'Announcement', type: 'textarea', required: true, max: S.config.announceMax || 250 }] });
+                if (v && await confirmBox('Confirm Announcement', `This will be shown to every player:\n\n${v.text}`) && await call('announce', v.text)) toast('Announcement sent', 'success');
             }, 'primary')) : null,
         );
     },
 };
 
 PAGES.vehicles = {
-    title: (q) => `المركبات: ${q}`,
+    title: (q) => `Vehicles: ${q}`,
     async render(q) {
         const res = await call('searchVehicles', q);
         if (!res) return null;
-        return card(`نتائج (${arr(res.vehicles).length})`, arr(res.vehicles).length ? h('div', { class: 'list' }, arr(res.vehicles).map((v) => item({
+        return card(`Results (${arr(res.vehicles).length})`, arr(res.vehicles).length ? h('div', { class: 'list' }, arr(res.vehicles).map((v) => item({
             icon: v.stateCode === 2 ? '🔒' : '🚗',
             title: `${v.plate} | ${v.label}`,
-            sub: `المالك: ${val(v.ownerName)} (${v.owner}) | ${v.state}${v.inWorld ? ' | 📍 في الشارع' : ''}`,
+            sub: `Owner: ${val(v.ownerName)} (${v.owner}) | ${v.state}${v.inWorld ? ' | 📍 On the street' : ''}`,
             onclick: () => go('vehicle', v.plate),
-        }))) : empty('لا توجد مركبات', '🚗'));
+        }))) : empty('No vehicles found', '🚗'));
     },
 };
 
 PAGES.vehicle = {
-    title: (plate) => `المركبة ${plate}`,
+    title: (plate) => `Vehicle ${plate}`,
     async render(plate) {
         const res = await call('getVehicle', plate);
         if (!res) return null;
@@ -870,126 +870,126 @@ PAGES.vehicle = {
         const perms = res.perms || {};
         const reload = () => render();
         const act = async (action, confirmText, extra) => {
-            if (!await confirmBox('تأكيد', confirmText, action === 'impound')) return;
+            if (!await confirmBox('Confirm', confirmText, action === 'impound')) return;
             const r = await call('vehicleAction', plate, action, extra);
             if (r) { toast(r.message, 'success'); reload(); }
         };
         return h('div', null,
             h('div', { class: 'profile-head' }, h('div', { class: 'avatar' }, v.stateCode === 2 ? '🔒' : '🚗'),
                 h('div', null, h('div', { class: 'profile-name' }, `${v.label} | ${v.plate}`),
-                    h('div', { class: 'profile-meta' }, badge(v.state, v.stateCode === 2 ? 'red' : 'green'), v.inWorld ? badge('📍 في الشارع الآن', 'blue') : null))),
+                    h('div', { class: 'profile-meta' }, badge(v.state, v.stateCode === 2 ? 'red' : 'green'), v.inWorld ? badge('📍 On the street now', 'blue') : null))),
             h('div', { class: 'actions', style: 'margin-bottom:14px' },
-                perms.locate && v.inWorld ? btn('📍 تحديد الموقع', async () => {
+                perms.locate && v.inWorld ? btn('📍 Locate', async () => {
                     const r = await call('getVehicle', plate, true);
-                    if (r && r.vehicle.coords) toast(`المركبة في: ${val(r.vehicle.street)} - تم وضع علامة`, 'success', 7000);
-                    else if (r) toast('المركبة لم تعد في الشارع', 'error');
+                    if (r && r.vehicle.coords) toast(`Vehicle is at: ${val(r.vehicle.street)} - marked`, 'success', 7000);
+                    else if (r) toast('The vehicle is no longer on the street', 'error');
                 }, 'blue') : null,
-                perms.vehicles ? (v.stateCode === 2 ? btn('🔓 فك الحجز', () => act('release', `فك حجز ${plate}؟`), 'green')
-                    : btn('🔒 حجز', () => act('impound', `حجز ${plate} للمالك ${val(v.ownerName)}؟${v.inWorld ? '\nسيتم سحبها من الشارع' : ''}`), 'red')) : null,
-                perms.vehicles ? btn('🔁 نقل الملكية', async () => {
-                    const f = await modal({ title: `نقل ملكية ${plate}`, okText: 'التالي', fields: [{ name: 'cid', label: 'الرقم الوطني للمالك الجديد', required: true, max: 50 }] });
-                    if (f) act('transfer', `نقل ملكية ${plate} إلى ${f.cid}؟`, f.cid);
+                perms.vehicles ? (v.stateCode === 2 ? btn('🔓 Release', () => act('release', `Release ${plate} from impound?`), 'green')
+                    : btn('🔒 Impound', () => act('impound', `Impound ${plate} owned by ${val(v.ownerName)}?${v.inWorld ? '\nIt will be removed from the street' : ''}`), 'red')) : null,
+                perms.vehicles ? btn('🔁 Transfer Title', async () => {
+                    const f = await modal({ title: `Transfer title of ${plate}`, okText: 'Next', fields: [{ name: 'cid', label: 'New owner citizen ID', required: true, max: 50 }] });
+                    if (f) act('transfer', `Transfer ${plate} to ${f.cid}?`, f.cid);
                 }, 'blue') : null,
-                btn('👤 ملف المالك', () => go('profile', v.owner)),
+                btn('👤 Owner Record', () => go('profile', v.owner)),
             ),
-            card(null, kv([['الموديل', v.model], ['المالك', `${val(v.ownerName)} (${v.owner})`], ['حالة المالك', v.ownerStatus], ['الكراج', v.garage], ['الحالة', v.state], ['رسوم الحجز', v.depotprice != null ? money(v.depotprice) : '-']])),
+            card(null, kv([['Model', v.model], ['Owner', `${val(v.ownerName)} (${v.owner})`], ['Owner Status', v.ownerStatus], ['Garage', v.garage], ['State', v.state], ['Impound Fee', v.depotprice != null ? money(v.depotprice) : '-']])),
         );
     },
 };
 
 PAGES.properties = {
-    title: (q) => `العقارات: ${q}`,
+    title: (q) => `Properties: ${q}`,
     async render(q) {
         const res = await call('searchProperties', q);
         if (!res) return null;
         const perms = res.perms || {};
-        return card(`نتائج (${arr(res.properties).length})`, arr(res.properties).length ? h('div', { class: 'list' }, arr(res.properties).map((x) => item({
+        return card(`Results (${arr(res.properties).length})`, arr(res.properties).length ? h('div', { class: 'list' }, arr(res.properties).map((x) => item({
             icon: '🏠', title: x.label,
-            sub: `المالك: ${val(x.ownerName)} (${val(x.owner)})\n${val(x.ownerStatus)}`,
+            sub: `Owner: ${val(x.ownerName)} (${val(x.owner)})\n${val(x.ownerStatus)}`,
             side: [
-                x.owner ? btn('ملف المالك', () => go('profile', x.owner), 'small') : null,
-                perms.properties ? btn('نقل الملكية', async () => {
-                    const f = await modal({ title: `نقل ملكية ${x.label}`, fields: [{ name: 'cid', label: 'الرقم الوطني للمالك الجديد', required: true, max: 50 }] });
-                    if (f && await confirmBox('تأكيد', `نقل ${x.label} إلى ${f.cid}؟`)) {
+                x.owner ? btn('Owner Record', () => go('profile', x.owner), 'small') : null,
+                perms.properties ? btn('Transfer Deed', async () => {
+                    const f = await modal({ title: `Transfer deed of ${x.label}`, fields: [{ name: 'cid', label: 'New owner citizen ID', required: true, max: 50 }] });
+                    if (f && await confirmBox('Confirm', `Transfer ${x.label} to ${f.cid}?`)) {
                         const r = await call('transferProperty', x.id, f.cid);
                         if (r) { toast(r.message, 'success'); render(); }
                     }
                 }, 'small blue') : null,
             ],
-        }))) : empty('لا توجد عقارات', '🏠'));
+        }))) : empty('No properties found', '🏠'));
     },
 };
 
 PAGES.summons = {
-    title: 'الاستدعاءات المفتوحة',
+    title: 'Open Summonses',
     async render() {
         const res = await call('getAllSummons');
         if (!res) return null;
-        return card(`📜 المفتوحة (${arr(res.summons).length})`, arr(res.summons).length ? h('div', { class: 'list' }, arr(res.summons).map((s) => summonItem(s, () => render()))) : empty('لا توجد استدعاءات مفتوحة', '📜'));
+        return card(`📜 Open (${arr(res.summons).length})`, arr(res.summons).length ? h('div', { class: 'list' }, arr(res.summons).map((s) => summonItem(s, () => render()))) : empty('No open summonses', '📜'));
     },
 };
 
-// ═════ سجل العمليات + التراجع والحذف ═════
+// ═════ Audit log + undo and delete ═════
 async function logsView(citizenid, page, reload) {
     const res = await call('getLogs', citizenid || null, page || 0);
     if (!res) return null;
     const perms = res.perms || {};
-    return card(`🗂️ ${res.total} عملية`,
+    return card(`🗂️ ${res.total} actions`,
         arr(res.logs).length ? h('div', { class: 'list' }, arr(res.logs).map((l) => item({
             icon: l.undoneBy ? '↩️' : '🗂️',
             title: `#${l.id} | ${l.action} | ${l.officer}`,
-            sub: `${l.target ? 'المواطن: ' + l.target + '\n' : ''}${l.details ? l.details + '\n' : ''}${val(l.date)}${l.undoneBy ? `\n↩️ تم التراجع بواسطة ${l.undoneBy}` : ''}`,
+            sub: `${l.target ? 'Citizen: ' + l.target + '\n' : ''}${l.details ? l.details + '\n' : ''}${val(l.date)}${l.undoneBy ? `\n↩️ Undone by ${l.undoneBy}` : ''}`,
             side: [
-                l.targetCitizenid && !citizenid ? btn('الملف', () => go('profile', l.targetCitizenid), 'small') : null,
-                perms.undo && l.undoable ? btn('↩️ تراجع', async () => {
-                    if (!await confirmBox('التراجع عن الإجراء', `التراجع عن "${l.action}" #${l.id}؟\n${l.target ? 'المواطن: ' + l.target : ''}`)) return;
+                l.targetCitizenid && !citizenid ? btn('Record', () => go('profile', l.targetCitizenid), 'small') : null,
+                perms.undo && l.undoable ? btn('↩️ Undo', async () => {
+                    if (!await confirmBox('Undo Action', `Undo "${l.action}" #${l.id}?\n${l.target ? 'Citizen: ' + l.target : ''}`)) return;
                     const r = await call('undoLog', l.id);
                     if (r) { toast(r.message, 'success'); reload(); }
                 }, 'small green') : null,
                 perms.delete ? btn('🗑️', async () => {
-                    if (!await confirmBox('حذف السجل', `حذف السجل #${l.id} (${l.action})؟\nيبقى أثر إن فيه سجل انحذف.`, true)) return;
-                    if (await call('deleteLog', l.id)) { toast('تم حذف السجل', 'success'); reload(); }
+                    if (!await confirmBox('Delete Entry', `Delete entry #${l.id} (${l.action})?\nA trace that an entry was deleted is kept.`, true)) return;
+                    if (await call('deleteLog', l.id)) { toast('Entry deleted', 'success'); reload(); }
                 }, 'small red') : null,
             ],
-        }))) : empty('لا توجد عمليات', '🗂️'),
+        }))) : empty('No actions', '🗂️'),
         pager(res.page, res.pages, (p) => { S.logsPage = p; reload(); }),
     );
 }
 
 PAGES.logs = {
-    title: 'سجل العمليات',
+    title: 'Audit Log',
     async render() {
         return logsView(null, S.logsPage || 0, () => render());
     },
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// القضاء: الأحكام، الأوامر، المشبوهين، المحامين والمستندات
+// Court: verdicts, warrants, persons of interest, attorneys and documents
 // ════════════════════════════════════════════════════════════════════════════
-const DANGER = { high: ['خطورة عالية', 'red'], medium: ['خطورة متوسطة', 'yellow'], low: ['خطورة منخفضة', 'gray'] };
+const DANGER = { high: ['High risk', 'red'], medium: ['Medium risk', 'yellow'], low: ['Low risk', 'gray'] };
 const WSTATUS = { active: 'red', executed: 'green', cancelled: 'gray', expired: 'gray' };
 
 function courtAlerts(court) {
     if (!court) return null;
     const active = arr(court.warrants).filter((w) => w.status === 'active');
     return h('div', null,
-        court.suspect ? h('div', { class: 'alert yellow' }, `🕵️ في قائمة المشبوهين (${(DANGER[court.suspect.danger] || [court.suspect.dangerLabel])[0]}): ${court.suspect.reason}`) : null,
-        active.map((w) => h('div', { class: 'alert red' }, `🚨 ${w.typeLabel} ساري #${w.id}: ${w.reason}${w.place ? ' | المكان: ' + w.place : ''} (ينتهي ${val(w.expires)})`)),
+        court.suspect ? h('div', { class: 'alert yellow' }, `🕵️ Person of interest (${(DANGER[court.suspect.danger] || [court.suspect.dangerLabel])[0]}): ${court.suspect.reason}`) : null,
+        active.map((w) => h('div', { class: 'alert red' }, `🚨 Active ${w.typeLabel} #${w.id}: ${w.reason}${w.place ? ' | Location: ' + w.place : ''} (expires ${val(w.expires)})`)),
     );
 }
 
 function verdictItem(v) {
     const details = [
         v.amount > 0 ? money(v.amount) : null,
-        v.target ? `للمتضرر ${v.target}` : null,
-        v.plate ? `المركبة ${v.plate}` : null,
-        v.months > 0 ? `${v.months} شهر` : null,
-        v.reportId ? `القضية #${v.reportId}` : null,
+        v.target ? `to the injured party ${v.target}` : null,
+        v.plate ? `vehicle ${v.plate}` : null,
+        v.months > 0 ? `${v.months} months` : null,
+        v.reportId ? `case #${v.reportId}` : null,
     ].filter(Boolean).join(' | ');
     return item({
         icon: v.status === 'cancelled' ? '↩️' : '🔨',
         title: `#${v.id} | ${v.typeLabel}${details ? ' | ' + details : ''}`,
-        sub: `${v.text}\nالقاضي: ${v.judge} - ${val(v.date)}`,
+        sub: `${v.text}\nJudge: ${v.judge} - ${val(v.date)}`,
         side: badge(v.statusLabel, v.status === 'cancelled' ? 'gray' : 'red'),
     });
 }
@@ -998,15 +998,15 @@ function warrantItem(w, opts = {}) {
     return item({
         icon: w.type === 'search' ? '🔍' : '🚨',
         title: `#${w.id} | ${w.typeLabel} | ${w.name} (${w.citizenid})`,
-        sub: `${w.reason}${w.place ? '\nالمكان: ' + w.place : ''}\nأصدره: ${w.issuedBy}${w.requestedBy ? ' | بطلب: ' + w.requestedBy : ''} - ${val(w.date)}${w.status === 'active' ? '\nينتهي: ' + val(w.expires) : ''}${w.executedBy ? '\nنفذه: ' + w.executedBy : ''}${w.citizenStatus ? '\n' + w.citizenStatus.text : ''}`,
+        sub: `${w.reason}${w.place ? '\nLocation: ' + w.place : ''}\nIssued by: ${w.issuedBy}${w.requestedBy ? ' | Requested by: ' + w.requestedBy : ''} - ${val(w.date)}${w.status === 'active' ? '\nExpires: ' + val(w.expires) : ''}${w.executedBy ? '\nExecuted by: ' + w.executedBy : ''}${w.citizenStatus ? '\n' + w.citizenStatus.text : ''}`,
         side: [
             badge(w.statusLabel, WSTATUS[w.status]),
-            opts.profile ? btn('الملف', () => go(opts.profile, w.citizenid), 'small') : null,
-            opts.cancel && w.status === 'active' ? btn('إلغاء', async () => {
-                if (await confirmBox('إلغاء الأمر', `إلغاء ${w.typeLabel} #${w.id}؟`, true) && await call('cancelWarrant', w.id)) { toast('تم إلغاء الأمر', 'success'); opts.reload(); }
+            opts.profile ? btn('Record', () => go(opts.profile, w.citizenid), 'small') : null,
+            opts.cancel && w.status === 'active' ? btn('Cancel', async () => {
+                if (await confirmBox('Cancel Warrant', `Cancel ${w.typeLabel} #${w.id}?`, true) && await call('cancelWarrant', w.id)) { toast('Warrant cancelled', 'success'); opts.reload(); }
             }, 'small red') : null,
-            opts.execute && w.status === 'active' ? btn('✅ تم التنفيذ', async () => {
-                if (await confirmBox('تنفيذ الأمر', `تأكيد تنفيذ ${w.typeLabel} #${w.id} على ${w.name}؟`) && await call('executeWarrant', w.id)) { toast('تم تسجيل التنفيذ', 'success'); opts.reload(); }
+            opts.execute && w.status === 'active' ? btn('✅ Mark Executed', async () => {
+                if (await confirmBox('Execute Warrant', `Confirm execution of ${w.typeLabel} #${w.id} on ${w.name}?`) && await call('executeWarrant', w.id)) { toast('Execution recorded', 'success'); opts.reload(); }
             }, 'small green') : null,
         ],
     });
@@ -1017,138 +1017,138 @@ function suspectItem(s, profilePage, onRemove) {
     return item({
         icon: '🕵️',
         title: `${s.status && s.status.online ? '🟢 ' : '⚫ '}${s.name} (${s.citizenid})`,
-        sub: `${s.reason}\nأضافه: ${s.addedBy} - ${val(s.date)}`,
-        side: [badge(d[0], d[1]), btn('الملف', () => go(profilePage, s.citizenid), 'small'), onRemove ? btn('إزالة', () => onRemove(s), 'small red') : null],
+        sub: `${s.reason}\nAdded by: ${s.addedBy} - ${val(s.date)}`,
+        side: [badge(d[0], d[1]), btn('Record', () => go(profilePage, s.citizenid), 'small'), onRemove ? btn('Remove', () => onRemove(s), 'small red') : null],
         onclick: () => go(profilePage, s.citizenid),
     });
 }
 
 function courtView(court, perms, reload, who) {
     return h('div', null,
-        court.suspect ? card('🕵️ قائمة المشبوهين', suspectItem(court.suspect, 'profile')) : null,
-        card(`🚨 أوامر القبض والتفتيش (${arr(court.warrants).length})`, arr(court.warrants).length
+        court.suspect ? card('🕵️ Persons of Interest', suspectItem(court.suspect, 'profile')) : null,
+        card(`🚨 Arrest & Search Warrants (${arr(court.warrants).length})`, arr(court.warrants).length
             ? h('div', { class: 'list' }, arr(court.warrants).map((w) => warrantItem(w, { cancel: perms.warrants, execute: !!S.info.judge, reload })))
-            : empty('لا توجد أوامر', '🚨')),
-        card(`🔨 أرشيف الأحكام (${arr(court.verdicts).length})`, arr(court.verdicts).length
+            : empty('No warrants', '🚨')),
+        card(`🔨 Verdict Archive (${arr(court.verdicts).length})`, arr(court.verdicts).length
             ? h('div', { class: 'list' }, arr(court.verdicts).map(verdictItem))
-            : empty('لا توجد أحكام', '🔨'),
-            h('div', { class: 'item-sub', style: 'margin-top:8px' }, 'لإلغاء حكم: سجل العمليات ← "إصدار حكم" ← ↩️ تراجع (يرجّع الفلوس والمركبة تلقائياً)')),
+            : empty('No verdicts', '🔨'),
+            h('div', { class: 'item-sub', style: 'margin-top:8px' }, 'To reverse a verdict: Audit Log → "Issue Verdict" → ↩️ Undo (money and vehicle are returned automatically)')),
     );
 }
 
 const VERDICT_TYPES = [
-    { value: 'fine', label: '💸 غرامة مالية (تنسحب من بنكه)' },
-    { value: 'compensation', label: '🤝 تعويض للمتضرر (من بنكه لبنك المتضرر)' },
-    { value: 'impound', label: '🔒 حجز مركبة' },
-    { value: 'jail', label: '⛓️ سجن' },
-    { value: 'suspend', label: '⛔ إيقاف خدمات' },
-    { value: 'acquittal', label: '✅ براءة' },
+    { value: 'fine', label: '💸 Fine (taken from their bank)' },
+    { value: 'compensation', label: '🤝 Restitution (from their bank to the injured party)' },
+    { value: 'impound', label: '🔒 Vehicle Impound' },
+    { value: 'jail', label: '⛓️ Imprisonment' },
+    { value: 'suspend', label: '⛔ Service Suspension' },
+    { value: 'acquittal', label: '✅ Acquittal' },
 ];
 
 async function verdictFlow({ reportId, citizenid, name, plaintiff }) {
-    const first = await modal({ title: 'إصدار حكم', okText: 'التالي', fields: [
-        { name: 'cid', label: 'الرقم الوطني للمحكوم عليه', required: true, value: citizenid || '', max: 50 },
-        { name: 'type', label: 'نوع الحكم', type: 'select', options: VERDICT_TYPES },
+    const first = await modal({ title: 'Issue Verdict', okText: 'Next', fields: [
+        { name: 'cid', label: 'Defendant citizen ID', required: true, value: citizenid || '', max: 50 },
+        { name: 'type', label: 'Verdict type', type: 'select', options: VERDICT_TYPES },
     ] });
     if (!first) return false;
     const type = first.type;
     const fields = [];
-    if (type === 'fine' || type === 'compensation') fields.push({ name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue: S.config.maxFine });
-    if (type === 'compensation') fields.push({ name: 'target', label: 'الرقم الوطني للمتضرر', required: true, value: plaintiff || '', max: 50 });
-    if (type === 'impound') fields.push({ name: 'plate', label: 'رقم لوحة المركبة', required: true, max: 12 });
-    if (type === 'jail') fields.push({ name: 'months', label: 'مدة السجن (شهر)', type: 'number', required: true, min: 1, maxValue: S.config.maxJail });
-    fields.push({ name: 'text', label: 'نص الحكم', type: 'textarea', required: true, max: 400 });
+    if (type === 'fine' || type === 'compensation') fields.push({ name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue: S.config.maxFine });
+    if (type === 'compensation') fields.push({ name: 'target', label: 'Injured party citizen ID', required: true, value: plaintiff || '', max: 50 });
+    if (type === 'impound') fields.push({ name: 'plate', label: 'Vehicle plate', required: true, max: 12 });
+    if (type === 'jail') fields.push({ name: 'months', label: 'Sentence (months)', type: 'number', required: true, min: 1, maxValue: S.config.maxJail });
+    fields.push({ name: 'text', label: 'Verdict text', type: 'textarea', required: true, max: 400 });
 
     const label = VERDICT_TYPES.find((t) => t.value === type).label;
-    const second = await modal({ title: `${label}${name ? ' - ' + name : ''}`, okText: 'متابعة', fields });
+    const second = await modal({ title: `${label}${name ? ' - ' + name : ''}`, okText: 'Continue', fields });
     if (!second) return false;
-    const summary = [label, `المحكوم عليه: ${first.cid}`, second.amount ? `المبلغ: ${money(second.amount)}` : '', second.target ? `المتضرر: ${second.target}` : '',
-        second.plate ? `المركبة: ${second.plate}` : '', second.months ? `المدة: ${second.months} شهر` : '', `\n${second.text}`].filter(Boolean).join('\n');
-    if (!await confirmBox('تأكيد إصدار الحكم', `${summary}\n\nالحكم يتنفذ فوراً (ويمكن التراجع عنه من سجل العمليات)`, true)) return false;
+    const summary = [label, `Defendant: ${first.cid}`, second.amount ? `Amount: ${money(second.amount)}` : '', second.target ? `Injured party: ${second.target}` : '',
+        second.plate ? `Vehicle: ${second.plate}` : '', second.months ? `Sentence: ${second.months} months` : '', `\n${second.text}`].filter(Boolean).join('\n');
+    if (!await confirmBox('Confirm Verdict', `${summary}\n\nThe verdict is executed immediately (it can be reversed from the Audit Log)`, true)) return false;
 
     const r = await call('issueVerdict', { reportId: reportId || null, citizenid: first.cid, type, amount: second.amount, target: second.target, plate: second.plate, months: second.months, text: second.text });
-    if (r) toast(`تم إصدار الحكم #${r.id} وتنفيذه`, 'success');
+    if (r) toast(`Verdict #${r.id} issued and executed`, 'success');
     return !!r;
 }
 
 async function warrantFlow(citizenid, name) {
-    const v = await modal({ title: `أمر ضد ${name}`, okText: 'إصدار', danger: true, text: `يوصل للشرطة في الدوام فوراً، وصلاحيته ${S.config.warrantHours || 72} ساعة`, fields: [
-        { name: 'type', label: 'نوع الأمر', type: 'select', options: [{ value: 'arrest', label: '🚨 أمر قبض' }, { value: 'search', label: '🔍 أمر تفتيش' }] },
-        { name: 'reason', label: 'السبب', required: true, max: 200 },
-        { name: 'place', label: 'المكان (للتفتيش: بيت / مركبة / عنوان)', max: 150 },
+    const v = await modal({ title: `Warrant against ${name}`, okText: 'Issue', danger: true, text: `Sent to on-duty police immediately, valid for ${S.config.warrantHours || 72} hours`, fields: [
+        { name: 'type', label: 'Warrant type', type: 'select', options: [{ value: 'arrest', label: '🚨 Arrest Warrant' }, { value: 'search', label: '🔍 Search Warrant' }] },
+        { name: 'reason', label: 'Reason', required: true, max: 200 },
+        { name: 'place', label: 'Location (for searches: house / vehicle / address)', max: 150 },
     ] });
     if (!v) return false;
     const r = await call('issueWarrant', citizenid, v.type, v.reason, v.place || '');
-    if (r) toast(`تم إصدار الأمر #${r.id} وإرساله للشرطة`, 'success');
+    if (r) toast(`Warrant #${r.id} issued and sent to police`, 'success');
     return !!r;
 }
 
 async function suspectFlow(citizenid, name) {
-    const v = await modal({ title: `إضافة ${name || citizenid} للمشبوهين`, okText: 'إضافة', fields: [
-        citizenid ? null : { name: 'cid', label: 'الرقم الوطني', required: true, max: 50 },
-        { name: 'danger', label: 'درجة الخطورة', type: 'select', value: 'medium', options: [
-            { value: 'low', label: 'منخفضة' }, { value: 'medium', label: 'متوسطة' }, { value: 'high', label: 'عالية (تنبيه فوري للشرطة)' }] },
-        { name: 'reason', label: 'السبب', required: true, max: 200 },
+    const v = await modal({ title: `Flag ${name || citizenid} as a person of interest`, okText: 'Add', fields: [
+        citizenid ? null : { name: 'cid', label: 'Citizen ID', required: true, max: 50 },
+        { name: 'danger', label: 'Risk level', type: 'select', value: 'medium', options: [
+            { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High (instant police alert)' }] },
+        { name: 'reason', label: 'Reason', required: true, max: 200 },
     ].filter(Boolean) });
     if (!v) return false;
     const r = await call('addSuspect', citizenid || v.cid, v.reason, v.danger);
-    if (r) toast('تمت الإضافة لقائمة المشبوهين', 'success');
+    if (r) toast('Added to persons of interest', 'success');
     return !!r;
 }
 
 function caseLawyersCard(r, perms, reload) {
     const lawyers = arr(r.lawyers);
-    return card(h('span', null, `⚖️ المحامين (${lawyers.length})`),
-        perms.lawyers ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ تعيين محامي', async () => {
-            const v = await modal({ title: 'تعيين محامي للقضية', text: 'لازم يكون عنده رخصة محاماة (تُمنح من تبويب التراخيص)', fields: [
-                { name: 'cid', label: 'الرقم الوطني للمحامي', required: true, max: 50 },
-                { name: 'side', label: 'يمثّل', type: 'select', options: [{ value: 'plaintiff', label: `المدعي (${r.name})` }, { value: 'defendant', label: `المدعى عليه (${r.defendantName || 'غير محدد'})` }] },
+    return card(h('span', null, `⚖️ Counsel (${lawyers.length})`),
+        perms.lawyers ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ Assign Attorney', async () => {
+            const v = await modal({ title: 'Assign Attorney to Case', text: 'They must hold a law license (granted from the Licenses tab)', fields: [
+                { name: 'cid', label: 'Attorney citizen ID', required: true, max: 50 },
+                { name: 'side', label: 'Represents', type: 'select', options: [{ value: 'plaintiff', label: `Plaintiff (${r.name})` }, { value: 'defendant', label: `Defendant (${r.defendantName || 'Not specified'})` }] },
             ] });
-            if (v && await call('assignLawyer', r.id, v.cid, v.side)) { toast('تم تعيين المحامي', 'success'); reload(); }
+            if (v && await call('assignLawyer', r.id, v.cid, v.side)) { toast('Attorney assigned', 'success'); reload(); }
         }, 'small')) : null,
         lawyers.length ? h('div', { class: 'list' }, lawyers.map((l) => item({
             icon: '⚖️', title: `${l.name} (${l.citizenid})`, sub: `${l.sideLabel}\n${l.status ? l.status.text : ''}`,
-            side: perms.lawyers ? btn('إزالة', async () => {
-                if (await confirmBox('إزالة المحامي', `إزالة ${l.name} من القضية؟`, true) && await call('removeLawyer', l.id)) { toast('تمت الإزالة', 'success'); reload(); }
+            side: perms.lawyers ? btn('Remove', async () => {
+                if (await confirmBox('Remove Attorney', `Remove ${l.name} from this case?`, true) && await call('removeLawyer', l.id)) { toast('Removed', 'success'); reload(); }
             }, 'small red') : null,
-        }))) : empty('لا يوجد محامين معيّنين', '⚖️'));
+        }))) : empty('No attorneys assigned', '⚖️'));
 }
 
 function caseDocumentsCard(r, reload, canAdd) {
     const docs = arr(r.documents);
-    return card(h('span', null, `📎 المستندات (${docs.length})`),
-        canAdd ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ إضافة مستند', async () => {
-            const v = await modal({ title: 'مستند جديد', fields: [
-                { name: 'title', label: 'العنوان', required: true, max: 120 },
-                { name: 'content', label: 'المحتوى (نص، روابط صور أو فيديو...)', type: 'textarea', required: true, max: S.config.documentMax || 2000 },
+    return card(h('span', null, `📎 Documents (${docs.length})`),
+        canAdd ? h('div', { class: 'actions', style: 'margin-bottom:10px' }, btn('➕ Add Document', async () => {
+            const v = await modal({ title: 'New Document', fields: [
+                { name: 'title', label: 'Title', required: true, max: 120 },
+                { name: 'content', label: 'Content (text, image or video links...)', type: 'textarea', required: true, max: S.config.documentMax || 2000 },
             ] });
-            if (v && await call('addDocument', r.id, v.title, v.content)) { toast('تمت إضافة المستند', 'success'); reload(); }
+            if (v && await call('addDocument', r.id, v.title, v.content)) { toast('Document added', 'success'); reload(); }
         }, 'small')) : null,
         docs.length ? h('div', { class: 'list' }, docs.map((d) => h('div', { class: 'note' },
-            h('div', { class: 'meta' }, `📎 ${d.title} | ${d.author} (${d.role}) - ${val(d.date)}`), h('div', { class: 'textblock', style: 'margin-top:6px' }, d.content)))) : empty('لا توجد مستندات', '📎'));
+            h('div', { class: 'meta' }, `📎 ${d.title} | ${d.author} (${d.role}) - ${val(d.date)}`), h('div', { class: 'textblock', style: 'margin-top:6px' }, d.content)))) : empty('No documents', '📎'));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// صفحات العدل الجديدة
+// Justice pages
 // ════════════════════════════════════════════════════════════════════════════
 PAGES.suspects = {
-    title: 'قائمة المشبوهين',
+    title: 'Persons of Interest',
     async render() {
         const res = await call('getSuspects');
         if (!res) return null;
         const list = arr(res.suspects);
         S.info.suspects = list.length;
         const remove = async (s) => {
-            if (await confirmBox('إزالة من المشبوهين', `إزالة ${s.name} من القائمة؟`) && await call('removeSuspect', s.id)) { toast('تمت الإزالة', 'success'); render(); }
+            if (await confirmBox('Remove Person of Interest', `Remove ${s.name} from the list?`) && await call('removeSuspect', s.id)) { toast('Removed', 'success'); render(); }
         };
-        return card(h('span', null, `🕵️ المشبوهين (${list.length})`),
-            S.perms.suspects ? h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ إضافة مشبوه', async () => { if (await suspectFlow()) render(); }, 'primary')) : null,
-            list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'profile', S.perms.suspects ? remove : null))) : empty('القائمة فاضية', '🕵️'));
+        return card(h('span', null, `🕵️ Persons of Interest (${list.length})`),
+            S.perms.suspects ? h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ Add Person of Interest', async () => { if (await suspectFlow()) render(); }, 'primary')) : null,
+            list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'profile', S.perms.suspects ? remove : null))) : empty('The list is empty', '🕵️'));
     },
 };
 
 PAGES.warrants = {
-    title: 'أوامر القبض والتفتيش',
+    title: 'Warrants',
     async render(activeOnly) {
         const onlyActive = activeOnly !== false;
         const res = await call('getWarrants', null, onlyActive);
@@ -1156,13 +1156,13 @@ PAGES.warrants = {
         const list = arr(res.warrants);
         const chip = (v, label) => h('button', { class: 'chip' + (onlyActive === v ? ' active' : ''), onclick: () => { S.current.arg = v; render(); } }, label);
         return h('div', null,
-            h('div', { class: 'chips' }, chip(true, '🚨 السارية'), chip(false, 'كل الأوامر')),
-            card(null, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'profile', cancel: S.perms.warrants, execute: !!S.info.judge, reload: render }))) : empty('لا توجد أوامر', '🚨')));
+            h('div', { class: 'chips' }, chip(true, '🚨 Active'), chip(false, 'All warrants')),
+            card(null, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'profile', cancel: S.perms.warrants, execute: !!S.info.judge, reload: render }))) : empty('No warrants', '🚨')));
     },
 };
 
 PAGES.policeRequests = {
-    title: 'قسم الشرطة: الطلبات',
+    title: 'Police Requests',
     async render(filter) {
         const res = await call('getPoliceRequests', filter || null);
         if (!res) return null;
@@ -1170,29 +1170,29 @@ PAGES.policeRequests = {
         const list = arr(res.requests);
         const chip = (f, label) => h('button', { class: 'chip' + ((filter || null) === f ? ' active' : ''), onclick: () => { S.current.arg = f; render(); } }, label);
         const answer = async (q, approve) => {
-            const v = await modal({ title: `${approve ? 'موافقة على' : 'رفض'} الطلب #${q.id}`, okText: approve ? 'موافقة' : 'رفض', danger: !approve,
-                text: `${q.typeLabel} على ${q.name}\nمن ${q.officer.name} (${q.officer.grade})\nالسبب: ${q.reason}`,
-                fields: [{ name: 'note', label: 'ملاحظة للشرطي (اختياري)', max: 200 }] });
+            const v = await modal({ title: `${approve ? 'Approve' : 'Deny'} request #${q.id}`, okText: approve ? 'Approve' : 'Deny', danger: !approve,
+                text: `${q.typeLabel} on ${q.name}\nFrom ${q.officer.name} (${q.officer.grade})\nReason: ${q.reason}`,
+                fields: [{ name: 'note', label: 'Note to the officer (optional)', max: 200 }] });
             if (!v) return;
             const r = await call('answerPoliceRequest', q.id, approve, v.note || '');
             if (r) { toast(r.message, 'success', 6000); render(); }
         };
         return h('div', null,
-            h('div', { class: 'chips' }, chip(null, 'الكل'), chip('pending', `⏳ بانتظار الرد (${res.pending})`), chip('approved', '✅ المقبولة'), chip('rejected', '❌ المرفوضة')),
+            h('div', { class: 'chips' }, chip(null, 'All'), chip('pending', `⏳ Pending (${res.pending})`), chip('approved', '✅ Approved'), chip('rejected', '❌ Denied')),
             card(null, list.length ? h('div', { class: 'list' }, list.map((q) => item({
                 icon: q.status === 'pending' ? '⏳' : q.status === 'approved' ? '✅' : '❌',
-                title: `#${q.id} | ${q.typeLabel} | على: ${q.name} (${q.citizenid})`,
-                sub: `👮 ${q.officer.name} - ${q.officer.job} - ${q.officer.grade}${q.officer.callsign ? ' [' + q.officer.callsign + ']' : ''} ${q.officer.status && q.officer.status.online ? '🟢' : '⚫'}\nالسبب: ${q.reason}${q.details ? '\nالتفاصيل: ' + q.details : ''}\n${val(q.date)}${q.answeredBy ? `\nالرد: ${q.statusLabel} بواسطة ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
+                title: `#${q.id} | ${q.typeLabel} | on: ${q.name} (${q.citizenid})`,
+                sub: `👮 ${q.officer.name} - ${q.officer.job} - ${q.officer.grade}${q.officer.callsign ? ' [' + q.officer.callsign + ']' : ''} ${q.officer.status && q.officer.status.online ? '🟢' : '⚫'}\nReason: ${q.reason}${q.details ? '\nDetails: ' + q.details : ''}\n${val(q.date)}${q.answeredBy ? `\nResponse: ${q.statusLabel} by ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
                 side: [
-                    btn('الملف', () => go('profile', q.citizenid), 'small'),
-                    q.status === 'pending' ? btn('✅ موافقة', () => answer(q, true), 'small green') : null,
-                    q.status === 'pending' ? btn('❌ رفض', () => answer(q, false), 'small red') : null,
+                    btn('Record', () => go('profile', q.citizenid), 'small'),
+                    q.status === 'pending' ? btn('✅ Approve', () => answer(q, true), 'small green') : null,
+                    q.status === 'pending' ? btn('❌ Deny', () => answer(q, false), 'small red') : null,
                 ],
-            }))) : empty('لا توجد طلبات', '🚓')));
+            }))) : empty('No requests', '🚓')));
     },
 };
 
-// ═════ الرسوم البيانية: عمود/شريط بلون واحد، القيمة عند طرف الشريط، تلميح عند المرور، وجدول بديل ═════
+// ═════ Charts: single-hue column/bar, value at bar end, hover tooltip, and a table alternative ═════
 function barChart({ title, data, unit = '', vertical = false }) {
     const rows = arr(data);
     const max = Math.max(1, ...rows.map((d) => Number(d.value) || 0));
@@ -1213,10 +1213,10 @@ function barChart({ title, data, unit = '', vertical = false }) {
     };
 
     const draw = () => {
-        if (!rows.length) return body.replaceChildren(empty('لا توجد بيانات', '📊'));
+        if (!rows.length) return body.replaceChildren(empty('No data', '📊'));
         if (showTable) {
             return body.replaceChildren(h('table', { class: 'chart-table' },
-                h('tr', null, h('th', null, 'البند'), h('th', null, 'القيمة')),
+                h('tr', null, h('th', null, 'Item'), h('th', null, 'Value')),
                 rows.map((d) => h('tr', null, h('td', null, d.label), h('td', null, fmt(d.value))))));
         }
         if (vertical) {
@@ -1240,81 +1240,81 @@ function barChart({ title, data, unit = '', vertical = false }) {
         body.replaceChildren(h('div', { class: 'hbars' }, bars), tip);
     };
     draw();
-    const toggle = btn('جدول', () => { showTable = !showTable; toggle.textContent = showTable ? 'رسم' : 'جدول'; draw(); }, 'small');
+    const toggle = btn('Table', () => { showTable = !showTable; toggle.textContent = showTable ? 'Chart' : 'Table'; draw(); }, 'small');
     return h('div', { class: 'card chart' }, h('div', { class: 'card-title' }, title, h('span', { class: 'spacer' }), toggle), body);
 }
 
 PAGES.stats = {
-    title: 'الإحصائيات',
+    title: 'Statistics',
     async render() {
         const res = await call('getStats');
         if (!res) return null;
         const t = res.totals || {};
         return h('div', null,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                stat('إجمالي القضايا', t.cases), stat('أحكام نافذة', t.verdicts, 'red'),
-                stat('أوامر سارية', t.warrants, 'yellow'), stat('مشبوهين', t.suspects, 'purple')),
-            barChart({ title: '📈 القضايا الجديدة بالأسبوع (آخر 8 أسابيع)', data: res.casesPerWeek, vertical: true }),
+                stat('Total Cases', t.cases), stat('Active Verdicts', t.verdicts, 'red'),
+                stat('Active Warrants', t.warrants, 'yellow'), stat('Persons of Interest', t.suspects, 'purple')),
+            barChart({ title: '📈 New Cases per Week (last 8 weeks)', data: res.casesPerWeek, vertical: true }),
             h('div', { class: 'grid two' },
-                barChart({ title: '📂 أكثر أنواع القضايا', data: res.caseTypes }),
-                barChart({ title: '🔨 الأحكام النافذة حسب النوع', data: res.verdictTypes })),
+                barChart({ title: '📂 Most Common Case Types', data: res.caseTypes }),
+                barChart({ title: '🔨 Active Verdicts by Type', data: res.verdictTypes })),
             h('div', { class: 'grid two' },
-                barChart({ title: '👥 أداء الموظفين: عدد الإجراءات (30 يوم)', data: res.officers }),
-                barChart({ title: '🕒 ساعات الدوام (آخر 7 أيام)', data: res.dutyHours, unit: ' ساعة' })),
+                barChart({ title: '👥 Staff Activity: Actions (30 days)', data: res.officers }),
+                barChart({ title: '🕒 Duty Hours (last 7 days)', data: res.dutyHours, unit: ' h' })),
         );
     },
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// صفحات الشرطة
+// Police pages
 // ════════════════════════════════════════════════════════════════════════════
 const REQUEST_TYPES = [
-    { value: 'locate', label: '📍 تحديد موقع المواطن الآن' },
-    { value: 'bank', label: `🏦 كشف حساب بنكي (تصريح ${30} دقيقة)` },
-    { value: 'arrest_warrant', label: '🚨 طلب أمر قبض' },
-    { value: 'search_warrant', label: '🔍 طلب أمر تفتيش' },
-    { value: 'other', label: '📝 طلب آخر' },
+    { value: 'locate', label: '📍 Locate citizen now' },
+    { value: 'bank', label: `🏦 Bank statement (${30}-minute clearance)` },
+    { value: 'arrest_warrant', label: '🚨 Request arrest warrant' },
+    { value: 'search_warrant', label: '🔍 Request search warrant' },
+    { value: 'other', label: '📝 Other request' },
 ];
 
 async function policeRequestFlow(citizenid, name) {
-    const v = await modal({ title: `طلب تصريح من وزارة العدل${name ? ' - ' + name : ''}`, okText: 'إرسال الطلب',
-        text: 'الطلب يوصل لوزارة العدل مع اسمك ورتبتك ورمز النداء، وتوصلك النتيجة فوراً', fields: [
-            citizenid ? null : { name: 'cid', label: 'الرقم الوطني للمواطن', required: true, max: 50 },
-            { name: 'type', label: 'نوع الطلب', type: 'select', options: REQUEST_TYPES.map((t) => t.value === 'bank' ? { ...t, label: `🏦 كشف حساب بنكي (تصريح ${S.config.grantMinutes || 30} دقيقة)` } : t) },
-            { name: 'reason', label: 'السبب', required: true, max: 200 },
-            { name: 'details', label: 'تفاصيل إضافية (للتفتيش: المكان)', max: 200 },
+    const v = await modal({ title: `DOJ Clearance Request${name ? ' - ' + name : ''}`, okText: 'Submit Request',
+        text: 'The request reaches the Department of Justice with your name, grade and callsign, and you get the answer instantly', fields: [
+            citizenid ? null : { name: 'cid', label: 'Citizen ID', required: true, max: 50 },
+            { name: 'type', label: 'Request type', type: 'select', options: REQUEST_TYPES.map((t) => t.value === 'bank' ? { ...t, label: `🏦 Bank statement (${S.config.grantMinutes || 30}-minute clearance)` } : t) },
+            { name: 'reason', label: 'Reason', required: true, max: 200 },
+            { name: 'details', label: 'Additional details (for searches: the location)', max: 200 },
         ].filter(Boolean) });
     if (!v) return false;
     const r = await call('policeRequest', citizenid || v.cid, v.type, v.reason, v.details || '');
-    if (r) { toast(`تم إرسال الطلب #${r.id} لوزارة العدل`, 'success'); S.info.myPending = (S.info.myPending || 0) + 1; renderNav(); }
+    if (r) { toast(`Request #${r.id} sent to the Department of Justice`, 'success'); S.info.myPending = (S.info.myPending || 0) + 1; renderNav(); }
     return !!r;
 }
 
 PAGES.phome = {
-    title: 'قسم الشرطة',
+    title: 'Police Department',
     async render() {
         const info = await call('tabletInfo');
         if (!info) return null;
         S.info = info;
-        const quick = h('input', { placeholder: 'الاسم / الرقم الوطني / الجوال / رقم السيرفر' });
+        const quick = h('input', { placeholder: 'Name / citizen ID / phone / server ID' });
         const search = () => quick.value.trim() && go('psearch', quick.value.trim());
         quick.addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
         return h('div', null,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                stat('أوامر سارية', info.warrants, 'red', S.perms.warrants ? () => go('pwarrants') : null),
-                stat('المشبوهين', info.suspects, 'yellow', S.perms.suspects ? () => go('psuspects') : null),
-                stat('طلباتي بانتظار الرد', info.myPending, 'blue', S.perms.requests ? () => go('prequests') : null)),
-            S.perms.search ? card('🔎 البحث عن مواطن', h('div', { class: 'searchbar', style: 'margin:0' }, quick, btn('بحث', search, 'primary'))) : null,
-            card('ℹ️ صلاحيات الشرطة', h('div', { class: 'item-sub' },
-                'تقدر تشوف: المعلومات الأساسية، التراخيص، المركبات، سجل القضايا والأحكام، الأوامر والمشبوهين.\nتحديد الموقع وكشف الحساب وأوامر القبض والتفتيش تحتاج طلب تصريح من وزارة العدل.')),
+                stat('Active Warrants', info.warrants, 'red', S.perms.warrants ? () => go('pwarrants') : null),
+                stat('Persons of Interest', info.suspects, 'yellow', S.perms.suspects ? () => go('psuspects') : null),
+                stat('My Pending Requests', info.myPending, 'blue', S.perms.requests ? () => go('prequests') : null)),
+            S.perms.search ? card('🔎 Citizen Lookup', h('div', { class: 'searchbar', style: 'margin:0' }, quick, btn('Search', search, 'primary'))) : null,
+            card('ℹ️ Police Access', h('div', { class: 'item-sub' },
+                'You can view: basic identity, licenses, vehicles, case and verdict history, warrants and persons of interest.\nLocating, bank statements and arrest/search warrants require a clearance request to the Department of Justice.')),
         );
     },
 };
 
 PAGES.psearch = {
-    title: 'البحث عن مواطن',
+    title: 'Citizen Lookup',
     async render(query) {
-        const input = h('input', { placeholder: 'الاسم / الرقم الوطني / الجوال / رقم السيرفر', value: query || '' });
+        const input = h('input', { placeholder: 'Name / citizen ID / phone / server ID', value: query || '' });
         const doSearch = () => { const q = input.value.trim(); if (q) { S.current.arg = q; render(); } };
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
         setTimeout(() => input.focus(), 50);
@@ -1322,17 +1322,17 @@ PAGES.psearch = {
         if (query) {
             const res = await call('policeSearch', query);
             const list = res ? arr(res.results) : [];
-            results = res ? card(`النتائج (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
+            results = res ? card(`Results (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
                 icon: dot(c.online), title: `${c.serverId ? `[${c.serverId}] ` : ''}${c.name}`,
-                sub: `الرقم الوطني: ${c.citizenid} | ${val(c.job)}`, onclick: () => go('pprofile', c.citizenid),
-            }))) : empty('لا توجد نتائج', '🔍')) : null;
+                sub: `Citizen ID: ${c.citizenid} | ${val(c.job)}`, onclick: () => go('pprofile', c.citizenid),
+            }))) : empty('No results', '🔍')) : null;
         }
-        return h('div', null, h('div', { class: 'searchbar' }, input, btn('بحث', doSearch, 'primary')), results || empty('اكتب في خانة البحث', '🔎'));
+        return h('div', null, h('div', { class: 'searchbar' }, input, btn('Search', doSearch, 'primary')), results || empty('Type in the search box', '🔎'));
     },
 };
 
 PAGES.pprofile = {
-    title: (cid) => `ملف المواطن ${cid}`,
+    title: (cid) => `Citizen Record ${cid}`,
     async render(cid) {
         const res = await call('policeProfile', cid);
         if (!res) return null;
@@ -1341,78 +1341,78 @@ PAGES.pprofile = {
         return h('div', null,
             h('div', { class: 'profile-head' }, h('div', { class: 'avatar' }, (p.name || '?').slice(0, 1)),
                 h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'profile-name' }, p.name),
-                    h('div', { class: 'profile-meta' }, badge(p.status ? p.status.text : '-', p.status && p.status.online ? 'green' : 'gray'), badge(`الرقم الوطني: ${p.citizenid}`), badge(`${p.job.label} - ${p.job.grade}`, 'blue')))),
-            p.suspended ? h('div', { class: 'alert red' }, '⛔ خدمات هذا المواطن موقوفة بقرار من وزارة العدل') : null,
+                    h('div', { class: 'profile-meta' }, badge(p.status ? p.status.text : '-', p.status && p.status.online ? 'green' : 'gray'), badge(`Citizen ID: ${p.citizenid}`), badge(`${p.job.label} - ${p.job.grade}`, 'blue')))),
+            p.suspended ? h('div', { class: 'alert red' }, '⛔ This citizen\'s services are suspended by order of the Department of Justice') : null,
             courtAlerts(court),
-            S.perms.requests ? h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📨 طلب تصريح من العدل', () => policeRequestFlow(p.citizenid, p.name), 'primary')) : null,
-            card('🪪 المعلومات الأساسية', kv([['الاسم', p.name], ['الرقم الوطني', p.citizenid], ['تاريخ الميلاد', p.birthdate], ['الجنس', gender(p.gender)], ['الجنسية', p.nationality], ['الجوال', p.phone], ['الوظيفة', `${p.job.label} - ${p.job.grade}`]])),
-            p.bank ? card(`🏦 كشف الحساب (تصريح ساري ${p.bank.remaining} دقيقة)`, h('div', { class: 'grid stats' }, stat('البنك', money(p.bank.bank), 'green'), stat('الكاش', money(p.bank.cash)))) : null,
-            card('📄 التراخيص', arr(p.licenses).length ? h('div', { class: 'list' }, arr(p.licenses).map((l) => item({ icon: l.active ? '✅' : '❌', title: l.label, sub: l.active ? 'فعالة' : 'غير فعالة' }))) : empty('لا توجد تراخيص')),
-            p.vehicles ? card(`🚗 المركبات (${arr(p.vehicles).length})`, arr(p.vehicles).length ? h('div', { class: 'list' }, arr(p.vehicles).map((v) => item({ icon: '🚗', title: `${v.plate} | ${v.label}`, sub: v.state }))) : empty('لا توجد مركبات')) : null,
-            card(`⚖️ سجل القضايا (${arr(p.cases).length})`, arr(p.cases).length ? h('div', { class: 'list' }, arr(p.cases).map((c) => item({ icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `${c.role} | ${val(c.caseType)} | ${c.status} | ${val(c.date)}` }))) : empty('لا توجد قضايا', '⚖️')),
-            card(`🔨 الأحكام (${arr(p.verdicts).length})`, arr(p.verdicts).length ? h('div', { class: 'list' }, arr(p.verdicts).map(verdictItem)) : empty('لا توجد أحكام', '🔨')),
-            card(`🚨 الأوامر (${arr(p.warrants).length})`, arr(p.warrants).length ? h('div', { class: 'list' }, arr(p.warrants).map((w) => warrantItem(w, { execute: S.perms.executeWarrant, reload: render }))) : empty('لا توجد أوامر', '🚨')),
+            S.perms.requests ? h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📨 Request DOJ Clearance', () => policeRequestFlow(p.citizenid, p.name), 'primary')) : null,
+            card('🪪 Identity', kv([['Name', p.name], ['Citizen ID', p.citizenid], ['Date of Birth', p.birthdate], ['Sex', gender(p.gender)], ['Nationality', p.nationality], ['Phone', p.phone], ['Job', `${p.job.label} - ${p.job.grade}`]])),
+            p.bank ? card(`🏦 Bank Statement (clearance valid ${p.bank.remaining} min)`, h('div', { class: 'grid stats' }, stat('Bank', money(p.bank.bank), 'green'), stat('Cash', money(p.bank.cash)))) : null,
+            card('📄 Licenses', arr(p.licenses).length ? h('div', { class: 'list' }, arr(p.licenses).map((l) => item({ icon: l.active ? '✅' : '❌', title: l.label, sub: l.active ? 'Valid' : 'Not held' }))) : empty('No licenses')),
+            p.vehicles ? card(`🚗 Vehicles (${arr(p.vehicles).length})`, arr(p.vehicles).length ? h('div', { class: 'list' }, arr(p.vehicles).map((v) => item({ icon: '🚗', title: `${v.plate} | ${v.label}`, sub: v.state }))) : empty('No registered vehicles')) : null,
+            card(`⚖️ Case History (${arr(p.cases).length})`, arr(p.cases).length ? h('div', { class: 'list' }, arr(p.cases).map((c) => item({ icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `${c.role} | ${val(c.caseType)} | ${c.status} | ${val(c.date)}` }))) : empty('No cases', '⚖️')),
+            card(`🔨 Verdicts (${arr(p.verdicts).length})`, arr(p.verdicts).length ? h('div', { class: 'list' }, arr(p.verdicts).map(verdictItem)) : empty('No verdicts', '🔨')),
+            card(`🚨 Warrants (${arr(p.warrants).length})`, arr(p.warrants).length ? h('div', { class: 'list' }, arr(p.warrants).map((w) => warrantItem(w, { execute: S.perms.executeWarrant, reload: render }))) : empty('No warrants', '🚨')),
         );
     },
 };
 
 PAGES.pwarrants = {
-    title: 'الأوامر السارية',
+    title: 'Active Warrants',
     async render() {
         const res = await call('policeWarrants');
         if (!res) return null;
         const list = arr(res.warrants);
         S.info.warrants = list.length;
-        return card(`🚨 السارية (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'pprofile', execute: S.perms.executeWarrant, reload: render }))) : empty('لا توجد أوامر سارية', '✅'));
+        return card(`🚨 Active (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((w) => warrantItem(w, { profile: 'pprofile', execute: S.perms.executeWarrant, reload: render }))) : empty('No active warrants', '✅'));
     },
 };
 
 PAGES.psuspects = {
-    title: 'المشبوهين',
+    title: 'Persons of Interest',
     async render() {
         const res = await call('policeSuspects');
         if (!res) return null;
         const list = arr(res.suspects);
-        return card(`🕵️ المشبوهين (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'pprofile'))) : empty('القائمة فاضية', '🕵️'));
+        return card(`🕵️ Persons of Interest (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((x) => suspectItem(x, 'pprofile'))) : empty('The list is empty', '🕵️'));
     },
 };
 
 PAGES.prequests = {
-    title: 'طلباتي لوزارة العدل',
+    title: 'My DOJ Requests',
     async render() {
         const res = await call('policeMyRequests');
         if (!res) return null;
         const list = arr(res.requests);
         S.info.myPending = list.filter((q) => q.status === 'pending').length;
-        return card(h('span', null, `📨 طلباتي (${list.length})`),
-            h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ طلب جديد', async () => { if (await policeRequestFlow()) render(); }, 'primary')),
+        return card(h('span', null, `📨 My Requests (${list.length})`),
+            h('div', { class: 'actions', style: 'margin-bottom:12px' }, btn('➕ New Request', async () => { if (await policeRequestFlow()) render(); }, 'primary')),
             list.length ? h('div', { class: 'list' }, list.map((q) => item({
                 icon: q.status === 'pending' ? '⏳' : q.status === 'approved' ? '✅' : '❌',
                 title: `#${q.id} | ${q.typeLabel} | ${q.name} (${q.citizenid})`,
-                sub: `السبب: ${q.reason}\n${val(q.date)}${q.answeredBy ? `\nالرد: ${q.statusLabel} بواسطة ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
-                side: [badge(q.statusLabel, q.status === 'pending' ? 'yellow' : q.status === 'approved' ? 'green' : 'red'), btn('الملف', () => go('pprofile', q.citizenid), 'small')],
-            }))) : empty('ما أرسلت أي طلب', '📨'));
+                sub: `Reason: ${q.reason}\n${val(q.date)}${q.answeredBy ? `\nResponse: ${q.statusLabel} by ${q.answeredBy}${q.answerNote ? ' - ' + q.answerNote : ''}` : ''}`,
+                side: [badge(q.statusLabel, q.status === 'pending' ? 'yellow' : q.status === 'approved' ? 'green' : 'red'), btn('Record', () => go('pprofile', q.citizenid), 'small')],
+            }))) : empty('You have not sent any requests', '📨'));
     },
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// صفحات المحامي
+// Attorney pages
 // ════════════════════════════════════════════════════════════════════════════
 PAGES.lcases = {
-    title: 'قضاياي',
+    title: 'My Cases',
     async render() {
         const res = await call('lawyerCases');
         if (!res) return null;
         const list = arr(res.cases);
-        return card(`💼 القضايا المعيّن فيها (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
-            icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `موكلي: ${c.client} (${c.sideLabel}) | ${val(c.caseType)} | ${c.date}`,
+        return card(`💼 Assigned Cases (${list.length})`, list.length ? h('div', { class: 'list' }, list.map((c) => item({
+            icon: '⚖️', title: `#${c.id} | ${c.title}`, sub: `Client: ${c.client} (${c.sideLabel}) | ${val(c.caseType)} | ${c.date}`,
             side: badge(c.statusLabel, STATUS[c.status] ? STATUS[c.status][1] : ''), onclick: () => go('lcase', c.id),
-        }))) : empty('ما تم تعيينك في أي قضية بعد', '💼'));
+        }))) : empty('You have not been assigned to any case yet', '💼'));
     },
 };
 
 PAGES.lcase = {
-    title: (id) => `القضية #${id}`,
+    title: (id) => `Case #${id}`,
     async render(id) {
         const res = await call('lawyerCase', id);
         if (!res) return null;
@@ -1421,69 +1421,69 @@ PAGES.lcase = {
             h('div', { class: 'profile-head' }, h('div', { class: 'avatar' }, '⚖️'),
                 h('div', null, h('div', { class: 'profile-name' }, c.title),
                     h('div', { class: 'profile-meta' }, badge(c.statusLabel, STATUS[c.status] ? STATUS[c.status][1] : ''), badge(val(c.caseType), 'blue'), badge(c.date, 'gray')))),
-            h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📝 إضافة ملاحظة', async () => {
-                const v = await modal({ title: 'ملاحظة المحامي', fields: [{ name: 'note', label: 'الملاحظة', type: 'textarea', required: true, max: S.config.noteMax || 500 }] });
-                if (v && await call('lawyerNote', c.id, v.note)) { toast('تمت إضافة الملاحظة', 'success'); render(); }
+            h('div', { class: 'actions', style: 'margin-bottom:14px' }, btn('📝 Add Note', async () => {
+                const v = await modal({ title: 'Attorney Note', fields: [{ name: 'note', label: 'Note', type: 'textarea', required: true, max: S.config.noteMax || 500 }] });
+                if (v && await call('lawyerNote', c.id, v.note)) { toast('Note added', 'success'); render(); }
             })),
-            card('👥 الأطراف', kv([['المدعي', c.plaintiff], ['المدعى عليه', c.defendant]])),
-            card('📄 تفاصيل الدعوى', h('div', { class: 'textblock' }, c.report)),
-            c.witnesses && c.witnesses !== '' ? card('👥 الشهود', h('div', { class: 'textblock' }, c.witnesses)) : null,
-            c.evidence && c.evidence !== '' ? card('🔍 الأدلة', h('div', { class: 'textblock' }, c.evidence)) : null,
+            card('👥 Parties', kv([['Plaintiff', c.plaintiff], ['Defendant', c.defendant]])),
+            card('📄 Complaint', h('div', { class: 'textblock' }, c.report)),
+            c.witnesses && c.witnesses !== '' ? card('👥 Witnesses', h('div', { class: 'textblock' }, c.witnesses)) : null,
+            c.evidence && c.evidence !== '' ? card('🔍 Evidence', h('div', { class: 'textblock' }, c.evidence)) : null,
             caseDocumentsCard(c, () => render(), true),
-            arr(c.verdicts).length ? card('🔨 الأحكام', h('div', { class: 'list' }, arr(c.verdicts).map(verdictItem))) : null,
-            card(`🗒️ الملاحظات (${arr(c.notes).length})`, arr(c.notes).length ? h('div', { class: 'list' }, arr(c.notes).map((n) => h('div', { class: 'note' }, h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('لا توجد ملاحظات')),
+            arr(c.verdicts).length ? card('🔨 Verdicts', h('div', { class: 'list' }, arr(c.verdicts).map(verdictItem))) : null,
+            card(`🗒️ Notes (${arr(c.notes).length})`, arr(c.notes).length ? h('div', { class: 'list' }, arr(c.notes).map((n) => h('div', { class: 'note' }, h('div', { class: 'meta' }, `${n.author} - ${val(n.date)}`), n.note))) : empty('No notes')),
         );
     },
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// 💰 القسم المالي للقطاع
+// 💰 Department finance office
 // ════════════════════════════════════════════════════════════════════════════
 PAGES.finance = {
-    title: 'القسم المالي',
+    title: 'Finance Office',
     async render(job) {
         const res = await call('financeInfo', job || null);
         if (!res) return null;
-        $('page-title').textContent = `القسم المالي: ${res.label}`;
+        $('page-title').textContent = `Finance Office: ${res.label}`;
         const sectorChips = arr(res.sectors).length ? h('div', { class: 'chips' }, arr(res.sectors).map((x) =>
             h('button', { class: 'chip' + (x.job === res.job ? ' active' : ''), onclick: () => { S.current.arg = x.job; render(); } }, x.label))) : null;
         const reload = () => render();
         const act = async (type) => {
             const deposit = type === 'deposit';
             const v = await modal({
-                title: deposit ? `إيداع في حساب ${res.label}` : `سحب من حساب ${res.label}`,
-                text: deposit ? `من حسابك البنكي (رصيدك: ${money(res.myBank)})` : `إلى حسابك البنكي (رصيد القطاع: ${money(res.balance)})`,
-                okText: 'متابعة',
+                title: deposit ? `Deposit to ${res.label}` : `Withdraw from ${res.label}`,
+                text: deposit ? `From your bank account (your balance: ${money(res.myBank)})` : `To your bank account (department balance: ${money(res.balance)})`,
+                okText: 'Continue',
                 fields: [
-                    { name: 'amount', label: 'المبلغ', type: 'number', required: true, min: 1, maxValue: Math.min(res.maxPerTransaction, deposit ? res.myBank : res.balance) },
-                    { name: 'reason', label: 'السبب', required: true, max: 150 },
+                    { name: 'amount', label: 'Amount', type: 'number', required: true, min: 1, maxValue: Math.min(res.maxPerTransaction, deposit ? res.myBank : res.balance) },
+                    { name: 'reason', label: 'Reason', required: true, max: 150 },
                 ],
             });
-            if (!v || !await confirmBox('تأكيد', `${deposit ? 'إيداع' : 'سحب'} ${money(v.amount)}\nالسبب: ${v.reason}`, !deposit)) return;
+            if (!v || !await confirmBox('Confirm', `${deposit ? 'Deposit' : 'Withdraw'} ${money(v.amount)}\nReason: ${v.reason}`, !deposit)) return;
             const r = await call(deposit ? 'financeDeposit' : 'financeWithdraw', v.amount, v.reason, res.job);
-            if (r) { toast(`تمت العملية، رصيد القطاع: ${money(r.balance)}`, 'success'); reload(); }
+            if (r) { toast(`Done. Department balance: ${money(r.balance)}`, 'success'); reload(); }
         };
         const history = arr(res.history);
         return h('div', null,
             sectorChips,
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
-                stat(`رصيد ${res.label}`, money(res.balance), 'green'),
-                stat('رصيدك البنكي', money(res.myBank), 'gold'),
-                stat('الحد بالعملية', money(res.maxPerTransaction), 'blue')),
+                stat(`${res.label} Balance`, money(res.balance), 'green'),
+                stat('Your Bank Balance', money(res.myBank), 'gold'),
+                stat('Limit per Transaction', money(res.maxPerTransaction), 'blue')),
             h('div', { class: 'actions', style: 'margin-bottom:14px' },
-                h('button', { class: 'btn primary', disabled: res.myBank <= 0 || null, onclick: () => act('deposit') }, '⬆️ إيداع في حساب القطاع'),
-                h('button', { class: 'btn red', disabled: res.balance <= 0 || null, onclick: () => act('withdraw') }, '⬇️ سحب من حساب القطاع')),
-            card(`🧾 سجل العمليات (${history.length})`, history.length ? h('div', { class: 'list' }, history.map((t) => item({
+                h('button', { class: 'btn primary', disabled: res.myBank <= 0 || null, onclick: () => act('deposit') }, '⬆️ Deposit to Department'),
+                h('button', { class: 'btn red', disabled: res.balance <= 0 || null, onclick: () => act('withdraw') }, '⬇️ Withdraw from Department')),
+            card(`🧾 Transaction Ledger (${history.length})`, history.length ? h('div', { class: 'list' }, history.map((t) => item({
                 icon: t.type === 'deposit' ? '⬆️' : '⬇️',
                 title: `${t.typeLabel} ${money(t.amount)} | ${t.officer}${t.grade ? ' - ' + t.grade : ''}`,
-                sub: `${t.reason}\n${val(t.date)}${t.balance != null ? ' | الرصيد بعدها: ' + money(t.balance) : ''}`,
-            }))) : empty('لا توجد عمليات', '🧾')),
-            h('div', { class: 'item-sub' }, `مصدر الرصيد: ${res.provider}`),
+                sub: `${t.reason}\n${val(t.date)}${t.balance != null ? ' | Balance after: ' + money(t.balance) : ''}`,
+            }))) : empty('No transactions', '🧾')),
+            h('div', { class: 'item-sub' }, `Balance source: ${res.provider}`),
         );
     },
 };
 
-// ═════ الإشعارات المباشرة (صوت + تنبيه) ═════
+// ═════ Live notifications (sound + alert) ═════
 function chime() {
     try {
         const ctx = S.audio || (S.audio = new (window.AudioContext || window.webkitAudioContext)());
@@ -1499,7 +1499,7 @@ function chime() {
             o.start(ctx.currentTime + delay);
             o.stop(ctx.currentTime + delay + 0.4);
         });
-    } catch (e) { /* الصوت اختياري */ }
+    } catch (e) { /* sound is optional */ }
 }
 
 function onLiveEvent(ev) {
@@ -1516,9 +1516,9 @@ function onLiveEvent(ev) {
     if ((refreshOn[ev.type] || []).includes(page) && !$('modal-root').children.length) render();
 }
 
-// ═════ الفتح والإغلاق ═════
+// ═════ Open and close ═════
 function renderMe() {
-    const roleLabel = S.info && S.info.judge ? '👑 القاضي - صلاحية كاملة على نظام الدولة' : ({ justice: '⚖️ وزارة العدل', police: '🚓 الشرطة', lawyer: '💼 محامي', sector: '💰 مسؤول القطاع' }[S.role] || '');
+    const roleLabel = S.info && S.info.judge ? '👑 Judge - full access to State Records' : ({ justice: '⚖️ Department of Justice', police: '🚓 Police Department', lawyer: '💼 Attorney', sector: '💰 Department Manager' }[S.role] || '');
     $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 

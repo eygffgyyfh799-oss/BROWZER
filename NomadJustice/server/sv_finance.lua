@@ -1,16 +1,26 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- 💰 القسم المالي للقطاعات (الشرطة، الصحة...) في نظام الدولة
--- المسؤولين المحددين في Settings.Finance.Sectors بس: رصيد القطاع + سحب + إيداع + سجل
+-- 💰 Department finance office (police, medical...) in the state system
+-- Only the managers listed in Settings.Finance.Sectors: department balance + withdraw + deposit + ledger
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JS.Settings
 local Finance = Settings.Finance
 local Notify = JS.Notify
 
--- ═════ مزوّد الرصيد: سكربت البنك (qb-banking أو صيغة renewed) أو خزينة داخلية ═════
+-- ═════ Balance provider: the bank script (business / qb / renewed style) or an internal fund ═════
 local function Bank() return exports[Finance.Resource] end
 
 local Providers = {
+    -- Business/department accounts (getBusinessAccount / AddMoney / RemoveMoney)
+    business = {
+        label = Finance.Resource .. ' (business accounts)',
+        balance = function(job)
+            local account = Bank():getBusinessAccount(job)
+            return type(account) == 'table' and tonumber(account.balance) or nil
+        end,
+        add = function(job, amount, reason) return Bank():AddMoney(job, amount, reason) == true end,
+        remove = function(job, amount, reason) return Bank():RemoveMoney(job, amount, reason) == true end,
+    },
     qb = {
         label = Finance.Resource .. ' (GetAccountBalance)',
         balance = function(job) return tonumber(Bank():GetAccountBalance(job)) end,
@@ -24,7 +34,7 @@ local Providers = {
         remove = function(job, amount) return Bank():removeAccountMoney(job, amount) ~= false end,
     },
     internal = {
-        label = 'خزينة داخلية (justice_sector_funds)',
+        label = 'Internal fund (justice_sector_funds)',
         balance = function(job)
             MySQL.insert.await('INSERT IGNORE INTO justice_sector_funds (job, balance) VALUES (?, 0)', { job })
             return tonumber(MySQL.scalar.await('SELECT balance FROM justice_sector_funds WHERE job = ?', { job })) or 0
@@ -34,7 +44,7 @@ local Providers = {
             return (MySQL.update.await('UPDATE justice_sector_funds SET balance = balance + ? WHERE job = ?', { amount, job }) or 0) > 0
         end,
         remove = function(job, amount)
-            -- ذرّي: ما يسحب إلا إذا الرصيد يكفي (ما يصير رصيد سالب حتى لو اثنين سحبوا بنفس اللحظة)
+            -- Atomic: only withdraws when the balance is enough (never negative, even with simultaneous withdrawals)
             return (MySQL.update.await('UPDATE justice_sector_funds SET balance = balance - ? WHERE job = ? AND balance >= ?', { amount, job, amount }) or 0) > 0
         end,
     },
@@ -50,10 +60,10 @@ local function DetectProvider()
         JS.FinanceProvider = wanted
         return
     end
-    -- auto: نجرب دوال سكربت البنك
+    -- auto: try the bank script functions
     local job = next(Finance.Sectors or {})
     if job and GetResourceState(Finance.Resource) == 'started' then
-        for _, name in ipairs({ 'qb', 'renewed' }) do
+        for _, name in ipairs({ 'business', 'qb', 'renewed' }) do
             local ok, balance = pcall(Providers[name].balance, job)
             if ok and type(balance) == 'number' then
                 JS.FinanceProvider = name
@@ -65,7 +75,7 @@ local function DetectProvider()
 end
 JS.DetectFinanceProvider = DetectProvider
 
--- ═════ من يقدر يستخدم القسم المالي ═════
+-- ═════ Who can use the finance office ═════
 function JS.SectorList()
     local list = {}
     for job, sector in pairs(Finance.Sectors or {}) do list[#list + 1] = { job = job, label = JS.Safe(sector.label or job) } end
@@ -73,10 +83,10 @@ function JS.SectorList()
     return list
 end
 
--- requestedJob: القاضي يختار أي قطاع
+-- requestedJob: the judge can pick any department
 function JS.GetFinanceSector(Player, ignoreDuty, requestedJob)
     if Player and JS.IsJudge(Player) then
-        if not ignoreDuty and Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return nil, 'يجب أن تكون في الدوام' end
+        if not ignoreDuty and Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return nil, 'You must be on duty' end
         local list = JS.SectorList()
         if #list == 0 then return nil end
         local chosen = list[1]
@@ -92,22 +102,22 @@ function JS.GetFinanceSector(Player, ignoreDuty, requestedJob)
         if tonumber(level) == grade then allowed = true break end
     end
     if not allowed then return nil end
-    if not ignoreDuty and Finance.RequireDuty and not job.onduty then return nil, 'يجب أن تكون في الدوام' end
+    if not ignoreDuty and Finance.RequireDuty and not job.onduty then return nil, 'You must be on duty' end
     return { job = job.name, label = sector.label or job.label or job.name }
 end
 
 local function FinanceOnly(Player)
     local sector, err = JS.GetFinanceSector(Player)
     if sector then return true end
-    return false, err or 'القسم المالي لمسؤولي القطاع فقط'
+    return false, err or 'The finance office is for department managers only'
 end
 
--- ═════ السجل ═════
+-- ═════ Ledger ═════
 local function History(job)
     local list = {}
     for i, row in ipairs(MySQL.query.await('SELECT * FROM justice_sector_transactions WHERE job = ? ORDER BY id DESC LIMIT 40', { job }) or {}) do
         list[i] = {
-            id = row.id, type = row.type, typeLabel = row.type == 'deposit' and 'إيداع' or 'سحب',
+            id = row.id, type = row.type, typeLabel = row.type == 'deposit' and 'Deposit' or 'Withdrawal',
             amount = tonumber(row.amount) or 0, reason = JS.Safe(row.reason), officer = JS.Safe(row.officer_name),
             grade = JS.Safe(row.officer_grade), balance = tonumber(row.balance_after), date = JS.FormatDbDate(row.created_at),
         }
@@ -121,14 +131,14 @@ local function Record(Player, job, tType, amount, reason, balanceAfter)
         job, tType, amount, reason, info.citizenid, info.name, info.grade, balanceAfter
     })
     JS.Log(Player, tType == 'deposit' and 'sector_deposit' or 'sector_withdraw', nil, nil, {
-        ['القطاع'] = job, ['المبلغ'] = amount, ['السبب'] = reason, ['الرصيد بعدها'] = balanceAfter,
+        ['Department'] = job, ['Amount'] = amount, ['Reason'] = reason, ['Balance after'] = balanceAfter,
     })
-    -- إشعار باقي مسؤولي نفس القطاع
+    -- Notify the other managers of the same department
     JS.BroadcastTablet(function(t)
         local s = JS.GetFinanceSector(t, true)
         return s and s.job == job and t.PlayerData.citizenid ~= info.citizenid
     end, {
-        type = 'finance', title = ('💰 %s في حساب القطاع'):format(tType == 'deposit' and 'إيداع' or 'سحب'),
+        type = 'finance', title = ('💰 Department %s'):format(tType == 'deposit' and 'deposit' or 'withdrawal'),
         text = ('%s: $%d - %s'):format(info.name, amount, reason),
     })
 end
@@ -136,9 +146,9 @@ end
 local function Validate(amount, reason)
     amount = math.floor(tonumber(amount) or 0)
     reason = JS.CleanText(reason, 150, true)
-    if amount <= 0 then return nil, nil, 'المبلغ غير صحيح' end
-    if amount > Finance.MaxPerTransaction then return nil, nil, ('الحد الأقصى بالعملية $%d'):format(Finance.MaxPerTransaction) end
-    if not reason then return nil, nil, 'السبب مطلوب' end
+    if amount <= 0 then return nil, nil, 'Invalid amount' end
+    if amount > Finance.MaxPerTransaction then return nil, nil, ('The maximum per transaction is $%d'):format(Finance.MaxPerTransaction) end
+    if not reason then return nil, nil, 'A reason is required' end
     return amount, reason
 end
 
@@ -148,7 +158,7 @@ JS.RegisterCallback('NomadJustice:server:financeInfo', FinanceOnly, function(src
     local ok, balance = pcall(Provider().balance, sector.job)
     if not ok then
         print(('^1[NomadJustice] finance balance error (%s): %s^7'):format(JS.FinanceProvider, tostring(balance)))
-        return { ok = false, err = 'تعذر قراءة رصيد القطاع' }
+        return { ok = false, err = 'Could not read the department balance' }
     end
     return {
         ok = true, job = sector.job, label = JS.Safe(sector.label), balance = math.floor(balance or 0),
@@ -164,15 +174,15 @@ JS.RegisterCallback('NomadJustice:server:financeDeposit', FinanceOnly, function(
     local err
     amount, reason, err = Validate(amount, reason)
     if err then return { ok = false, err = err } end
-    if JS.OnCooldown('finance', Player.PlayerData.citizenid, 3) then return { ok = false, err = 'انتظر ثواني' } end
+    if JS.OnCooldown('finance', Player.PlayerData.citizenid, 3) then return { ok = false, err = 'Wait a few seconds' } end
 
     local took, takeErr = JS.TakeMoney(Player.PlayerData.citizenid, amount, 'sector-deposit')
-    if not took then return { ok = false, err = 'رصيدك البنكي: ' .. tostring(takeErr) } end
+    if not took then return { ok = false, err = 'Your bank account: ' .. tostring(takeErr) } end
 
-    local ok, added = pcall(Provider().add, sector.job, amount, 'إيداع: ' .. reason)
+    local ok, added = pcall(Provider().add, sector.job, amount, 'Deposit: ' .. reason)
     if not ok or not added then
         JS.GiveMoney(Player.PlayerData.citizenid, amount, 'sector-deposit-refund')
-        return { ok = false, err = 'تعذر الإيداع في حساب القطاع، تم إرجاع المبلغ' }
+        return { ok = false, err = 'Could not deposit to the department account, the amount was returned' }
     end
     local _, balance = pcall(Provider().balance, sector.job)
     Record(Player, sector.job, 'deposit', amount, reason, math.floor(tonumber(balance) or 0))
@@ -184,27 +194,27 @@ JS.RegisterCallback('NomadJustice:server:financeWithdraw', FinanceOnly, function
     local err
     amount, reason, err = Validate(amount, reason)
     if err then return { ok = false, err = err } end
-    if JS.OnCooldown('finance', Player.PlayerData.citizenid, 3) then return { ok = false, err = 'انتظر ثواني' } end
+    if JS.OnCooldown('finance', Player.PlayerData.citizenid, 3) then return { ok = false, err = 'Wait a few seconds' } end
 
     local okB, balance = pcall(Provider().balance, sector.job)
     if not okB or (tonumber(balance) or 0) < amount then
-        return { ok = false, err = ('رصيد القطاع ما يكفي (الرصيد: $%d)'):format(math.floor(tonumber(balance) or 0)) }
+        return { ok = false, err = ('Insufficient department balance (balance: $%d)'):format(math.floor(tonumber(balance) or 0)) }
     end
 
-    local ok, removed = pcall(Provider().remove, sector.job, amount, 'سحب: ' .. reason)
-    if not ok or not removed then return { ok = false, err = 'تعذر السحب من حساب القطاع' } end
+    local ok, removed = pcall(Provider().remove, sector.job, amount, 'Withdrawal: ' .. reason)
+    if not ok or not removed then return { ok = false, err = 'Could not withdraw from the department account' } end
 
     local gave = JS.GiveMoney(Player.PlayerData.citizenid, amount, 'sector-withdraw')
     if not gave then
-        pcall(Provider().add, sector.job, amount, 'إرجاع سحب فاشل')
-        return { ok = false, err = 'تعذر الإيداع في حسابك، تم إرجاع المبلغ للقطاع' }
+        pcall(Provider().add, sector.job, amount, 'Failed withdrawal refund')
+        return { ok = false, err = 'Could not deposit to your account, the amount was returned to the department' }
     end
     local _, after = pcall(Provider().balance, sector.job)
     Record(Player, sector.job, 'withdraw', amount, reason, math.floor(tonumber(after) or 0))
     return { ok = true, balance = math.floor(tonumber(after) or 0) }
 end)
 
--- أرصدة كل القطاعات (لاقتصاد المدينة عند العدل)
+-- Balances of all departments (for the DOJ city economy view)
 function JS.GetSectorBalances()
     local list = {}
     for job, sector in pairs(Finance.Sectors or {}) do
@@ -217,7 +227,7 @@ end
 
 CreateThread(function()
     while not JS.Ready do Wait(500) end
-    Wait(1500) -- نعطي سكربت البنك وقت يشتغل
+    Wait(1500) -- give the bank script time to start
     DetectProvider()
     print(('^2[NomadJustice]^7 Finance provider: %s'):format(Provider().label))
 end)

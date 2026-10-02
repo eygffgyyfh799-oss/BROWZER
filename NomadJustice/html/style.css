@@ -1,13 +1,13 @@
 :root {
-    --bg: #0e0d0d;
-    --panel: #161414;
-    --card: #1d1a19;
-    --card-hover: #25211f;
-    --border: #2d2826;
-    --gold: #caa27c;
-    --gold-soft: rgba(202, 162, 124, .14);
-    --text: #eeeae6;
-    --muted: #9c948d;
+    --bg: #0a0a09;
+    --panel: #121211;
+    --card: #191917;
+    --card-hover: #22211e;
+    --border: #2c2b27;
+    --gold: #b8b2a1;
+    --gold-soft: rgba(184, 178, 161, .13);
+    --text: #ecebe6;
+    --muted: #8f8b80;
     --green: #4fbf82;
     --red: #e06060;
     --yellow: #e2b851;
@@ -22,7 +22,7 @@ html, body {
     width: 100%;
     height: 100%;
     background: transparent;
-    font-family: 'Tajawal', 'Segoe UI', Tahoma, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Tahoma, sans-serif;
     color: var(--text);
     font-size: 14px;
     overflow: hidden;
@@ -51,7 +51,7 @@ html, body {
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 22px;
-    box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 0 0 8px #070606, 0 0 0 9px #2a2522;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .6), 0 0 0 8px #070606, 0 0 0 9px #2a2926;
     overflow: hidden;
     animation: pop .2s ease-out;
 }
@@ -61,7 +61,7 @@ html, body {
     width: 250px;
     flex-shrink: 0;
     background: var(--panel);
-    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     padding: 18px 14px;
@@ -72,7 +72,7 @@ html, body {
 .brand-icon {
     width: 42px; height: 42px; border-radius: 12px;
     display: grid; place-items: center; font-size: 22px;
-    background: var(--gold-soft); border: 1px solid rgba(202, 162, 124, .35);
+    background: var(--gold-soft); border: 1px solid rgba(184, 178, 161, .35);
 }
 .brand-title { font-weight: 800; font-size: 16px; color: var(--gold); }
 .brand-sub { font-size: 11.5px; color: var(--muted); }
@@ -92,7 +92,7 @@ nav { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1
 nav button {
     display: flex; align-items: center; gap: 10px;
     background: transparent; border: 0; color: var(--muted);
-    font: inherit; font-size: 14px; text-align: right;
+    font: inherit; font-size: 14px; text-align: left;
     padding: 9px 12px; border-radius: 10px; cursor: pointer;
     transition: .15s;
 }
@@ -100,7 +100,7 @@ nav button:hover { background: var(--card); color: var(--text); }
 nav button.active { background: var(--gold-soft); color: var(--gold); font-weight: 700; }
 nav button .nav-icon { width: 20px; text-align: center; }
 nav button .nav-badge {
-    margin-right: auto; background: var(--red); color: #fff;
+    margin-left: auto; background: var(--red); color: #fff;
     border-radius: 20px; font-size: 11px; padding: 0 7px; line-height: 18px;
 }
 
@@ -114,7 +114,7 @@ kbd { background: var(--card); border: 1px solid var(--border); border-radius: 5
     display: flex; align-items: center; gap: 12px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, #171514, var(--bg));
+    background: linear-gradient(180deg, #141413, var(--bg));
 }
 .topbar h1 { font-size: 19px; font-weight: 800; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
@@ -215,7 +215,7 @@ kbd { background: var(--card); border: 1px solid var(--border); border-radius: 5
     background: var(--card); border: 1px solid var(--border); color: var(--muted);
     font: inherit; font-size: 13px; padding: 6px 13px; border-radius: 20px; cursor: pointer;
 }
-.chip.active { background: var(--gold-soft); border-color: rgba(202, 162, 124, .5); color: var(--gold); font-weight: 700; }
+.chip.active { background: var(--gold-soft); border-color: rgba(184, 178, 161, .5); color: var(--gold); font-weight: 700; }
 
 .searchbar { display: flex; gap: 8px; margin-bottom: 14px; }
 input, textarea, select {
@@ -234,7 +234,7 @@ select option { background: var(--panel); }
 .avatar {
     width: 64px; height: 64px; border-radius: 16px; flex-shrink: 0;
     display: grid; place-items: center; font-size: 26px; font-weight: 800;
-    background: var(--gold-soft); color: var(--gold); border: 1px solid rgba(202, 162, 124, .4);
+    background: var(--gold-soft); color: var(--gold); border: 1px solid rgba(184, 178, 161, .4);
 }
 .profile-name { font-size: 21px; font-weight: 800; }
 .profile-meta { color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -252,7 +252,7 @@ select option { background: var(--panel); }
 
 .pager { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 12px; color: var(--muted); }
 
-.note { background: var(--panel); border-right: 3px solid var(--gold); border-radius: 8px; padding: 9px 12px; }
+.note { background: var(--panel); border-left: 3px solid var(--gold); border-radius: 8px; padding: 9px 12px; }
 .note .meta { color: var(--muted); font-size: 12px; margin-bottom: 3px; }
 .textblock { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; white-space: pre-wrap; word-break: break-word; line-height: 1.7; user-select: text; }
 
@@ -279,14 +279,14 @@ select option { background: var(--panel); }
 /* ═════ Toasts ═════ */
 #toasts { position: fixed; top: 22px; left: 50%; transform: translateX(-50%); z-index: 99; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .toast {
-    background: var(--card); border: 1px solid var(--border); border-right: 4px solid var(--gold);
+    background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--gold);
     padding: 10px 16px; border-radius: 10px; min-width: 260px; max-width: 520px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, .5); animation: pop .15s; font-weight: 500;
 }
-.toast.success { border-right-color: var(--green); }
-.toast.error { border-right-color: var(--red); }
+.toast.success { border-left-color: var(--green); }
+.toast.error { border-left-color: var(--red); }
 
-/* ═════ إضافات: تنبيهات، أدوار، رسوم بيانية ═════ */
+/* ═════ Extras: alerts, roles, charts ═════ */
 .alert.yellow { background: rgba(226, 184, 81, .12); color: var(--yellow); border: 1px solid rgba(226, 184, 81, .3); }
 .btn.yellow:hover { border-color: var(--yellow); color: var(--yellow); }
 .role-tag { color: var(--gold) !important; font-weight: 700; }
@@ -300,7 +300,7 @@ select option { background: var(--panel); }
     font-size: 12px; padding: 4px 9px; border-radius: 7px; white-space: nowrap;
 }
 
-/* أعمدة (القيمة فوق العمود، زوايا مدورة 4px عند الطرف وخط أساس مربع) */
+/* Columns (value above column, 4px rounded tip and square baseline) */
 .cols { display: flex; align-items: flex-end; gap: 10px; height: 190px; padding-top: 20px; border-bottom: 1px solid var(--border); }
 .col { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .col-hit { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; cursor: default; }
@@ -308,7 +308,7 @@ select option { background: var(--panel); }
 .col-value { font-size: 12px; color: var(--text); margin-bottom: 4px; font-weight: 700; }
 .col-label { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
-/* أشرطة أفقية (تبدأ من اليمين، القيمة عند طرف الشريط) */
+/* Horizontal bars (start from the left, value at bar end) */
 .hbars { display: flex; flex-direction: column; gap: 8px; }
 .hbar { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; }
 .hbar-label { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -317,5 +317,5 @@ select option { background: var(--panel); }
 .hbar-value { font-size: 12px; color: var(--muted); font-weight: 700; white-space: nowrap; }
 
 .chart-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.chart-table th, .chart-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.chart-table th, .chart-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .chart-table th { color: var(--muted); font-weight: 500; }

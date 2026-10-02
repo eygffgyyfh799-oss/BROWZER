@@ -143,7 +143,7 @@ return {
             --   'renewed'  = exports[Resource]:getAccountMoney / addAccountMoney / removeAccountMoney
             --   'internal' = خزينة داخلية في قاعدة البيانات (justice_sector_funds)
             Provider = 'auto',
-            Resource = 'qb-banking',
+            Resource = 'deep-Banking',
             Sectors = {
                 -- اسم الوظيفة = { الاسم، الرتب المسموح لها }
                 police = { label = 'وزارة الداخلية', managers = { 18, 19, 20 } },   -- نائب رئيس الشرطة، رئيس الشرطة، القائد الأعلى

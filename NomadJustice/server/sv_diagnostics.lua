@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- فحص جاهزية السكربت: يشتغل تلقائياً عند التشغيل، وبالأمر  justicecheck  من كونسول السيرفر
+-- Readiness check: runs automatically on start, and with the  justicecheck  command from the server console
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JS.Settings
@@ -13,66 +13,66 @@ local function RunDiagnostics()
         else bad = bad + 1 lines[#lines + 1] = '^1  ✖ ' .. text .. '^7' end
     end
 
-    -- السكربتات المطلوبة
+    -- Required resources
     for _, res in ipairs({ JCoreResource, 'ox_lib', Settings.TargetResource or 'deep-target', 'oxmysql' }) do
         local state = GetResourceState(res)
-        line(state == 'started' and 'ok' or 'bad', ('%s: %s'):format(res, state == 'started' and 'شغال' or ('غير شغال (' .. state .. ') - مطلوب')))
+        line(state == 'started' and 'ok' or 'bad', ('%s: %s'):format(res, state == 'started' and 'running' or ('not running (' .. state .. ') - required')))
     end
-    -- السكربتات الاختيارية
-    for res, feature in pairs({ ['lb-phone'] = 'شرط وجود جوال عند تقديم الدعوى' }) do
+    -- Optional resources
+    for res, feature in pairs({ ['lb-phone'] = 'phone requirement when filing a lawsuit' }) do
         if GetResourceState(res) ~= 'started' then
-            line('warn', ('%s غير شغال: %s ما يشتغل (باقي السكربت طبيعي)'):format(res, feature))
+            line('warn', ('%s is not running: %s is disabled (everything else works)'):format(res, feature))
         end
     end
 
-    line('ok', ('القسم المالي للقطاعات: %s'):format(JS.FinanceProvider == 'internal'
-        and 'خزينة داخلية (ما لقيت دوال حسابات القطاعات في ' .. tostring(Settings.Finance.Resource) .. ')' or ('مربوط مع ' .. JS.FinanceProvider)))
+    line('ok', ('Department finance: %s'):format(JS.FinanceProvider == 'internal'
+        and 'internal fund (no department account functions found in ' .. tostring(Settings.Finance.Resource) .. ')' or ('linked with ' .. JS.FinanceProvider)))
     local police = {}
     for _, name in ipairs(Settings.Police.Jobs or {}) do
         if not (QBCore.Shared.Jobs or {})[name] then police[#police + 1] = name end
     end
-    if #police > 0 then line('warn', ('وظائف الشرطة غير موجودة في الكور: %s - عدّل Settings.Police.Jobs'):format(table.concat(police, ', '))) end
+    if #police > 0 then line('warn', ('Police jobs missing from the core: %s - edit Settings.Police.Jobs'):format(table.concat(police, ', '))) end
 
-    -- الوظيفة والرتب
+    -- Job and grades
     local jobs = QBCore.Shared.Jobs or {}
     local job = jobs[Settings.Job]
     if not job then
-        line('bad', ("الوظيفة '%s' غير موجودة في وظائف الكور - عدّل Settings.Job"):format(Settings.Job))
+        line('bad', ("Job '%s' does not exist in the core jobs - edit Settings.Job"):format(Settings.Job))
     else
-        line('ok', ('وظيفة العدل: %s'):format(job.label or Settings.Job))
+        line('ok', ('Justice job: %s'):format(job.label or Settings.Job))
         local full = tonumber(Settings.Panel.FullAccessGrade)
         if full and job.grades and not (job.grades[tostring(full)] or job.grades[full]) then
-            line('warn', ('الرتبة %d (صلاحية كاملة) غير موجودة في وظيفة العدل - أي رتبة أعلى منها تاخذ الصلاحية، أو المدير فقط'):format(full))
+            line('warn', ('Grade %d (full access) does not exist in the justice job - any higher grade gets it, otherwise managers only'):format(full))
         end
     end
     if not jobs[Settings.Panel.UnemployedJob] then
-        line('warn', ("وظيفة العاطل '%s' غير موجودة - الفصل ما يشتغل، عدّل UnemployedJob"):format(tostring(Settings.Panel.UnemployedJob)))
+        line('warn', ("Unemployed job '%s' does not exist - terminating will not work, edit UnemployedJob"):format(tostring(Settings.Panel.UnemployedJob)))
     end
     if not QBCore.Shared.Gangs or not QBCore.Shared.Gangs[Settings.City.NoGang] then
-        line('warn', ("العصابة '%s' (بدون عصابة) غير موجودة - إزالة العصابة قد لا تعمل"):format(tostring(Settings.City.NoGang)))
+        line('warn', ("Gang '%s' (no gang) does not exist - removing gangs may not work"):format(tostring(Settings.City.NoGang)))
     end
 
-    -- قاعدة البيانات
+    -- Database
     local db = Settings.Database
-    line(JS.TableExists(db.Players) and 'ok' or 'bad', ('جدول اللاعبين `%s`'):format(db.Players))
+    line(JS.TableExists(db.Players) and 'ok' or 'bad', ('Players table `%s`'):format(db.Players))
     if not JS.TableExists(db.Vehicles) then
-        line('warn', ('جدول المركبات `%s` غير موجود - سجل المركبات مخفي'):format(tostring(db.Vehicles)))
+        line('warn', ('Vehicle table `%s` not found - vehicle registry hidden'):format(tostring(db.Vehicles)))
     end
     if not (db.Houses and JS.TableExists(db.Houses.table)) then
-        line('warn', ('جدول العقارات `%s` غير موجود - سجل العقارات مخفي'):format(tostring(db.Houses and db.Houses.table)))
+        line('warn', ('Property table `%s` not found - property registry hidden'):format(tostring(db.Houses and db.Houses.table)))
     elseif not JS.ColumnExists(db.Houses.table, db.Houses.owner) or not JS.ColumnExists(db.Houses.table, db.Houses.id) then
-        line('warn', 'أعمدة جدول العقارات (owner / id) غير صحيحة - راجع Settings.Database.Houses')
+        line('warn', 'Property table columns (owner / id) are wrong - check Settings.Database.Houses')
     end
     for _, t in ipairs({ 'justice_reports', 'justice_logs', 'justice_suspensions', 'justice_summons', 'justice_transactions' }) do
-        if not JS.TableExists(t) then line('bad', ('جدول `%s` غير موجود - شغّل NomadJustice.sql'):format(t)) end
+        if not JS.TableExists(t) then line('bad', ('Table `%s` not found - run NomadJustice.sql'):format(t)) end
     end
 
-    line('ok', GetConvar('justice_webhook', '') ~= '' and 'Discord: مفعّل' or 'Discord: غير مفعّل (اختياري)')
+    line('ok', GetConvar('justice_webhook', '') ~= '' and 'Discord: enabled' or 'Discord: disabled (optional)')
 
-    print('^5════════ NomadJustice - فحص الجاهزية ════════^7')
+    print('^5════════ NomadJustice - readiness check ════════^7')
     for _, text in ipairs(lines) do print(text) end
-    print(('^5════════ %s | سليم: %d | تنبيه: %d | مشكلة: %d ════════^7'):format(
-        bad == 0 and '^2جاهز للعمل^5' or '^1يحتاج إصلاح^5', ok, warn, bad))
+    print(('^5════════ %s | ok: %d | warnings: %d | problems: %d ════════^7'):format(
+        bad == 0 and '^2ready^5' or '^1needs fixing^5', ok, warn, bad))
     return bad, warn
 end
 
@@ -84,6 +84,6 @@ CreateThread(function()
 end)
 
 RegisterCommand('justicecheck', function(source)
-    if source ~= 0 then return end -- من كونسول السيرفر فقط
+    if source ~= 0 then return end -- server console only
     RunDiagnostics()
 end, true)

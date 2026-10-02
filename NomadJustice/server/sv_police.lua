@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- قسم الشرطة في نظام الدولة
--- الشرطة: صلاحيات محدودة (بحث، معلومات أساسية، سجل القضايا والأحكام، الأوامر، المشبوهين)
--- أي شي حساس (تحديد موقع، كشف حساب، أمر قبض/تفتيش) = طلب يوصل لوزارة العدل وتوافق أو ترفض
+-- Police section of the state system
+-- Police: limited access (search, basic identity, case and verdict history, warrants, persons of interest)
+-- Anything sensitive (locate, bank statement, arrest/search warrant) = a request the DOJ approves or denies
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JS.Settings
@@ -11,15 +11,15 @@ local Notify = JS.Notify
 local function H(name) return JS.Handlers['NomadJustice:server:' .. name] end
 
 JS.RequestTypes = {
-    locate = 'تحديد موقع',
-    bank = 'كشف حساب بنكي',
-    arrest_warrant = 'طلب أمر قبض',
-    search_warrant = 'طلب أمر تفتيش',
-    other = 'طلب آخر',
+    locate = 'Locate citizen',
+    bank = 'Bank statement',
+    arrest_warrant = 'Arrest warrant request',
+    search_warrant = 'Search warrant request',
+    other = 'Other request',
 }
-JS.RequestStatus = { pending = 'بانتظار الرد', approved = 'تمت الموافقة', rejected = 'مرفوض' }
+JS.RequestStatus = { pending = 'Pending', approved = 'Approved', rejected = 'Denied' }
 
--- التصاريح المؤقتة بعد الموافقة: grants[officerCid][citizenid .. ':' .. type] = وقت الانتهاء
+-- Temporary clearances after approval: grants[officerCid][citizenid .. ':' .. type] = expiry time
 local grants = {}
 
 local function HasGrant(officerCid, citizenid, gType)
@@ -35,7 +35,7 @@ local function Grant(officerCid, citizenid, gType, minutes)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- معلومات التابلت حسب الدور (عدل / شرطة / محامي)
+-- Tablet info by role (justice / police / attorney)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:tabletInfo', nil, function(src, Player)
@@ -51,7 +51,7 @@ JS.RegisterCallback('NomadJustice:server:tabletInfo', nil, function(src, Player)
 
     if role == 'police' then
         if Police.RequireDuty and not Player.PlayerData.job.onduty then
-            return { ok = false, err = 'يجب أن تكون في الدوام' }
+            return { ok = false, err = 'You must be on duty' }
         end
         return {
             ok = true,
@@ -66,7 +66,7 @@ JS.RegisterCallback('NomadJustice:server:tabletInfo', nil, function(src, Player)
 
     if role == 'sector' then
         local sector, err = JS.GetFinanceSector(Player)
-        if not sector then return { ok = false, err = err or 'القسم المالي لمسؤولي القطاع فقط' } end
+        if not sector then return { ok = false, err = err or 'The finance office is for department managers only' } end
         return { ok = true, role = 'sector', perms = {}, finance = sector }
     end
 
@@ -78,11 +78,11 @@ JS.RegisterCallback('NomadJustice:server:tabletInfo', nil, function(src, Player)
         }
     end
 
-    return { ok = false, err = 'نظام الدولة لموظفي العدل والشرطة والمحامين ومسؤولي القطاعات فقط' }
+    return { ok = false, err = 'State Records is for DOJ staff, police, attorneys and department managers only' }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- البحث والملف (للشرطة)
+-- Search and record (police)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:policeSearch', JS.PoliceOnly('search'), function(src, Player, query)
@@ -107,7 +107,7 @@ local function PoliceVehicles(citizenid)
         list[i] = {
             plate = row.plate,
             label = JS.Safe(shared and (('%s %s'):format(shared.brand or '', shared.name or row.vehicle)) or row.vehicle),
-            state = ({ [0] = 'خارج الكراج', [1] = 'في الكراج', [2] = 'محجوزة' })[tonumber(row.state)] or '-',
+            state = ({ [0] = 'Out of garage', [1] = 'In garage', [2] = 'Impounded' })[tonumber(row.state)] or '-',
         }
     end
     return list
@@ -115,9 +115,9 @@ end
 
 JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'), function(src, Player, citizenid)
     citizenid = JS.ValidCitizenId(citizenid)
-    if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
+    if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local perms = JS.GetPolicePermissions(Player)
     local ci, job = citizen.charinfo, citizen.job or {}
@@ -128,9 +128,9 @@ JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'
         'SELECT id, title, case_type, status, date, citizenid FROM justice_reports WHERE job = ? AND (citizenid = ? OR defendant_citizenid = ?) ORDER BY id DESC LIMIT 30',
         { JS.Job, citizenid, citizenid }) or {}) do
         cases[i] = {
-            id = row.id, title = JS.Safe(row.title ~= '' and row.title or ('قضية #' .. row.id)), caseType = row.case_type,
+            id = row.id, title = JS.Safe(row.title ~= '' and row.title or ('Case #' .. row.id)), caseType = row.case_type,
             status = JS.StatusLabels[row.status] or row.status, date = row.date,
-            role = row.citizenid == citizenid and 'مدعي' or 'مدعى عليه',
+            role = row.citizenid == citizenid and 'Plaintiff' or 'Defendant',
         }
     end
 
@@ -139,7 +139,7 @@ JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'
         name = JS.FullName(ci),
         status = JS.GetStatus(citizenid, citizen.lastUpdatedRaw),
         birthdate = ci.birthdate, gender = tonumber(ci.gender), nationality = ci.nationality, phone = ci.phone,
-        job = { label = JS.Safe(job.label or job.name or 'عاطل'), grade = JS.Safe(type(job.grade) == 'table' and job.grade.name or tostring(job.grade or '-')) },
+        job = { label = JS.Safe(job.label or job.name or 'Unemployed'), grade = JS.Safe(type(job.grade) == 'table' and job.grade.name or tostring(job.grade or '-')) },
         licenses = PoliceLicenses(citizen.metadata or {}),
         suspended = JS.Suspended[citizenid] ~= nil,
         suspect = JS.GetSuspect(citizenid),
@@ -149,7 +149,7 @@ JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'
         vehicles = perms.vehicles and PoliceVehicles(citizenid) or nil,
     }
 
-    -- كشف الحساب فقط إذا فيه تصريح ساري من وزارة العدل
+    -- Bank statement only with an active DOJ clearance
     local bankGrant, remaining = HasGrant(officerCid, citizenid, 'bank')
     if bankGrant then
         profile.bank = {
@@ -166,7 +166,7 @@ JS.RegisterCallback('NomadJustice:server:policeProfile', JS.PoliceOnly('profile'
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الأوامر والمشبوهين (للشرطة)
+-- Warrants and persons of interest (police)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:policeWarrants', JS.PoliceOnly('warrants'), function(src, Player)
@@ -176,15 +176,15 @@ end)
 JS.RegisterCallback('NomadJustice:server:executeWarrant', JS.PoliceOnly('executeWarrant'), function(src, Player, warrantId)
     warrantId = tonumber(warrantId)
     local row = warrantId and MySQL.single.await("SELECT * FROM justice_warrants WHERE id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW())", { warrantId })
-    if not row then return { ok = false, err = 'الأمر غير ساري' } end
+    if not row then return { ok = false, err = 'Warrant is not active' } end
 
     local info = JS.PoliceInfo(Player)
     local by = ('%s - %s%s'):format(info.name, info.grade, info.callsign and (' [' .. info.callsign .. ']') or '')
     local affected = MySQL.update.await("UPDATE justice_warrants SET status = 'executed', executed_by = ? WHERE id = ? AND status = 'active'", { by, warrantId })
-    if not affected or affected == 0 then return { ok = false, err = 'تم تنفيذه مسبقاً' } end
+    if not affected or affected == 0 then return { ok = false, err = 'Already executed' } end
 
-    JS.BroadcastTablet(JS.JusticeOnDuty, { type = 'warrant', title = ('✅ تنفيذ %s #%d'):format(JS.WarrantTypes[row.type] or '', warrantId), text = ('%s (%s) بواسطة %s'):format(row.name, row.citizenid, by) })
-    JS.Log(Player, 'warrant_execute', row.citizenid, row.name, { ['الأمر'] = warrantId, ['النوع'] = JS.WarrantTypes[row.type] })
+    JS.BroadcastTablet(JS.JusticeOnDuty, { type = 'warrant', title = ('✅ %s #%d executed'):format(JS.WarrantTypes[row.type] or '', warrantId), text = ('%s (%s) by %s'):format(row.name, row.citizenid, by) })
+    JS.Log(Player, 'warrant_execute', row.citizenid, row.name, { ['Warrant'] = warrantId, ['Type'] = JS.WarrantTypes[row.type] })
     return { ok = true }
 end)
 
@@ -193,7 +193,7 @@ JS.RegisterCallback('NomadJustice:server:policeSuspects', JS.PoliceOnly('suspect
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- طلبات التصريح (الشرطة ← العدل)
+-- Clearance requests (police → justice)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function MapRequest(row)
@@ -223,15 +223,15 @@ JS.RegisterCallback('NomadJustice:server:policeRequest', JS.PoliceOnly('requests
     citizenid = JS.ValidCitizenId(citizenid)
     reason = JS.CleanText(reason, 200, true)
     details = JS.CleanText(details, 200, false)
-    if not citizenid or not JS.RequestTypes[rType] then return { ok = false, err = 'بيانات غير صحيحة' } end
-    if not reason or JS.Len(reason) < 5 then return { ok = false, err = 'اكتب سبب واضح للطلب (5 أحرف على الأقل)' } end
-    if not details then return { ok = false, err = 'التفاصيل 200 حرف كحد أقصى' } end
+    if not citizenid or not JS.RequestTypes[rType] then return { ok = false, err = 'Invalid data' } end
+    if not reason or JS.Len(reason) < 5 then return { ok = false, err = 'Write a clear reason (at least 5 characters)' } end
+    if not details then return { ok = false, err = 'Details are 200 characters max' } end
 
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local blocked, remaining = JS.OnCooldown('policerequest', Player.PlayerData.citizenid, Police.RequestCooldown)
-    if blocked then return { ok = false, err = ('يمكنك إرسال طلب جديد بعد %d ثانية'):format(remaining) } end
+    if blocked then return { ok = false, err = ('You can send a new request in %d seconds'):format(remaining) } end
 
     local info = JS.PoliceInfo(Player)
     local name = JS.FullName(citizen.charinfo)
@@ -241,15 +241,15 @@ JS.RegisterCallback('NomadJustice:server:policeRequest', JS.PoliceOnly('requests
     ]], { rType, citizenid, name, reason, details, info.citizenid, info.name, info.job, info.grade, info.callsign or '' })
     if not id then
         JS.ClearCooldown('policerequest', Player.PlayerData.citizenid)
-        return { ok = false, err = 'تعذر إرسال الطلب' }
+        return { ok = false, err = 'Could not send the request' }
     end
 
     JS.BroadcastTablet(function(t) return JS.Can(t, 'policeRequests') == true end, {
         type = 'police_request',
-        title = ('🚓 طلب شرطة #%d: %s'):format(id, JS.RequestTypes[rType]),
-        text = ('من %s (%s%s) على %s: %s'):format(info.name, info.grade, info.callsign and (' - ' .. info.callsign) or '', name, reason),
+        title = ('🚓 Police request #%d: %s'):format(id, JS.RequestTypes[rType]),
+        text = ('From %s (%s%s) regarding %s: %s'):format(info.name, info.grade, info.callsign and (' - ' .. info.callsign) or '', name, reason),
     })
-    JS.Log(Player, 'police_request', citizenid, name, { ['النوع'] = JS.RequestTypes[rType], ['السبب'] = reason })
+    JS.Log(Player, 'police_request', citizenid, name, { ['Type'] = JS.RequestTypes[rType], ['Reason'] = reason })
     return { ok = true, id = id }
 end)
 
@@ -261,7 +261,7 @@ JS.RegisterCallback('NomadJustice:server:policeMyRequests', JS.PoliceOnly('reque
     return { ok = true, requests = list }
 end)
 
--- ═════ جهة العدل ═════
+-- ═════ Justice side ═════
 JS.RegisterCallback('NomadJustice:server:getPoliceRequests', 'policeRequests', function(src, Player, status)
     local rows
     if JS.RequestStatus[status] then
@@ -280,16 +280,16 @@ JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests',
     approve = approve == true
     note = JS.CleanText(note, 200, false) or ''
     local row = requestId and MySQL.single.await("SELECT * FROM justice_police_requests WHERE id = ? AND status = 'pending'", { requestId })
-    if not row then return { ok = false, err = 'الطلب غير موجود أو تم الرد عليه' } end
+    if not row then return { ok = false, err = 'Request not found or already answered' } end
 
-    -- حجز الطلب (يمنع موظفين يردون على نفس الطلب بنفس اللحظة)
+    -- Claim the request (stops two employees answering at the same time)
     local claimed = MySQL.update.await("UPDATE justice_police_requests SET status = ?, answered_by = ?, answer_note = ?, answered_at = NOW() WHERE id = ? AND status = 'pending'", {
         approve and 'approved' or 'rejected', JS.PlayerName(Player), note, requestId
     })
-    if not claimed or claimed == 0 then return { ok = false, err = 'تم الرد على الطلب مسبقاً' } end
+    if not claimed or claimed == 0 then return { ok = false, err = 'This request was already answered' } end
 
     local officer = QBCore.Functions.GetPlayerByCitizenId(row.officer_cid)
-    local resultText = approve and 'تمت الموافقة' or 'تم الرفض'
+    local resultText = approve and 'Approved' or 'Denied'
 
     if approve then
         if row.type == 'locate' then
@@ -298,17 +298,17 @@ JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests',
             if ped ~= 0 and officer then
                 local c = GetEntityCoords(ped)
                 JS.TabletEvent(officer.PlayerData.source, {
-                    type = 'locate', title = ('📍 موقع %s'):format(row.name),
-                    text = 'تمت الموافقة على طلب تحديد الموقع - تم وضع علامة على الخريطة',
-                    coords = { x = c.x, y = c.y, z = c.z }, label = 'موقع ' .. row.name,
+                    type = 'locate', title = ('📍 Location of %s'):format(row.name),
+                    text = 'Locate request approved - marked on the map',
+                    coords = { x = c.x, y = c.y, z = c.z }, label = 'Location: ' .. row.name,
                 })
-                resultText = 'تم إرسال الموقع للشرطي'
+                resultText = 'Location sent to the officer'
             else
-                resultText = target and 'الشرطي غير متصل' or 'المواطن غير متصل وقت الموافقة'
+                resultText = target and 'The officer is offline' or 'The citizen was offline at approval time'
             end
         elseif row.type == 'bank' then
             Grant(row.officer_cid, row.citizenid, 'bank', Police.GrantMinutes)
-            resultText = ('تم منح تصريح كشف الحساب لمدة %d دقيقة'):format(Police.GrantMinutes)
+            resultText = ('Bank statement clearance granted for %d minutes'):format(Police.GrantMinutes)
         elseif row.type == 'arrest_warrant' or row.type == 'search_warrant' then
             local requestedBy = ('%s - %s%s'):format(row.officer_name, row.officer_grade, row.officer_callsign ~= '' and (' [' .. row.officer_callsign .. ']') or '')
             local r = JS.IssueWarrant(Player, row.citizenid, row.type == 'arrest_warrant' and 'arrest' or 'search', row.reason, row.details, requestedBy)
@@ -316,26 +316,26 @@ JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests',
                 MySQL.update.await("UPDATE justice_police_requests SET status = 'pending', answered_by = NULL, answer_note = '', answered_at = NULL WHERE id = ?", { requestId })
                 return r
             end
-            resultText = ('تم إصدار الأمر #%d'):format(r.id)
+            resultText = ('Warrant #%d issued'):format(r.id)
         end
     end
 
     if officer then
         JS.TabletEvent(officer.PlayerData.source, {
             type = 'request_answered',
-            title = ('%s طلبك #%d (%s)'):format(approve and '✅ قُبل' or '❌ رُفض', requestId, JS.RequestTypes[row.type] or ''),
-            text = (note ~= '' and ('الرد: ' .. note .. ' | ') or '') .. resultText,
+            title = ('%s your request #%d (%s)'):format(approve and '✅ Approved:' or '❌ Denied:', requestId, JS.RequestTypes[row.type] or ''),
+            text = (note ~= '' and ('Response: ' .. note .. ' | ') or '') .. resultText,
         })
     end
 
     JS.Log(Player, 'police_answer', row.citizenid, row.name, {
-        ['الطلب'] = requestId, ['النوع'] = JS.RequestTypes[row.type], ['الشرطي'] = row.officer_name,
-        ['القرار'] = approve and 'موافقة' or 'رفض', ['الملاحظة'] = note ~= '' and note or nil,
+        ['Request'] = requestId, ['Type'] = JS.RequestTypes[row.type], ['Officer'] = row.officer_name,
+        ['Decision'] = approve and 'Approved' or 'Denied', ['Note'] = note ~= '' and note or nil,
     })
     return { ok = true, message = resultText }
 end)
 
--- تنظيف التصاريح المنتهية
+-- Clean up expired clearances
 CreateThread(function()
     while true do
         Wait(300000)

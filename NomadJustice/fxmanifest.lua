@@ -52,6 +52,7 @@ dependencies {
     'qb-core',
     'ox_lib',
     'deep-target',
+    'deep-Banking',
     'oxmysql',
 }
 

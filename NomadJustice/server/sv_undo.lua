@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التراجع عن الإجراءات وحذفها
--- التراجع يستخدم نفس دوال الإجراءات الأصلية (نفس التحققات والصلاحيات)
+-- Undoing and deleting actions
+-- Undo reuses the original action functions (same checks and permissions)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Notify = JS.Notify
@@ -9,66 +9,66 @@ local function H(name)
     return JS.Handlers['NomadJustice:server:' .. name]
 end
 
--- إرجاع مبلغ لبنك المواطن (للتراجع عن السحب)
+-- Return money to the citizen's bank (to undo a seizure)
 local function Refund(citizenid, amount)
     amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return { ok = false, err = 'مبلغ غير صحيح' } end
+    if amount <= 0 then return { ok = false, err = 'Invalid amount' } end
 
     local target = QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if target then
         if not target.Functions.AddMoney('bank', amount, 'justice-withdraw-refund') then
-            return { ok = false, err = 'تعذر إرجاع المبلغ' }
+            return { ok = false, err = 'Could not return the amount' }
         end
-        Notify(target.PlayerData.source, ('تم إرجاع $%d إلى حسابك البنكي من وزارة العدل'):format(amount), 'success', 8000)
+        Notify(target.PlayerData.source, ('$%d was returned to your bank account by the Department of Justice'):format(amount), 'success', 8000)
         return { ok = true }
     end
 
     local row = JS.GetPlayerRow(citizenid)
-    if not row then return { ok = false, err = 'المواطن غير موجود' } end
+    if not row then return { ok = false, err = 'Citizen not found' } end
     local money = JS.OfflineMoney(row)
     money.bank = (tonumber(money.bank) or 0) + amount
     if not JS.UpdatePlayerJson(citizenid, 'money', money, row.money) then
-        return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' }
+        return { ok = false, err = 'Citizen data changed, try again' }
     end
     return { ok = true }
 end
 
--- إرجاع البيانات الشخصية كما كانت بالضبط (حتى لو كانت ناقصة أو ما تطابق شروط التعديل الحالية)
+-- Restore personal data exactly as it was (even if incomplete or not matching the current edit rules)
 local EditKeys = { firstname = true, lastname = true, birthdate = true, gender = true, nationality = true }
 
 local function RestoreCharinfo(citizenid, old)
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'المواطن غير موجود' } end
+    if not citizen then return { ok = false, err = 'Citizen not found' } end
 
     local charinfo = citizen.charinfo
     for key in pairs(EditKeys) do
-        charinfo[key] = old[key] -- nil = كان فاضي أصلاً
+        charinfo[key] = old[key] -- nil = it was empty to begin with
     end
 
     if citizen.online then
         citizen.online.Functions.SetPlayerData('charinfo', charinfo)
         if citizen.online.Functions.Save then pcall(citizen.online.Functions.Save) end
-        Notify(citizen.online.PlayerData.source, 'تم إرجاع بياناتك الشخصية من وزارة العدل', 'primary', 8000)
+        Notify(citizen.online.PlayerData.source, 'Your personal details were restored by the Department of Justice', 'primary', 8000)
     elseif not JS.UpdatePlayerJson(citizenid, 'charinfo', charinfo, citizen.raw.charinfo) then
-        return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' }
+        return { ok = false, err = 'Citizen data changed, try again' }
     end
     return { ok = true }
 end
 
--- لكل إجراء: الصلاحية المطلوبة + طريقة التراجع
+-- For each action: the required permission + how to undo it
 local UndoActions = {
     withdraw = { perm = 'withdraw', run = function(src, P, log, u)
-        -- يرجع المبلغ من المكان اللي راح له (حساب الموظف) أولاً
+        -- Takes the money back from where it went (the officer's account) first
         local ok, err = JS.ReverseDeposit(u.dest, u.amount)
         if not ok then return { ok = false, err = err } end
         return Refund(log.target_citizenid, u.amount)
     end },
     compensation = { perm = 'withdraw', run = function(src, P, log, u)
         JS.ClearCooldown('withdraw', P.PlayerData.citizenid)
-        return H('withdrawBank')(src, P, log.target_citizenid, u.amount, ('تراجع عن تعويض #%d'):format(log.id))
+        return H('withdrawBank')(src, P, log.target_citizenid, u.amount, ('Undo of compensation #%d'):format(log.id))
     end },
     suspend = { perm = 'suspend', run = function(src, P, log) return H('unsuspendCitizen')(src, P, log.target_citizenid) end },
-    unsuspend = { perm = 'suspend', run = function(src, P, log, u) return H('suspendCitizen')(src, P, log.target_citizenid, u.reason or 'إعادة إيقاف') end },
+    unsuspend = { perm = 'suspend', run = function(src, P, log, u) return H('suspendCitizen')(src, P, log.target_citizenid, u.reason or 'Re-suspension') end },
     edit = { perm = 'edit', run = function(src, P, log, u) return RestoreCharinfo(log.target_citizenid, u.old or {}) end },
     job = { perm = 'jobs', run = function(src, P, log, u)
         JS.ClearCooldown('jobs', P.PlayerData.citizenid .. ':' .. log.target_citizenid)
@@ -87,14 +87,14 @@ local UndoActions = {
     verdict = { perm = 'verdicts', run = function(src, P, log, u) return JS.ReverseVerdict(src, P, u.id) end },
     suspect_add = { perm = 'suspects', run = function(src, P, log, u) return H('removeSuspect')(src, P, u.id) end },
     suspect_remove = { perm = 'suspects', run = function(src, P, log, u)
-        if JS.GetSuspect(log.target_citizenid) then return { ok = false, err = 'المواطن موجود في القائمة حالياً' } end
+        if JS.GetSuspect(log.target_citizenid) then return { ok = false, err = 'The citizen is currently on the list' } end
         MySQL.update.await('UPDATE justice_suspects SET active = 1, removed_by = NULL WHERE id = ?', { u.id })
         return { ok = true }
     end },
     warrant_issue = { perm = 'warrants', run = function(src, P, log, u) return H('cancelWarrant')(src, P, u.id) end },
     warrant_cancel = { perm = 'warrants', run = function(src, P, log, u)
         local affected = MySQL.update.await("UPDATE justice_warrants SET status = 'active' WHERE id = ? AND status = 'cancelled' AND (expires_at IS NULL OR expires_at > NOW())", { u.id })
-        if not affected or affected == 0 then return { ok = false, err = 'الأمر منتهي الصلاحية، أصدر أمر جديد' } end
+        if not affected or affected == 0 then return { ok = false, err = 'The warrant has expired, issue a new one' } end
         return { ok = true }
     end },
 }
@@ -102,60 +102,60 @@ local UndoActions = {
 JS.UndoActions = UndoActions
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التراجع
+-- Undo
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:undoLog', 'undo', function(src, Player, logId)
     logId = tonumber(logId)
-    if not logId then return { ok = false, err = 'رقم السجل غير صحيح' } end
+    if not logId then return { ok = false, err = 'Invalid log entry' } end
 
     local log = MySQL.single.await('SELECT * FROM justice_logs WHERE id = ?', { logId })
-    if not log then return { ok = false, err = 'السجل غير موجود' } end
-    if log.undone_by then return { ok = false, err = ('تم التراجع عنه مسبقاً بواسطة %s'):format(log.undone_by) } end
+    if not log then return { ok = false, err = 'Log entry not found' } end
+    if log.undone_by then return { ok = false, err = ('Already undone by %s'):format(log.undone_by) } end
 
     local handler = UndoActions[log.action]
-    if not handler or not log.undo_data then return { ok = false, err = 'هذا الإجراء لا يمكن التراجع عنه' } end
+    if not handler or not log.undo_data then return { ok = false, err = 'This action cannot be undone' } end
 
     local allowed, err = JS.Can(Player, handler.perm)
     if not allowed then return { ok = false, err = err } end
 
-    -- حجز السجل أولاً (يمنع موظفين يتراجعون عن نفس الإجراء بنفس اللحظة)
+    -- Claim the entry first (stops two employees undoing the same action at the same time)
     local officerName = JS.PlayerName(Player)
     local claimed = MySQL.update.await('UPDATE justice_logs SET undone_by = ?, undone_at = NOW() WHERE id = ? AND undone_by IS NULL', { officerName, logId })
-    if not claimed or claimed == 0 then return { ok = false, err = 'تم التراجع عنه مسبقاً' } end
+    if not claimed or claimed == 0 then return { ok = false, err = 'Already undone' } end
 
     local ok, result = pcall(handler.run, src, Player, log, JS.Decode(log.undo_data))
     if not ok or type(result) ~= 'table' or not result.ok then
         MySQL.update.await('UPDATE justice_logs SET undone_by = NULL, undone_at = NULL WHERE id = ?', { logId })
         if not ok then print(('^1[NomadJustice] undo #%d error: %s^7'):format(logId, tostring(result))) end
-        return { ok = false, err = (ok and type(result) == 'table' and result.err) or 'تعذر التراجع عن الإجراء' }
+        return { ok = false, err = (ok and type(result) == 'table' and result.err) or 'Could not undo the action' }
     end
 
     JS.Log(Player, 'undo', log.target_citizenid, log.target_name, {
-        ['السجل'] = logId,
-        ['الإجراء'] = JS.ActionLabels[log.action] or log.action,
-        ['الموظف الأصلي'] = log.officer_name,
+        ['Entry'] = logId,
+        ['Action'] = JS.ActionLabels[log.action] or log.action,
+        ['Original officer'] = log.officer_name,
     })
-    return { ok = true, message = ('تم التراجع عن: %s'):format(JS.ActionLabels[log.action] or log.action) }
+    return { ok = true, message = ('Undone: %s'):format(JS.ActionLabels[log.action] or log.action) }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- الحذف (يبقى أثر في السجل: من حذف وإيش حذف)
+-- Delete (a trace stays in the log: who deleted what)
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:deleteLog', 'delete', function(src, Player, logId)
     logId = tonumber(logId)
     local log = logId and MySQL.single.await('SELECT * FROM justice_logs WHERE id = ?', { logId })
-    if not log then return { ok = false, err = 'السجل غير موجود' } end
+    if not log then return { ok = false, err = 'Log entry not found' } end
 
     local affected = MySQL.update.await('DELETE FROM justice_logs WHERE id = ?', { logId })
-    if not affected or affected == 0 then return { ok = false, err = 'السجل غير موجود' } end
+    if not affected or affected == 0 then return { ok = false, err = 'Log entry not found' } end
 
     JS.Log(Player, 'log_delete', log.target_citizenid, log.target_name, {
-        ['السجل'] = logId,
-        ['الإجراء'] = JS.ActionLabels[log.action] or log.action,
-        ['الموظف الأصلي'] = log.officer_name,
-        ['تاريخه'] = JS.FormatDbDate(log.created_at),
+        ['Entry'] = logId,
+        ['Action'] = JS.ActionLabels[log.action] or log.action,
+        ['Original officer'] = log.officer_name,
+        ['Original date'] = JS.FormatDbDate(log.created_at),
     })
     return { ok = true }
 end)
@@ -163,14 +163,14 @@ end)
 JS.RegisterCallback('NomadJustice:server:deleteSummon', 'delete', function(src, Player, summonId)
     summonId = tonumber(summonId)
     local row = summonId and MySQL.single.await('SELECT * FROM justice_summons WHERE id = ?', { summonId })
-    if not row then return { ok = false, err = 'الاستدعاء غير موجود' } end
+    if not row then return { ok = false, err = 'Summons not found' } end
 
-    -- إلغاء أولاً عشان ينشال من قائمة الانتظار في الذاكرة
+    -- Cancel first so it is removed from the in-memory queue
     if row.status == 'pending' or row.status == 'delivered' then
         H('setSummonStatus')(src, Player, summonId, 'cancelled')
     end
     MySQL.update.await('DELETE FROM justice_summons WHERE id = ?', { summonId })
 
-    JS.Log(Player, 'summon_delete', row.citizenid, row.name, { ['الاستدعاء'] = summonId, ['السبب'] = row.reason })
+    JS.Log(Player, 'summon_delete', row.citizenid, row.name, { ['Summons'] = summonId, ['Reason'] = row.reason })
     return { ok = true }
 end)

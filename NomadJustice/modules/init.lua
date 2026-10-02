@@ -82,7 +82,7 @@ local Defaults = {
 			Permissions = { search = 0, profile = 0, vehicles = 1, warrants = 0, executeWarrant = 2, suspects = 0, requests = 5 },
 		},
 		Lawyers = { License = 'lawyer', Jobs = {}, DocumentMax = 2000 },
-		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'qb-banking', Sectors = {} },
+		Finance = { RequireDuty = true, MaxPerTransaction = 1000000, Provider = 'auto', Resource = 'deep-Banking', Sectors = {} },
 		Verdicts = { MaxFine = 10000000, MaxJail = 120, JailEvent = '', WarrantHours = 72 },
 		City = {
 			ImpoundFee = 500, ImpoundGarage = 'impoundlot', AnnounceCooldown = 60,

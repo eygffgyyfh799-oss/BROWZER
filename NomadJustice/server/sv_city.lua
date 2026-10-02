@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- نظام المدينة: نظرة عامة، الاقتصاد، سجل المركبات، سجل العقارات، التراخيص، العصابات،
--- استدعاءات المحكمة، الإعلانات
+-- City affairs: overview, economy, vehicle registry, property registry, licenses, gangs,
+-- court summonses, announcements
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local Settings = JS.Settings
@@ -8,11 +8,11 @@ local City = Settings.City
 local DB = Settings.Database
 local Notify = JS.Notify
 
-local VehicleStates = { [0] = 'خارج الكراج', [1] = 'في الكراج', [2] = 'محجوزة' }
-local SummonStatus = { pending = 'لم يستلم بعد', delivered = 'تم التبليغ', attended = 'حضر', absent = 'لم يحضر', cancelled = 'ملغي' }
+local VehicleStates = { [0] = 'Out of garage', [1] = 'In garage', [2] = 'Impounded' }
+local SummonStatus = { pending = 'Not delivered yet', delivered = 'Served', attended = 'Appeared', absent = 'Failed to appear', cancelled = 'Cancelled' }
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- أدوات
+-- Helpers
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function Placeholders(count)
@@ -23,7 +23,7 @@ local function Money(value)
     return math.floor(tonumber(value) or 0)
 end
 
--- أسماء مجموعة مواطنين دفعة وحدة { [citizenid] = name }
+-- Names of a batch of citizens at once { [citizenid] = name }
 local function GetNames(citizenids)
     local names, missing = {}, {}
     for _, cid in ipairs(citizenids) do
@@ -54,7 +54,7 @@ local function CleanPlate(text)
     return ((text or ''):upper():gsub('^%s+', ''):gsub('%s+$', ''))
 end
 
--- كل اللوحات الموجودة في الشارع الآن دفعة وحدة { [plate] = entity } (أسرع من البحث لكل مركبة)
+-- Every plate on the street right now in one pass { [plate] = entity } (faster than searching per vehicle)
 local function WorldPlates()
     local plates = {}
     for _, vehicle in ipairs(GetAllVehicles()) do
@@ -65,7 +65,7 @@ local function WorldPlates()
     return plates
 end
 
--- المركبة موجودة الآن في العالم؟
+-- Is the vehicle in the world right now?
 local function FindWorldVehicle(plate)
     for _, vehicle in ipairs(GetAllVehicles()) do
         if DoesEntityExist(vehicle) then
@@ -90,7 +90,7 @@ local function MapVehicle(row, names, worldPlates)
     local plate = (row.plate or ''):upper():gsub('^%s+', ''):gsub('%s+$', '')
     return {
         plate = plate,
-        label = JS.Safe(label or 'غير معروف'),
+        label = JS.Safe(label or 'Unknown'),
         model = row.vehicle,
         owner = row.citizenid,
         ownerName = names and names[row.citizenid] or nil,
@@ -104,7 +104,7 @@ local function MapVehicle(row, names, worldPlates)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- نظرة عامة على المدينة + الاقتصاد
+-- City overview + economy
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function GetEconomy()
@@ -121,7 +121,7 @@ local function GetEconomy()
         candidates[row.citizenid] = { citizenid = row.citizenid, name = JS.FullName(JS.Decode(row.charinfo)), bank = Money(row.bank), cash = Money(row.cash) }
     end
 
-    -- القيم الحية للمتصلين (قاعدة البيانات تتحدث كل عدة دقائق فقط)
+    -- Live values for online players (the database only updates every few minutes)
     local online = {}
     for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
         local Player = QBCore.Functions.GetPlayer(playerId)
@@ -175,7 +175,7 @@ JS.RegisterCallback('NomadJustice:server:getCityOverview', 'city', function(src,
         overview.houses = tonumber(MySQL.scalar.await(('SELECT COUNT(*) FROM `%s`'):format(DB.Houses.table))) or 0
     end
 
-    -- القطاعات في الدوام
+    -- Departments on duty
     local duty = {}
     for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
         local target = QBCore.Functions.GetPlayer(playerId)
@@ -203,14 +203,14 @@ JS.RegisterCallback('NomadJustice:server:getCityOverview', 'city', function(src,
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- سجل المركبات
+-- Vehicle registry
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:searchVehicles', 'city', function(src, Player, query)
-    if not VehiclesReady() then return { ok = false, err = 'جدول المركبات غير موجود، راجع Settings.Database' } end
+    if not VehiclesReady() then return { ok = false, err = 'Vehicle table not found, check Settings.Database' } end
 
     query = JS.CleanText(query, 20, true)
-    if not query or JS.Len(query) < 2 then return { ok = false, err = 'اكتب حرفين على الأقل من اللوحة أو الرقم الوطني' } end
+    if not query or JS.Len(query) < 2 then return { ok = false, err = 'Type at least 2 characters of the plate or citizen ID' } end
 
     local like = '%' .. query:upper():gsub('[%%_\\]', '\\%0') .. '%'
     local rows = MySQL.query.await(('SELECT * FROM `%s` WHERE UPPER(plate) LIKE ? OR citizenid = ? LIMIT 30'):format(DB.Vehicles), { like, query }) or {}
@@ -226,21 +226,21 @@ end)
 
 JS.RegisterCallback('NomadJustice:server:getVehicle', 'city', function(src, Player, plate, locate)
     plate = NormalizePlate(plate)
-    if not plate or not VehiclesReady() then return { ok = false, err = 'اللوحة غير صحيحة' } end
+    if not plate or not VehiclesReady() then return { ok = false, err = 'Invalid plate' } end
 
     local row = MySQL.single.await(('SELECT * FROM `%s` WHERE UPPER(plate) = ? LIMIT 1'):format(DB.Vehicles), { plate })
-    if not row then return { ok = false, err = 'لا توجد مركبة مسجلة بهذه اللوحة' } end
+    if not row then return { ok = false, err = 'No vehicle registered with this plate' } end
 
     local perms = JS.GetPermissions(Player)
     local vehicle = MapVehicle(row, GetNames({ row.citizenid }))
 
-    -- موقع المركبة إذا كانت في الشارع (لمن عنده صلاحية تحديد الموقع)
+    -- Vehicle location if it is on the street (for those allowed to locate)
     if locate == true and perms.locate and vehicle.inWorld then
         local entity = FindWorldVehicle(plate)
         if entity then
             local c = GetEntityCoords(entity)
             vehicle.coords = { x = c.x, y = c.y, z = c.z }
-            JS.Log(Player, 'locate', row.citizenid, vehicle.ownerName, { ['المركبة'] = plate })
+            JS.Log(Player, 'locate', row.citizenid, vehicle.ownerName, { ['Vehicle'] = plate })
         end
     end
 
@@ -250,13 +250,13 @@ end)
 -- action: 'impound' | 'release' | 'transfer'
 JS.RegisterCallback('NomadJustice:server:vehicleAction', 'vehicles', function(src, Player, plate, action, extra)
     plate = NormalizePlate(plate)
-    if not plate or not VehiclesReady() then return { ok = false, err = 'اللوحة غير صحيحة' } end
+    if not plate or not VehiclesReady() then return { ok = false, err = 'Invalid plate' } end
 
     local row = MySQL.single.await(('SELECT * FROM `%s` WHERE UPPER(plate) = ? LIMIT 1'):format(DB.Vehicles), { plate })
-    if not row then return { ok = false, err = 'لا توجد مركبة مسجلة بهذه اللوحة' } end
+    if not row then return { ok = false, err = 'No vehicle registered with this plate' } end
 
     local ownerName = GetNames({ row.citizenid })[row.citizenid]
-    local details = { ['اللوحة'] = plate, ['الموديل'] = row.vehicle }
+    local details = { ['Plate'] = plate, ['Model'] = row.vehicle }
 
     if action == 'impound' then
         local sets, params = { 'state = ?' }, { 2 }
@@ -269,9 +269,9 @@ JS.RegisterCallback('NomadJustice:server:vehicleAction', 'vehicles', function(sr
         if vehicle then DeleteEntity(vehicle) end
 
         local owner = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
-        if owner then Notify(owner.PlayerData.source, ('تم حجز مركبتك %s بقرار من وزارة العدل'):format(plate), 'error', 10000) end
+        if owner then Notify(owner.PlayerData.source, ('Your vehicle %s has been impounded by order of the Department of Justice'):format(plate), 'error', 10000) end
         JS.Log(Player, 'vehicle_impound', row.citizenid, ownerName, details, { plate = plate })
-        return { ok = true, message = 'تم حجز المركبة' .. (vehicle and ' وسحبها من الشارع' or '') }
+        return { ok = true, message = 'Vehicle impounded' .. (vehicle and ' and removed from the street' or '') }
 
     elseif action == 'release' then
         local sets, params = { 'state = ?' }, { 1 }
@@ -280,17 +280,17 @@ JS.RegisterCallback('NomadJustice:server:vehicleAction', 'vehicles', function(sr
         MySQL.update.await(('UPDATE `%s` SET %s WHERE plate = ?'):format(DB.Vehicles, table.concat(sets, ', ')), params)
 
         local owner = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
-        if owner then Notify(owner.PlayerData.source, ('تم فك حجز مركبتك %s من وزارة العدل'):format(plate), 'success', 10000) end
+        if owner then Notify(owner.PlayerData.source, ('Your vehicle %s has been released from impound by the Department of Justice'):format(plate), 'success', 10000) end
         JS.Log(Player, 'vehicle_release', row.citizenid, ownerName, details, { plate = plate })
-        return { ok = true, message = 'تم فك حجز المركبة' }
+        return { ok = true, message = 'Vehicle released' }
 
     elseif action == 'transfer' then
         local newOwner = JS.ValidCitizenId(extra)
-        if not newOwner then return { ok = false, err = 'الرقم الوطني للمالك الجديد غير صحيح' } end
-        if newOwner == row.citizenid then return { ok = false, err = 'المركبة مسجلة باسمه أصلاً' } end
+        if not newOwner then return { ok = false, err = 'Invalid new owner citizen ID' } end
+        if newOwner == row.citizenid then return { ok = false, err = 'The vehicle is already registered to them' } end
 
         local newRow = JS.GetPlayerRow(newOwner)
-        if not newRow then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+        if not newRow then return { ok = false, err = 'No citizen with this citizen ID' } end
 
         local sets, params = { 'citizenid = ?' }, { newOwner }
         if JS.ColumnExists(DB.Vehicles, 'license') and newRow.license then
@@ -299,33 +299,33 @@ JS.RegisterCallback('NomadJustice:server:vehicleAction', 'vehicles', function(sr
         params[#params + 1] = row.plate
         params[#params + 1] = row.citizenid
         local affected = MySQL.update.await(('UPDATE `%s` SET %s WHERE plate = ? AND citizenid = ?'):format(DB.Vehicles, table.concat(sets, ', ')), params)
-        if not affected or affected == 0 then return { ok = false, err = 'تغيرت بيانات المركبة، حاول مرة أخرى' } end
+        if not affected or affected == 0 then return { ok = false, err = 'Vehicle data changed, try again' } end
 
         local newName = JS.FullName(JS.Decode(newRow.charinfo))
-        details['المالك السابق'] = ('%s (%s)'):format(ownerName or '-', row.citizenid)
-        details['المالك الجديد'] = ('%s (%s)'):format(newName, newOwner)
+        details['Previous owner'] = ('%s (%s)'):format(ownerName or '-', row.citizenid)
+        details['New owner'] = ('%s (%s)'):format(newName, newOwner)
         JS.Log(Player, 'vehicle_transfer', newOwner, newName, details, { plate = plate, from = row.citizenid })
 
         for _, cid in ipairs({ row.citizenid, newOwner }) do
             local target = QBCore.Functions.GetPlayerByCitizenId(cid)
-            if target then Notify(target.PlayerData.source, ('تم نقل ملكية المركبة %s بقرار من وزارة العدل'):format(plate), 'primary', 10000) end
+            if target then Notify(target.PlayerData.source, ('The title of vehicle %s was transferred by order of the Department of Justice'):format(plate), 'primary', 10000) end
         end
-        return { ok = true, message = 'تم نقل ملكية المركبة إلى ' .. newName }
+        return { ok = true, message = 'Vehicle title transferred to ' .. newName }
     end
 
-    return { ok = false, err = 'إجراء غير معروف' }
+    return { ok = false, err = 'Unknown action' }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- سجل العقارات
+-- Property registry
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:searchProperties', 'city', function(src, Player, query)
-    if not HousesReady() then return { ok = false, err = 'جدول العقارات غير موجود، راجع Settings.Database.Houses' } end
+    if not HousesReady() then return { ok = false, err = 'Property table not found, check Settings.Database.Houses' } end
     local h = DB.Houses
 
     query = JS.CleanText(query, 40, true)
-    if not query or JS.Len(query) < 2 then return { ok = false, err = 'اكتب حرفين على الأقل' } end
+    if not query or JS.Len(query) < 2 then return { ok = false, err = 'Type at least 2 characters' } end
 
     local like = '%' .. query:gsub('[%%_\\]', '\\%0') .. '%'
     local labelCol = JS.ColumnExists(h.table, h.label) and h.label or h.id
@@ -350,78 +350,78 @@ JS.RegisterCallback('NomadJustice:server:searchProperties', 'city', function(src
 end)
 
 JS.RegisterCallback('NomadJustice:server:transferProperty', 'properties', function(src, Player, propertyId, newOwner)
-    if not HousesReady() then return { ok = false, err = 'جدول العقارات غير موجود' } end
+    if not HousesReady() then return { ok = false, err = 'Property table not found' } end
     local h = DB.Houses
 
     newOwner = JS.ValidCitizenId(newOwner)
     if not newOwner or (type(propertyId) ~= 'number' and type(propertyId) ~= 'string') then
-        return { ok = false, err = 'بيانات غير صحيحة' }
+        return { ok = false, err = 'Invalid data' }
     end
 
     local row = MySQL.single.await(('SELECT * FROM `%s` WHERE `%s` = ? LIMIT 1'):format(h.table, h.id), { propertyId })
-    if not row then return { ok = false, err = 'العقار غير موجود' } end
-    if row[h.owner] == newOwner then return { ok = false, err = 'العقار مسجل باسمه أصلاً' } end
+    if not row then return { ok = false, err = 'Property not found' } end
+    if row[h.owner] == newOwner then return { ok = false, err = 'The property is already registered to them' } end
 
     local newRow = JS.GetPlayerRow(newOwner)
-    if not newRow then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not newRow then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local affected = MySQL.update.await(('UPDATE `%s` SET `%s` = ? WHERE `%s` = ?'):format(h.table, h.owner, h.id), { newOwner, propertyId })
-    if not affected or affected == 0 then return { ok = false, err = 'تعذر نقل الملكية' } end
+    if not affected or affected == 0 then return { ok = false, err = 'Could not transfer the deed' } end
 
     local newName = JS.FullName(JS.Decode(newRow.charinfo))
     local label = tostring(row[h.label] or propertyId)
     JS.Log(Player, 'property_transfer', newOwner, newName, {
-        ['العقار'] = label,
-        ['المالك السابق'] = tostring(row[h.owner] or '-'),
+        ['Property'] = label,
+        ['Previous owner'] = tostring(row[h.owner] or '-'),
     }, row[h.owner] and { id = propertyId, from = row[h.owner] } or nil)
-    return { ok = true, message = ('تم نقل ملكية %s إلى %s'):format(label, newName) }
+    return { ok = true, message = ('Deed of %s transferred to %s'):format(label, newName) }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- التراخيص
+-- Licenses
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:setLicense', 'licenses', function(src, Player, citizenid, key, state)
     citizenid = JS.ValidCitizenId(citizenid)
     state = state == true
     if not citizenid or type(key) ~= 'string' or not key:match('^[%w_]+$') or #key > 30 then
-        return { ok = false, err = 'بيانات غير صحيحة' }
+        return { ok = false, err = 'Invalid data' }
     end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'لا يمكنك تعديل تراخيصك بنفسك' } end
+    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot change your own licenses' } end
 
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local metadata = citizen.metadata
     local field = metadata.licenses and not metadata.licences and 'licenses' or 'licences'
     local licenses = metadata[field] or {}
     if Settings.Licenses[key] == nil and licenses[key] == nil then
-        return { ok = false, err = 'نوع الترخيص غير معروف' }
+        return { ok = false, err = 'Unknown license type' }
     end
     local previous = licenses[key] == true
     licenses[key] = state
 
     if citizen.online then
         citizen.online.Functions.SetMetaData(field, licenses)
-        Notify(citizen.online.PlayerData.source, ('%s %s بقرار من وزارة العدل'):format(state and 'تم منحك' or 'تم سحب', Settings.Licenses[key] or key), state and 'success' or 'error', 8000)
+        Notify(citizen.online.PlayerData.source, ('%s %s by order of the Department of Justice'):format(state and 'You were granted' or 'Revoked:', Settings.Licenses[key] or key), state and 'success' or 'error', 8000)
     else
         metadata[field] = licenses
-        if not JS.UpdatePlayerJson(citizenid, 'metadata', metadata, citizen.raw.metadata) then return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' } end
+        if not JS.UpdatePlayerJson(citizenid, 'metadata', metadata, citizen.raw.metadata) then return { ok = false, err = 'Citizen data changed, try again' } end
     end
 
-    JS.Log(Player, state and 'license_grant' or 'license_revoke', citizenid, JS.FullName(citizen.charinfo), { ['الترخيص'] = Settings.Licenses[key] or key }, { key = key, state = previous })
+    JS.Log(Player, state and 'license_grant' or 'license_revoke', citizenid, JS.FullName(citizen.charinfo), { ['License'] = Settings.Licenses[key] or key }, { key = key, state = previous })
     return { ok = true }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- العصابات
+-- Gangs
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local function GradeList(entry)
     local list = {}
     for key, grade in pairs(entry.grades or {}) do
         local level = tonumber(key)
-        if level then list[#list + 1] = { level = level, name = JS.Safe(grade.name or ('رتبة ' .. level)), isboss = grade.isboss == true } end
+        if level then list[#list + 1] = { level = level, name = JS.Safe(grade.name or ('Rank ' .. level)), isboss = grade.isboss == true } end
     end
     table.sort(list, function(a, b) return a.level < b.level end)
     return list
@@ -443,43 +443,43 @@ end)
 JS.RegisterCallback('NomadJustice:server:setGang', 'gangs', function(src, Player, citizenid, gangName, level)
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
-    if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'لا يمكنك تغيير عصابتك بنفسك' } end
+    if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
+    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot change your own gang' } end
 
     local gangs = QBCore.Shared.Gangs or {}
     local gang = type(gangName) == 'string' and gangs[gangName]
-    if not gang then return { ok = false, err = 'العصابة غير موجودة' } end
+    if not gang then return { ok = false, err = 'Gang not found' } end
     local grade = gang.grades and (gang.grades[tostring(level)] or gang.grades[level])
-    if not grade then return { ok = false, err = 'الرتبة غير موجودة' } end
+    if not grade then return { ok = false, err = 'Rank not found' } end
 
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local oldGang = citizen.gang and (citizen.gang.label or citizen.gang.name) or '-'
     local oldGangName = citizen.gang and citizen.gang.name or City.NoGang
     local oldGangLevel = citizen.gang and type(citizen.gang.grade) == 'table' and tonumber(citizen.gang.grade.level) or 0
     if citizen.online then
-        if not citizen.online.Functions.SetGang(gangName, level) then return { ok = false, err = 'تعذر تغيير العصابة' } end
+        if not citizen.online.Functions.SetGang(gangName, level) then return { ok = false, err = 'Could not change the gang' } end
     else
         local data = {
             name = gangName, label = gang.label or gangName, isboss = grade.isboss == true,
             grade = { name = grade.name, level = level },
         }
-        if not JS.UpdatePlayerJson(citizenid, 'gang', data, citizen.raw.gang) then return { ok = false, err = 'تغيرت بيانات المواطن، حاول مرة أخرى' } end
+        if not JS.UpdatePlayerJson(citizenid, 'gang', data, citizen.raw.gang) then return { ok = false, err = 'Citizen data changed, try again' } end
     end
 
-    JS.Log(Player, 'gang', citizenid, JS.FullName(citizen.charinfo), { ['من'] = oldGang, ['إلى'] = ('%s - %s'):format(gang.label or gangName, grade.name or level) }, { gang = oldGangName, level = oldGangLevel })
+    JS.Log(Player, 'gang', citizenid, JS.FullName(citizen.charinfo), { ['From'] = oldGang, ['To'] = ('%s - %s'):format(gang.label or gangName, grade.name or level) }, { gang = oldGangName, level = oldGangLevel })
     return { ok = true }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- استدعاءات المحكمة
+-- Court summonses
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 local pendingSummons = {} -- [citizenid] = { summon, ... }
 
 local function SummonText(s)
-    return ('📜 استدعاء من وزارة العدل\nالسبب: %s\nالموعد: %s\nالمكان: %s'):format(s.reason, s.appointment ~= '' and s.appointment or 'يحدد لاحقاً', s.location ~= '' and s.location or 'المحكمة')
+    return ('📜 Summons from the Department of Justice\nReason: %s\nWhen: %s\nWhere: %s'):format(s.reason, s.appointment ~= '' and s.appointment or 'To be scheduled', s.location ~= '' and s.location or 'Courthouse')
 end
 
 local function DeliverSummons(Player)
@@ -500,7 +500,7 @@ CreateThread(function()
         table.insert(pendingSummons[row.citizenid], row)
     end
 
-    -- تسليم الاستدعاءات للي دخلوا السيرفر (يعمل مع أي نسخة من الكور)
+    -- Deliver summonses to players who join (works with any core version)
     while true do
         if next(pendingSummons) then
             for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
@@ -519,37 +519,37 @@ JS.RegisterCallback('NomadJustice:server:sendSummon', 'summon', function(src, Pl
     reason = JS.CleanText(reason, City.SummonMaxLength, true)
     appointment = JS.CleanText(appointment, 100, false)
     location = JS.CleanText(location, 100, false)
-    if not citizenid then return { ok = false, err = 'الرقم الوطني غير صحيح' } end
-    if not reason then return { ok = false, err = ('السبب مطلوب (%d حرف كحد أقصى)'):format(City.SummonMaxLength) } end
-    if not appointment or not location then return { ok = false, err = 'الموعد والمكان 100 حرف كحد أقصى' } end
+    if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
+    if not reason then return { ok = false, err = ('A reason is required (%d characters max)'):format(City.SummonMaxLength) } end
+    if not appointment or not location then return { ok = false, err = 'Date and location are 100 characters max' } end
     if JS.OnCooldown('summon', Player.PlayerData.citizenid .. ':' .. citizenid, 30) then
-        return { ok = false, err = 'تم إرسال استدعاء لهذا المواطن قبل قليل' }
+        return { ok = false, err = 'A summons was sent to this citizen moments ago' }
     end
 
     local citizen = JS.GetCitizen(citizenid)
-    if not citizen then return { ok = false, err = 'لا يوجد مواطن بهذا الرقم الوطني' } end
+    if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
 
     local name = JS.FullName(citizen.charinfo)
     local summon = { citizenid = citizenid, reason = reason, appointment = appointment, location = location }
     summon.id = MySQL.insert.await('INSERT INTO justice_summons (citizenid, name, reason, appointment, location, officer_citizenid, officer_name) VALUES (?, ?, ?, ?, ?, ?, ?)', {
         citizenid, name, reason, appointment, location, Player.PlayerData.citizenid, JS.PlayerName(Player)
     })
-    if not summon.id then return { ok = false, err = 'تعذر حفظ الاستدعاء' } end
+    if not summon.id then return { ok = false, err = 'Could not save the summons' } end
 
     pendingSummons[citizenid] = pendingSummons[citizenid] or {}
     table.insert(pendingSummons[citizenid], summon)
     if citizen.online then DeliverSummons(citizen.online) end
 
-    JS.Log(Player, 'summon', citizenid, name, { ['السبب'] = reason, ['الموعد'] = appointment, ['المكان'] = location }, { id = summon.id })
+    JS.Log(Player, 'summon', citizenid, name, { ['Reason'] = reason, ['Date & time'] = appointment, ['Location'] = location }, { id = summon.id })
     return { ok = true, delivered = citizen.online ~= nil }
 end)
 
 JS.RegisterCallback('NomadJustice:server:setSummonStatus', 'summon', function(src, Player, summonId, status)
     summonId = tonumber(summonId)
-    if not summonId or not SummonStatus[status] or status == 'pending' then return { ok = false, err = 'بيانات غير صحيحة' } end
+    if not summonId or not SummonStatus[status] or status == 'pending' then return { ok = false, err = 'Invalid data' } end
 
     local affected = MySQL.update.await('UPDATE justice_summons SET status = ? WHERE id = ?', { status, summonId })
-    if not affected or affected == 0 then return { ok = false, err = 'الاستدعاء غير موجود' } end
+    if not affected or affected == 0 then return { ok = false, err = 'Summons not found' } end
 
     for cid, list in pairs(pendingSummons) do
         for i = #list, 1, -1 do
@@ -560,7 +560,7 @@ JS.RegisterCallback('NomadJustice:server:setSummonStatus', 'summon', function(sr
     return { ok = true }
 end)
 
--- يستخدمها ملف المواطن
+-- Used by the citizen record
 function JS.GetSummons(citizenid, limit)
     local list = {}
     for i, row in ipairs(MySQL.query.await('SELECT * FROM justice_summons WHERE citizenid = ? ORDER BY id DESC LIMIT ?', { citizenid, limit or 15 }) or {}) do
@@ -598,27 +598,27 @@ JS.RegisterCallback('NomadJustice:server:getAllSummons', 'summon', function()
     return { ok = true, summons = list }
 end)
 
--- المواطن يشوف استدعاءاته
+-- A citizen views their own summonses
 JS.RegisterCallback('NomadJustice:server:getMySummons', nil, function(src, Player)
     return { ok = true, summons = JS.GetSummons(Player.PlayerData.citizenid, 10) }
 end)
 
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
--- إعلان لكل المدينة
+-- City-wide announcement
 -- ════════════════════════════════════════════════════════════════════════════════════════════════
 
 JS.RegisterCallback('NomadJustice:server:announce', 'announce', function(src, Player, text)
     text = JS.CleanText(text, City.AnnounceMaxLength, true)
     if not text or JS.Len(text) < 5 then
-        return { ok = false, err = ('نص الإعلان بين 5 و %d حرف'):format(City.AnnounceMaxLength) }
+        return { ok = false, err = ('The announcement must be 5 to %d characters'):format(City.AnnounceMaxLength) }
     end
 
     local blocked, remaining = JS.OnCooldown('announce', 'global', City.AnnounceCooldown)
-    if blocked then return { ok = false, err = ('يمكن إرسال إعلان بعد %d ثانية'):format(remaining) } end
+    if blocked then return { ok = false, err = ('You can send another announcement in %d seconds'):format(remaining) } end
 
     for _, playerId in pairs(QBCore.Functions.GetPlayers()) do
-        Notify(playerId, '⚖️ إعلان من وزارة العدل\n' .. text, 'primary', 15000)
+        Notify(playerId, '⚖️ Department of Justice announcement\n' .. text, 'primary', 15000)
     end
-    JS.Log(Player, 'announce', nil, nil, { ['الإعلان'] = text })
+    JS.Log(Player, 'announce', nil, nil, { ['Announcement'] = text })
     return { ok = true }
 end)
