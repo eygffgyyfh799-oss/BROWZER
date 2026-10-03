@@ -73,7 +73,9 @@ def cmd_check(_: argparse.Namespace) -> int:
     print(f"{APP_NAME} v{__version__}")
     print(f"  ffmpeg     : {status['ffmpeg'] or 'NOT FOUND'}")
     print(f"  ffprobe    : {status['ffprobe'] or 'NOT FOUND'}")
-    print(f"  Real-ESRGAN: {status['realesrgan'] or 'unavailable (no Vulkan GPU) - Pro engine uses FFmpeg filters'}")
+    print(f"  Real-ESRGAN: {status['realesrgan'] or 'unavailable (no Vulkan GPU) - using FFmpeg filters'}")
+    print(f"  RIFE       : {status['rife'] or 'unavailable - using FFmpeg interpolation'}")
+    print(f"  NVENC      : {'enabled (NVIDIA GPU encoding)' if status['nvenc'] else 'unavailable - using CPU encoder (x264)'}")
     if not status["ok"]:
         print(f"\n  {status.get('error')}")
     return 0 if status["ok"] else 1

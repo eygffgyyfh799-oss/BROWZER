@@ -32,6 +32,10 @@ FFMPEG_MAC = ["https://evermeet.cx/ffmpeg/getrelease/zip", "https://evermeet.cx/
 _RE = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-{}.zip"
 REALESRGAN_URLS = {"windows": _RE.format("windows"), "linux": _RE.format("ubuntu"), "mac": _RE.format("macos")}
 
+_RIFE = "https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/rife-ncnn-vulkan-20221029-{}.zip"
+RIFE_URLS = {"windows": _RIFE.format("windows"), "linux": _RIFE.format("ubuntu"), "mac": _RIFE.format("macos")}
+RIFE_MODEL = "rife-v4.6"
+
 
 def _os() -> str:
     s = platform.system().lower()
@@ -95,6 +99,11 @@ def local_realesrgan() -> str | None:
         if exe.exists():
             return str(exe)
     return None
+
+
+def local_rife() -> str | None:
+    exe = bin_dir() / "rife" / _exe("rife-ncnn-vulkan")
+    return str(exe) if exe.exists() and (exe.parent / RIFE_MODEL).is_dir() else None
 
 
 # --------------------------------------------------------------------------- download helpers
@@ -223,6 +232,65 @@ def test_realesrgan(exe: str) -> bool:
         return r.returncode == 0 and out.exists() and out.stat().st_size > 0
 
 
+def install_rife() -> str | None:
+    if _os() == "linux-arm":
+        return None
+    target = bin_dir() / "rife"
+    print("  • Installing RIFE (GPU frame interpolation for 30/60fps) ...")
+    with tempfile.TemporaryDirectory() as tmp:
+        arc = Path(tmp) / "rife.zip"
+        _download(RIFE_URLS[_os()], arc, "RIFE")
+        print("    extracting ...")
+        if target.exists():
+            shutil.rmtree(target)
+        target.mkdir(parents=True)
+        with zipfile.ZipFile(arc) as z:  # keep only the program and the one model we use
+            for member in z.infolist():
+                parts = Path(member.filename).parts
+                rel = Path(*parts[1:]) if len(parts) > 1 else Path(parts[0])
+                keep = rel.parts and (rel.parts[0] == RIFE_MODEL or (len(rel.parts) == 1 and
+                                      rel.suffix.lower() in ("", ".exe", ".dll", ".dylib")))
+                if not keep or member.is_dir():
+                    continue
+                dest = target / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(member) as src, dest.open("wb") as out:
+                    shutil.copyfileobj(src, out)
+    exe = target / _exe("rife-ncnn-vulkan")
+    if not exe.exists():
+        raise RuntimeError("rife-ncnn-vulkan not found in downloaded archive")
+    _make_executable(exe)
+    return str(exe)
+
+
+def test_rife(exe: str, ffmpeg: str) -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = Path(tmp) / "in", Path(tmp) / "out"
+        src.mkdir()
+        out.mkdir()
+        subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=256x144:rate=10:duration=0.3",
+                        str(src / "%08d.png")], capture_output=True)
+        try:
+            r = subprocess.run([exe, "-i", str(src), "-o", str(out), "-n", "6",
+                                "-m", str(Path(exe).parent / RIFE_MODEL)],
+                               capture_output=True, timeout=180, cwd=str(Path(exe).parent))
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return r.returncode == 0 and len(list(out.glob("*.png"))) == 6
+
+
+def test_nvenc(ffmpeg: str) -> bool:
+    """NVIDIA hardware encoder (needs an NVIDIA GPU and a recent driver)."""
+    try:
+        r = subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=0.5",
+                            "-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr", "-cq", "19",
+                            "-b:v", "0", "-spatial-aq", "1", "-temporal-aq", "1", "-f", "null", "-"],
+                           capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
+
+
 # --------------------------------------------------------------------------- entry point
 
 def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
@@ -231,8 +299,9 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
 
     state = load_state()
     first = not state.get("setup_done") or force
-    if first and not quiet:
-        print("\n  First-time setup — downloading required components (one time only)...\n")
+    pending = first or not state.get("rife_checked") or "nvenc_ok" not in state
+    if pending and not quiet:
+        print("\n  Setup — downloading / checking required components (one time only)...\n")
 
     # FFmpeg (required)
     try:
@@ -243,7 +312,7 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
         install_ffmpeg()
 
     # Real-ESRGAN (optional; only tried once unless forced)
-    if first or (not state.get("ai_checked")):
+    if first or not state.get("ai_checked"):
         exe = local_realesrgan()
         if not exe:
             try:
@@ -259,11 +328,29 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
             print("    Real-ESRGAN ready (GPU AI upscaling enabled).")
         save_state(ai_checked=True, ai_ok=ok)
 
+    ffmpeg = find_ffmpeg()[0]
+
+    # NVIDIA hardware encoding.
+    if first or "nvenc_ok" not in state:
+        ok = test_nvenc(ffmpeg)
+        print(f"    NVENC (NVIDIA GPU encoding): {'enabled' if ok else 'not available - using CPU encoder'}")
+        save_state(nvenc_ok=ok)
+
+    # RIFE GPU frame interpolation.
+    if first or not state.get("rife_checked"):
+        exe = local_rife()
+        if not exe:
+            try:
+                exe = install_rife()
+            except Exception as e:  # noqa: BLE001 - optional component
+                print(f"    RIFE could not be installed: {e}")
+                exe = None
+        ok = bool(exe) and test_rife(exe, ffmpeg)
+        print(f"    RIFE (GPU 30/60fps): {'enabled' if ok else 'not available - using FFmpeg interpolation'}")
+        save_state(rife_checked=True, rife_ok=ok)
+
     save_state(setup_done=True)
-    if first and not quiet:
+    if pending and not quiet:
         print("\n  Setup complete.\n")
     return load_state()
 
-
-def ai_enabled() -> bool:
-    return bool(load_state().get("ai_ok", True))

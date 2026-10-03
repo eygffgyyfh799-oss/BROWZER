@@ -117,7 +117,7 @@ const drop = $("drop"), input = $("file"), go = $("go");
 let file = null;
 const stages = {
   queued: "في قائمة الانتظار", analyzing: "تحليل المقطع", enhancing: "المعالجة والتحسين",
-  "extracting frames": "استخراج الإطارات", "AI failed, using FFmpeg": "تعذر الذكاء الاصطناعي، التحويل لفلاتر FFmpeg", encoding: "الترميز والتصدير", done: "اكتمل",
+  "extracting frames": "استخراج الإطارات", finalizing: "دمج الصوت والتصدير", "AI failed, using FFmpeg": "تعذر الذكاء الاصطناعي، التحويل لفلاتر FFmpeg", encoding: "الترميز والتصدير", done: "اكتمل",
 };
 
 function pick(f) {
@@ -136,7 +136,8 @@ drop.addEventListener("drop", (ev) => pick(ev.dataTransfer.files[0]));
 const val = (name) => document.querySelector(`input[name=${name}]:checked`).value;
 function setProgress(p, label) {
   $("bar").style.width = p + "%"; $("pct").textContent = p.toFixed(1) + "%";
-  $("stage").textContent = stages[label] || (label.startsWith("AI upscaling") ? "تكبير بالذكاء الاصطناعي " + label.slice(13) : label);
+  $("stage").textContent = stages[label] || (label.startsWith("AI upscaling") ? "تكبير بالذكاء الاصطناعي " + label.slice(13)
+    : label.startsWith("interpolating") ? "توليد إطارات (RIFE) " + label.slice(14) : label);
 }
 
 go.onclick = () => {
@@ -170,7 +171,13 @@ function fail(msg) { $("error").textContent = "خطأ: " + msg; go.disabled = !f
 
 fetch("/api/status").then((r) => r.json()).then((s) => {
   const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--ok)" : "var(--err)"}"></span>`;
-  $("sys").innerHTML = `${dot(s.ok)}FFmpeg ${s.ok ? "جاهز" : "غير موجود"} &nbsp;·&nbsp; ${dot(!!s.realesrgan)}Real-ESRGAN ${s.realesrgan ? "مفعّل (وضع Pro)" : "غير متاح (يحتاج كرت شاشة Vulkan) — يعمل وضع Pro بفلاتر FFmpeg"} &nbsp;·&nbsp; v${s.version}`;
+  const item = (ok, name, on, off) => `${dot(ok)}${name}: ${ok ? on : off}`;
+  $("sys").innerHTML = [
+    item(s.ok, "FFmpeg", "جاهز", "غير موجود"),
+    item(!!s.realesrgan, "التكبير", "Real-ESRGAN على كرت الشاشة", "فلاتر FFmpeg على المعالج"),
+    item(!!s.rife, "رفع الإطارات", "RIFE على كرت الشاشة", "FFmpeg على المعالج"),
+    item(s.nvenc, "الترميز", "NVENC على كرت الشاشة", "x264 على المعالج"),
+  ].join(" &nbsp;·&nbsp; ") + ` &nbsp;·&nbsp; v${s.version}`;
 });
 </script>
 </body>

@@ -1,13 +1,16 @@
 """Video enhancement pipeline.
 
-Two processing paths:
+GPU path (NVIDIA / any Vulkan GPU, used automatically when available):
+  1. FFmpeg decodes, converts HDR to SDR, cleans blocking/noise and exports
+     constant-frame-rate frames.
+  2. RIFE (GPU) interpolates frames for the FPS boost.
+  3. Real-ESRGAN (GPU) upscales frame by frame, in chunks so disk usage stays low.
+  4. Each chunk is encoded with NVENC (or x264), with a deflicker pass for
+     temporal consistency, then the chunks are joined and the audio is muxed.
 
-* FFmpeg path (always available): temporal denoise, deblocking, Lanczos
-  upscaling, contrast-adaptive sharpening, color correction and motion
-  compensated frame interpolation, all in a single FFmpeg filter graph.
-* AI path (Pro engine, when ``realesrgan-ncnn-vulkan`` is installed): the
-  cleaned frames are upscaled frame by frame with Real-ESRGAN, then
-  re-assembled with a deflicker pass for temporal consistency.
+CPU path (fallback): a single FFmpeg filter graph with temporal denoise,
+deblocking, Lanczos upscaling, sharpening, color correction and
+motion-compensated interpolation.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from .presets import ENGINES, FPS_OPTIONS, PRESETS, RESOLUTIONS
 ProgressFn = Callable[[float, str], None]
 
 SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
+CHUNK_FRAMES = 240  # frames upscaled + encoded per chunk (keeps temp disk usage small)
 
 
 class EnhanceError(RuntimeError):
@@ -42,6 +46,8 @@ class VideoInfo:
     duration: float
     has_audio: bool
     frames: int = 0
+    rate: str = "30"     # exact frame rate as FFmpeg rational, e.g. 30000/1001
+    hdr: bool = False
 
 
 @dataclass
@@ -50,7 +56,7 @@ class EnhanceOptions:
     resolution: str = "1080p"       # 1080p | 4k
     fps: str = "original"           # original | 30 | 60
     preset: str = "ugc"             # ai | old_film | ugc | none
-    use_ai: Optional[bool] = None   # None = auto (pro engine + binary found)
+    use_ai: Optional[bool] = None   # None = auto (use GPU AI when available)
     crf: Optional[int] = None
     extra: dict = field(default_factory=dict)
 
@@ -84,14 +90,31 @@ def find_ffmpeg() -> tuple[str, str]:
 
 
 def find_realesrgan() -> Optional[str]:
-    from .bootstrap import ai_enabled, local_realesrgan
+    from .bootstrap import load_state, local_realesrgan
 
     path = os.environ.get("REALESRGAN_PATH")
     if path and Path(path).exists():
         return path
-    if not ai_enabled():  # installed but no working GPU on this machine
+    if not load_state().get("ai_ok", True):  # installed but no working GPU on this machine
         return None
     return local_realesrgan() or shutil.which("realesrgan-ncnn-vulkan")
+
+
+def find_rife() -> Optional[str]:
+    from .bootstrap import load_state, local_rife
+
+    path = os.environ.get("RIFE_PATH")
+    if path and Path(path).exists():
+        return path
+    if not load_state().get("rife_ok", False):
+        return None
+    return local_rife()
+
+
+def nvenc_available() -> bool:
+    from .bootstrap import load_state
+
+    return bool(load_state().get("nvenc_ok", False))
 
 
 def probe(path: str | Path) -> VideoInfo:
@@ -113,13 +136,19 @@ def probe(path: str | Path) -> VideoInfo:
         except (ValueError, ZeroDivisionError):
             return 0.0
 
-    fps = parse_rate(video.get("avg_frame_rate", "0/0")) or parse_rate(video.get("r_frame_rate", "0/0")) or 30.0
+    rate = video.get("avg_frame_rate", "0/0")
+    fps = parse_rate(rate)
+    if not 1 <= fps <= 240:
+        rate = video.get("r_frame_rate", "30/1")
+        fps = parse_rate(rate)
+    if not 1 <= fps <= 240:
+        rate, fps = "30", 30.0
     duration = float(video.get("duration") or data.get("format", {}).get("duration") or 0)
     width, height = int(video["width"]), int(video["height"])
-    rotation = _rotation(video)
-    if rotation in (90, 270):
+    if _rotation(video) in (90, 270):
         width, height = height, width
-    return VideoInfo(width, height, fps, duration, has_audio, int(duration * fps))
+    hdr = video.get("color_transfer") in ("smpte2084", "arib-std-b67")
+    return VideoInfo(width, height, fps, duration, has_audio, int(duration * fps), rate, hdr)
 
 
 def _rotation(stream: dict) -> int:
@@ -153,12 +182,19 @@ def target_fps(info: VideoInfo, fps_option: str) -> Optional[float]:
     return float(wanted)
 
 
-def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full") -> str:
+HDR_TO_SDR = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+              "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv")
+
+
+def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full",
+                  light: bool = False, interpolate: bool = True) -> str:
     """Build the FFmpeg filter graph.
 
-    stage = "full"  : everything (FFmpeg-only path)
-    stage = "pre"   : cleanup + interpolation before AI upscaling
-    stage = "post"  : scaling to target + sharpen/color/deflicker after AI upscaling
+    stage = "full"  : everything (CPU path)
+    stage = "pre"   : cleanup before GPU interpolation / upscaling
+    stage = "post"  : scaling to target + sharpen/color/deflicker after GPU upscaling
+    light           : skip the slow CPU denoisers (Real-ESRGAN denoises itself)
+    interpolate     : use FFmpeg minterpolate for the FPS boost (False when RIFE does it)
     """
     preset = PRESETS[opts.preset]
     engine = ENGINES[opts.engine]
@@ -167,6 +203,8 @@ def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full")
     chain: list[str] = []
 
     if stage in ("full", "pre"):
+        if info.hdr:  # iPhone / Android HDR (HLG / PQ) -> natural looking SDR
+            chain.append(HDR_TO_SDR)
         if preset.get("deinterlace"):
             chain.append("bwdif=mode=send_frame:deint=interlaced")
         if preset.get("deflicker"):
@@ -177,13 +215,15 @@ def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full")
         # Denoise. hqdn3d is spatio-temporal: it averages along time which keeps
         # frames consistent and avoids flicker. Pro adds non-local means.
         luma_s, chroma_s, luma_t, chroma_t = preset["denoise"]
-        chain.append(f"hqdn3d={luma_s}:{chroma_s}:{luma_t}:{chroma_t}")
-        if engine["nlmeans"] and preset.get("nlmeans"):
+        if light:
+            luma_s, chroma_s = luma_s * 0.5, chroma_s * 0.5
+        chain.append(f"hqdn3d={luma_s:g}:{chroma_s:g}:{luma_t:g}:{chroma_t:g}")
+        if not light and engine["nlmeans"] and preset.get("nlmeans"):
             chain.append(f"nlmeans=s={preset['nlmeans']}:p=7:r=9")
-        if engine["temporal_denoise"]:
+        if not light and engine["temporal_denoise"]:
             chain.append("atadenoise=0a=0.02:0b=0.04:1a=0.02:1b=0.04:2a=0.02:2b=0.04:s=9")
         # Frame interpolation on the small frames (much cheaper than after upscaling).
-        if fps:
+        if fps and interpolate:
             chain.append(
                 f"minterpolate=fps={fps:g}:mi_mode=mci:mc_mode={engine['mc_mode']}"
                 f":me_mode={engine['me_mode']}:vsbmc={1 if engine['vsbmc'] else 0}:scd=fdiff"
@@ -195,8 +235,9 @@ def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full")
                 f"scale={out_w}:{out_h}:flags=lanczos+accurate_rnd+full_chroma_int+full_chroma_inp"
             )
         # Detail recovery: contrast adaptive sharpening + light luma unsharp for edges/faces.
-        chain.append(f"cas=strength={min(1.0, preset['sharpen'] * engine['sharpen_mul']):.2f}")
-        if engine["edge_unsharp"]:
+        sharpen = preset["sharpen"] * engine["sharpen_mul"] * (0.6 if light else 1.0)
+        chain.append(f"cas=strength={min(1.0, sharpen):.2f}")
+        if engine["edge_unsharp"] and not light:
             chain.append("unsharp=lx=5:ly=5:la=0.35:cx=3:cy=3:ca=0.0")
         # Color correction.
         c = preset["color"]
@@ -210,17 +251,24 @@ def build_filters(info: VideoInfo, opts: EnhanceOptions, *, stage: str = "full")
         # Remove banding introduced by denoising and dither to 8-bit.
         chain.append("gradfun=strength=0.6:radius=16")
 
-    chain.append("format=yuv420p")
+    if stage != "pre":
+        chain.append("format=yuv420p")
     return ",".join(chain)
 
 
-def encoder_args(opts: EnhanceOptions) -> list[str]:
+def encoder_args(opts: EnhanceOptions, nvenc: bool = False) -> list[str]:
     engine = ENGINES[opts.engine]
     crf = opts.crf if opts.crf is not None else engine["crf"]
+    if nvenc:
+        # NVIDIA hardware encoder: many times faster than x264, near identical quality at this CQ.
+        return [
+            "-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr", "-cq", str(crf + 1),
+            "-b:v", "0", "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", "20",
+            "-profile:v", "high", "-pix_fmt", "yuv420p",
+        ]
     return [
         "-c:v", "libx264", "-preset", engine["x264_preset"], "-crf", str(crf),
         "-tune", "film", "-profile:v", "high", "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
     ]
 
 
@@ -258,6 +306,36 @@ def _run_ffmpeg(cmd: list[str], duration: float, progress: Optional[ProgressFn],
         raise EnhanceError("FFmpeg failed:\n" + "".join(stderr_tail[-15:]))
 
 
+def _run_encode(build_cmd: Callable[[list[str]], list[str]], opts: EnhanceOptions, duration: float,
+                progress: Optional[ProgressFn], start: float, span: float, label: str) -> None:
+    """Encode with NVENC when available, retrying with x264 if the GPU encoder fails."""
+    if nvenc_available():
+        try:
+            return _run_ffmpeg(build_cmd(encoder_args(opts, nvenc=True)), duration, progress, start, span, label)
+        except EnhanceError:
+            pass
+    _run_ffmpeg(build_cmd(encoder_args(opts)), duration, progress, start, span, label)
+
+
+def _run_gpu_tool(cmd: list[str], out_dir: Path, total: int, report: ProgressFn,
+                  start: float, span: float, label: str, name: str,
+                  offset: int = 0, grand_total: int = 0) -> None:
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, text=True, cwd=str(Path(cmd[0]).parent))
+    err: list[str] = []
+    t = threading.Thread(target=lambda: err.extend(proc.stderr or []), daemon=True)
+    t.start()
+    while proc.poll() is None:
+        done = sum(1 for _ in out_dir.iterdir())
+        report(start + span * min(1.0, done / max(1, total)),
+               f"{label} {offset + done}/{grand_total or total}")
+        time.sleep(0.5)
+    t.join(timeout=2)
+    produced = sum(1 for _ in out_dir.iterdir())
+    if proc.returncode != 0 or produced < total:
+        raise EnhanceError(f"{name} failed:\n{''.join(err)[-1500:]}")
+
+
 def enhance(input_path: str | Path, output_path: str | Path, opts: EnhanceOptions,
             progress: Optional[ProgressFn] = None) -> Path:
     opts.validate()
@@ -274,80 +352,142 @@ def enhance(input_path: str | Path, output_path: str | Path, opts: EnhanceOption
     report = progress or (lambda *_: None)
     report(0.0, "analyzing")
 
-    realesrgan = find_realesrgan()
-    use_ai = opts.use_ai if opts.use_ai is not None else (opts.engine == "pro" and realesrgan is not None)
-    if use_ai and not realesrgan:
+    plan = plan_gpu(info, opts)
+    if opts.use_ai and not plan["realesrgan"]:
         raise EnhanceError(
-            "AI upscaling requested but 'realesrgan-ncnn-vulkan' was not found. "
+            "AI upscaling requested but Real-ESRGAN is not available. "
             "Run 'python -m enhancer setup' or make sure your GPU supports Vulkan."
         )
 
-    if use_ai:
+    done = False
+    if plan["realesrgan"] or plan["rife"]:
         try:
-            _enhance_ai(ffmpeg, realesrgan, input_path, output_path, info, opts, report)
-            use_ai = "done"
+            _enhance_gpu(ffmpeg, input_path, output_path, info, opts, plan, report)
+            done = True
         except EnhanceError:
             if opts.use_ai:  # explicitly forced: surface the error
                 raise
             report(0.0, "AI failed, using FFmpeg")  # automatic fallback
-    if use_ai != "done":
-        cmd = [ffmpeg, "-y", "-hide_banner", "-i", str(input_path),
-               "-map", "0:v:0", "-map", "0:a?", "-vf", build_filters(info, opts),
-               *encoder_args(opts), "-c:a", "aac", "-b:a", "192k", str(output_path)]
-        _run_ffmpeg(cmd, info.duration, report, 0.02, 0.98, "enhancing")
+    if not done:
+        def build(enc: list[str]) -> list[str]:
+            return [ffmpeg, "-y", "-hide_banner", "-i", str(input_path),
+                    "-map", "0:v:0", "-map", "0:a?", "-vf", build_filters(info, opts),
+                    *enc, "-movflags", "+faststart", "-c:a", "aac", "-b:a", "192k", str(output_path)]
+        _run_encode(build, opts, info.duration, report, 0.02, 0.98, "enhancing")
 
     report(1.0, "done")
     return output_path
 
 
-def _enhance_ai(ffmpeg: str, realesrgan: str, input_path: Path, output_path: Path,
-                info: VideoInfo, opts: EnhanceOptions, report: ProgressFn) -> None:
+def plan_gpu(info: VideoInfo, opts: EnhanceOptions) -> dict:
+    """Decide which GPU tools to use, which model and which scale."""
     preset = PRESETS[opts.preset]
     out_w, out_h = target_size(info, opts.resolution)
-    scale = 4 if max(out_w / info.width, out_h / info.height) > 2.05 else 2
-    model = preset.get("ai_model", "realesr-animevideov3")
+    needed = max(out_w / info.width, out_h / info.height)
+    realesrgan = find_realesrgan() if opts.use_ai is not False else None
+    # Standard skips AI when there is almost nothing to upscale; Pro always reconstructs.
+    if realesrgan and opts.use_ai is None and opts.engine == "standard" and needed < 1.2:
+        realesrgan = None
+    # Standard = fast video model; Pro = preset's model (x4plus is the most detailed for real footage).
+    model = "realesr-animevideov3" if opts.engine == "standard" else preset.get("ai_model", "realesr-animevideov3")
     if model == "realesrgan-x4plus":
-        scale = 4  # this model only supports x4
-    fps = target_fps(info, opts.fps) or info.fps
+        scale = 4
+    else:
+        scale = 2 if needed <= 2 else (3 if needed <= 3 else 4)
+    rife = find_rife() if target_fps(info, opts.fps) else None
+    return {"realesrgan": realesrgan, "rife": rife, "model": model, "scale": scale}
+
+
+def _enhance_gpu(ffmpeg: str, input_path: Path, output_path: Path, info: VideoInfo,
+                 opts: EnhanceOptions, plan: dict, report: ProgressFn) -> None:
+    realesrgan, rife = plan["realesrgan"], plan["rife"]
+    tfps = target_fps(info, opts.fps)
+    rate = info.rate
 
     with tempfile.TemporaryDirectory(prefix="enhancer_") as tmp:
         tmp_dir = Path(tmp)
-        frames_in, frames_out = tmp_dir / "in", tmp_dir / "out"
-        frames_in.mkdir()
-        frames_out.mkdir()
+        frames = tmp_dir / "frames"
+        frames.mkdir()
 
-        # 1) Cleanup + interpolation, export frames.
-        cmd = [ffmpeg, "-y", "-hide_banner", "-i", str(input_path), "-map", "0:v:0",
-               "-vf", build_filters(info, opts, stage="pre").replace(",format=yuv420p", ""),
-               "-fps_mode", "passthrough", str(frames_in / "%08d.png")]
-        _run_ffmpeg(cmd, info.duration, report, 0.0, 0.15, "extracting frames")
+        # 1) Decode + cleanup, constant frame rate (phones record VFR) so audio stays in sync.
+        # Without RIFE, FFmpeg's minterpolate does the FPS boost here.
+        if tfps and not rife:
+            rate = f"{tfps:g}"
+        vf = build_filters(info, opts, stage="pre", light=bool(realesrgan), interpolate=not rife)
+        cmd = [ffmpeg, "-y", "-hide_banner", "-i", str(input_path), "-map", "0:v:0", "-vf", vf,
+               "-fps_mode", "cfr", "-r", rate, "-pix_fmt", "rgb24", "-compression_level", "1",
+               str(frames / "%08d.png")]
+        _run_ffmpeg(cmd, info.duration, report, 0.0, 0.10, "extracting frames")
+        n = sum(1 for _ in frames.iterdir())
+        if n == 0:
+            raise EnhanceError("No frames could be decoded from the video.")
 
-        # 2) Real-ESRGAN, frame by frame.
-        total = len(list(frames_in.glob("*.png"))) or 1
-        proc = subprocess.Popen(
-            [realesrgan, "-i", str(frames_in), "-o", str(frames_out), "-n", model,
-             "-m", str(Path(realesrgan).parent / "models"),
-             "-s", str(scale), "-f", "png"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
-        )
-        while proc.poll() is None:
-            done = len(list(frames_out.glob("*.png")))
-            report(0.15 + 0.65 * done / total, f"AI upscaling {done}/{total}")
-            time.sleep(1.0)
-        if proc.returncode != 0:
-            err = proc.stderr.read() if proc.stderr else ""
-            raise EnhanceError(f"Real-ESRGAN failed:\n{err[-1500:]}")
+        # 2) RIFE frame interpolation on the GPU (before upscaling: small frames = fast).
+        if rife and tfps:
+            target_n = max(n + 1, round(n * tfps / info.fps))
+            rife_out = tmp_dir / "rife"
+            rife_out.mkdir()
+            _run_gpu_tool([rife, "-i", str(frames), "-o", str(rife_out), "-n", str(target_n),
+                           "-m", str(Path(rife).parent / "rife-v4.6"), "-j", "2:2:2", "-f", "%08d.png"],
+                          rife_out, target_n, report, 0.10, 0.15, "interpolating", "RIFE")
+            shutil.rmtree(frames)
+            frames, n, rate = rife_out, target_n, f"{tfps:g}"
 
-        # 3) Re-assemble with audio, final scaling, deflicker, color.
-        cmd = [ffmpeg, "-y", "-hide_banner", "-framerate", f"{fps:g}",
-               "-i", str(frames_out / "%08d.png"), "-i", str(input_path),
-               "-map", "0:v:0", "-map", "1:a?", "-vf", build_filters(info, opts, stage="post"),
-               *encoder_args(opts), "-c:a", "aac", "-b:a", "192k", "-shortest", str(output_path)]
-        _run_ffmpeg(cmd, total / fps, report, 0.80, 0.20, "encoding")
+        # 3) Upscale + encode in chunks.
+        names = sorted(p.name for p in frames.iterdir())
+        segments: list[Path] = []
+        start, span = (0.25, 0.70) if rife else (0.10, 0.85)
+        chunk_size = CHUNK_FRAMES if realesrgan else len(names)
+        for ci, first in enumerate(range(0, len(names), chunk_size)):
+            batch = names[first:first + chunk_size]
+            cin, cout = tmp_dir / f"c{ci}_in", tmp_dir / f"c{ci}_out"
+            cin.mkdir()
+            for j, name in enumerate(batch):  # renumber so each chunk starts at 1
+                (frames / name).rename(cin / f"{j + 1:08d}.png")
+            c_start = start + span * first / len(names)
+            c_span = span * len(batch) / len(names)
+            src_dir = cin
+            if realesrgan:
+                cout.mkdir()
+                _run_gpu_tool([realesrgan, "-i", str(cin), "-o", str(cout), "-n", plan["model"],
+                               "-m", str(Path(realesrgan).parent / "models"), "-s", str(plan["scale"]),
+                               "-j", "2:2:2", "-f", "png"],
+                              cout, len(batch), report, c_start, c_span * 0.8, "AI upscaling", "Real-ESRGAN",
+                              offset=first, grand_total=len(names))
+                shutil.rmtree(cin)
+                src_dir = cout
+            seg = tmp_dir / f"seg{ci:04d}.mp4"
+
+            def build(enc: list[str], src_dir=src_dir, seg=seg) -> list[str]:
+                return [ffmpeg, "-y", "-hide_banner", "-framerate", rate, "-i", str(src_dir / "%08d.png"),
+                        "-vf", build_filters(info, opts, stage="post", light=bool(realesrgan)),
+                        *enc, "-an", str(seg)]
+            enc_start = c_start + (c_span * 0.8 if realesrgan else 0)
+            enc_span = c_span * (0.2 if realesrgan else 1.0)
+            _run_encode(build, opts, len(batch) / _rate_value(rate), report, enc_start, enc_span, "encoding")
+            shutil.rmtree(src_dir)
+            segments.append(seg)
+
+        # 4) Join chunks + original audio.
+        report(0.96, "finalizing")
+        listing = tmp_dir / "segments.txt"
+        listing.write_text("".join(f"file '{s.as_posix()}'\n" for s in segments))
+        cmd = [ffmpeg, "-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i", str(listing),
+               "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?", "-c:v", "copy",
+               "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output_path)]
+        _run_ffmpeg(cmd, info.duration, report, 0.96, 0.04, "finalizing")
+
+
+def _rate_value(rate: str) -> float:
+    if "/" in rate:
+        num, den = rate.split("/")
+        return float(num) / float(den)
+    return float(rate)
 
 
 def system_check() -> dict:
-    status = {"ffmpeg": None, "ffprobe": None, "realesrgan": find_realesrgan(), "ok": False}
+    status = {"ffmpeg": None, "ffprobe": None, "realesrgan": find_realesrgan(), "rife": find_rife(),
+              "nvenc": nvenc_available(), "ok": False}
     try:
         status["ffmpeg"], status["ffprobe"] = find_ffmpeg()
         status["ok"] = True
