@@ -1,5 +1,7 @@
 """Command line interface.
 
+Windows only. Normally started by double-clicking run.bat.
+
     python -m enhancer                       # start the web UI (default)
     python -m enhancer serve --port 7860
     python -m enhancer enhance in.mp4 -r 4k -e pro -f 60 -p ugc
@@ -9,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -115,6 +118,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+    if sys.platform != "win32" and not os.environ.get("ENHANCER_DEV"):
+        print(f"{APP_NAME} supports Windows only.", file=sys.stderr)
+        return 1
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:

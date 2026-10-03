@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import shutil
+import subprocess
 import threading
 import uuid
 import webbrowser
@@ -14,11 +16,13 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
 
 from . import APP_NAME, __version__
+from .bootstrap import APP_DATA
 from .pipeline import (SUPPORTED_EXTENSIONS, EnhanceError, EnhanceOptions, enhance,
                        probe, system_check, target_size)
 
 STATIC = Path(__file__).resolve().parent / "static"
-WORK_DIR = Path.home() / ".video-enhancer"
+WORK_DIR = APP_DATA / "uploads"
+OUTPUT_DIR = Path(os.environ.get("USERPROFILE") or Path.home()) / "Videos" / "AI Video Enhancer"
 MAX_UPLOAD = 8 * 1024 ** 3  # 8 GB
 
 jobs: dict[str, dict] = {}
@@ -74,12 +78,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             return self._json({"app": APP_NAME, "version": __version__, **system_check(),
                                "queue": job_queue.qsize()})
+        m = re.fullmatch(r"/api/jobs/([0-9a-f]{32})/reveal", path)
+        if m and m.group(1) in jobs and jobs[m.group(1)]["status"] == "done":
+            # Open Windows Explorer with the finished video selected.
+            subprocess.Popen(["explorer", "/select,", jobs[m.group(1)]["output"]])
+            return self._json({"ok": True})
         m = re.fullmatch(r"/api/jobs/([0-9a-f]{32})(/download)?", path)
         if m and m.group(1) in jobs:
             job = jobs[m.group(1)]
             if not m.group(2):
                 return self._json({k: job.get(k) for k in
-                                   ("id", "status", "progress", "stage", "error", "name", "info")})
+                                   ("id", "status", "progress", "stage", "error", "name", "info", "output")})
             out = Path(job["output"])
             if job["status"] != "done" or not out.exists():
                 return self._json({"error": "not ready"}, 409)
@@ -116,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
         job_id = uuid.uuid4().hex
         WORK_DIR.mkdir(parents=True, exist_ok=True)
         src = WORK_DIR / f"{job_id}_in{ext}"
-        dst = WORK_DIR / f"{job_id}_out.mp4"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         remaining = length
         with src.open("wb") as f:
             while remaining > 0:
@@ -136,6 +145,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 400)
         w, h = target_size(info, opts.resolution)
         name = f"{Path(filename).stem}_enhanced_{opts.resolution}.mp4"
+        dst = OUTPUT_DIR / name
+        i = 2
+        while dst.exists() or any(j["output"] == str(dst) for j in jobs.values()):
+            dst = OUTPUT_DIR / f"{Path(name).stem} ({i}).mp4"
+            i += 1
+        name = dst.name
         jobs[job_id] = {"id": job_id, "status": "queued", "progress": 0, "stage": "queued",
                         "input": str(src), "output": str(dst), "options": opts, "name": name,
                         "info": {"src": f"{info.width}x{info.height}", "dst": f"{w}x{h}",
@@ -146,7 +161,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(host: str = "127.0.0.1", port: int = 7860, open_browser: bool = True) -> None:
     threading.Thread(target=worker, daemon=True).start()
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    shutil.rmtree(WORK_DIR, ignore_errors=True)  # leftovers from a window that was closed mid-job
+    httpd = None
+    for candidate in range(port, port + 20):  # another copy may already be running
+        try:
+            httpd = ThreadingHTTPServer((host, candidate), Handler)
+            port = candidate
+            break
+        except OSError:
+            continue
+    if httpd is None:
+        raise SystemExit(f"No free port between {port} and {port + 19}.")
     url = f"http://{'localhost' if host in ('127.0.0.1', '0.0.0.0') else host}:{port}"
     status = system_check()
     print(f"\n  {APP_NAME} v{__version__}")
@@ -155,7 +180,8 @@ def serve(host: str = "127.0.0.1", port: int = 7860, open_browser: bool = True) 
     print(f"  Upscaling: {'Real-ESRGAN (GPU)' if status['realesrgan'] else 'FFmpeg filters (CPU)'}")
     print(f"  FPS boost: {'RIFE (GPU)' if status['rife'] else 'FFmpeg minterpolate (CPU)'}")
     print(f"  Encoder  : {'NVENC (NVIDIA GPU)' if status['nvenc'] else 'x264 (CPU)'}")
-    print("  Press Ctrl+C to stop.\n")
+    print(f"  Saved to : {OUTPUT_DIR}")
+    print("  Keep this window open while you use the tool. Close it to stop.\n")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

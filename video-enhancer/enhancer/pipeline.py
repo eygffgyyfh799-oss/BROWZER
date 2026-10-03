@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from .bootstrap import NO_WINDOW
 from .presets import ENGINES, FPS_OPTIONS, PRESETS, RESOLUTIONS
 
 ProgressFn = Callable[[float, str], None]
@@ -120,7 +121,8 @@ def nvenc_available() -> bool:
 def probe(path: str | Path) -> VideoInfo:
     _, ffprobe = find_ffmpeg()
     cmd = [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                            creationflags=NO_WINDOW)
     if result.returncode != 0:
         raise EnhanceError(f"Cannot read video: {result.stderr.strip() or 'unknown error'}")
     data = json.loads(result.stdout)
@@ -279,6 +281,7 @@ def _run_ffmpeg(cmd: list[str], duration: float, progress: Optional[ProgressFn],
     proc = subprocess.Popen(
         [cmd[0], "-nostdin", *cmd[1:], "-progress", "pipe:1", "-nostats"],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
+        encoding="utf-8", errors="replace", creationflags=NO_WINDOW,
     )
     stderr_tail: list[str] = []
 
@@ -321,7 +324,8 @@ def _run_gpu_tool(cmd: list[str], out_dir: Path, total: int, report: ProgressFn,
                   start: float, span: float, label: str, name: str,
                   offset: int = 0, grand_total: int = 0) -> None:
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.PIPE, text=True, cwd=str(Path(cmd[0]).parent))
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                            cwd=str(Path(cmd[0]).parent), creationflags=NO_WINDOW)
     err: list[str] = []
     t = threading.Thread(target=lambda: err.extend(proc.stderr or []), daemon=True)
     t.start()
@@ -471,7 +475,8 @@ def _enhance_gpu(ffmpeg: str, input_path: Path, output_path: Path, info: VideoIn
         # 4) Join chunks + original audio.
         report(0.96, "finalizing")
         listing = tmp_dir / "segments.txt"
-        listing.write_text("".join(f"file '{s.as_posix()}'\n" for s in segments))
+        listing.write_text("".join("file '" + s.as_posix().replace("'", "'\\''") + "'\n" for s in segments),
+                           encoding="utf-8")
         cmd = [ffmpeg, "-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i", str(listing),
                "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?", "-c:v", "copy",
                "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output_path)]

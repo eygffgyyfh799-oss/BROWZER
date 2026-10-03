@@ -41,6 +41,7 @@
   .row { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-top: 8px; gap: 8px; }
   #download { display: none; margin-top: 14px; text-align: center; padding: 14px; border-radius: 12px; background: var(--ok);
               color: #fff; text-decoration: none; font-weight: 700; }
+  button.secondary { margin-top: 10px; background: #232838; font-size: 15px; padding: 11px; }
   .err { color: var(--err); margin-top: 10px; white-space: pre-wrap; font-size: 13px; }
   #sys { font-size: 13px; color: var(--muted); }
   #sys .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 6px; }
@@ -105,6 +106,8 @@
       <div class="row"><span id="info"></span></div>
     </div>
     <a id="download" href="#">⬇️ تحميل الفيديو المحسّن</a>
+    <button id="reveal" class="secondary" style="display:none">📂 فتح مجلد الحفظ</button>
+    <div id="savedTo" class="row" style="display:none; justify-content:flex-start"></div>
     <div id="error" class="err"></div>
   </div>
 
@@ -143,6 +146,7 @@ function setProgress(p, label) {
 go.onclick = () => {
   if (!file) return;
   go.disabled = true; $("error").textContent = ""; $("download").style.display = "none";
+  $("reveal").style.display = "none"; $("savedTo").style.display = "none";
   $("progressBox").style.display = "block"; $("info").textContent = "";
   const params = new URLSearchParams({ filename: file.name, engine: val("engine"), resolution: val("resolution"), fps: val("fps"), preset: val("preset") });
   const xhr = new XMLHttpRequest();
@@ -163,6 +167,10 @@ function poll(id) {
     setProgress(j.progress || 0, j.stage || "");
     if (j.status === "done") {
       const a = $("download"); a.href = `/api/jobs/${id}/download`; a.style.display = "block"; go.disabled = false;
+      $("reveal").style.display = "block"; $("reveal").onclick = () => fetch(`/api/jobs/${id}/reveal`);
+      $("savedTo").style.display = "flex"; $("savedTo").textContent = "تم الحفظ تلقائياً في: ";
+      const pathEl = document.createElement("bdi"); pathEl.dir = "ltr"; pathEl.textContent = j.output;
+      pathEl.style.wordBreak = "break-all"; $("savedTo").appendChild(pathEl);
     } else if (j.status === "error") fail(j.error);
     else setTimeout(() => poll(id), 1000);
   }).catch(() => setTimeout(() => poll(id), 2000));
