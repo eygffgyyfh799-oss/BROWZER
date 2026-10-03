@@ -294,7 +294,7 @@ JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests',
     if approve then
         if row.type == 'locate' then
             local target = QBCore.Functions.GetPlayerByCitizenId(row.citizenid)
-            local ped = target and GetPlayerPed(target.PlayerData.source) or 0
+            local ped = target and JS.HasPhone(target) and GetPlayerPed(target.PlayerData.source) or 0
             if ped ~= 0 and officer then
                 local c = GetEntityCoords(ped)
                 JS.TabletEvent(officer.PlayerData.source, {
@@ -304,7 +304,9 @@ JS.RegisterCallback('NomadJustice:server:answerPoliceRequest', 'policeRequests',
                 })
                 resultText = 'Location sent to the officer'
             else
-                resultText = target and 'The officer is offline' or 'The citizen was offline at approval time'
+                resultText = not target and 'The citizen was offline at approval time'
+                    or not JS.HasPhone(target) and 'The citizen has no phone - location cannot be traced'
+                    or 'The officer is offline'
             end
         elseif row.type == 'bank' then
             Grant(row.officer_cid, row.citizenid, 'bank', Police.GrantMinutes)

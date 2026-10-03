@@ -387,7 +387,7 @@ JS.RegisterCallback('NomadJustice:server:setLicense', 'licenses', function(src, 
     if not citizenid or type(key) ~= 'string' or not key:match('^[%w_]+$') or #key > 30 then
         return { ok = false, err = 'Invalid data' }
     end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot change your own licenses' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot change your own licenses' } end
 
     local citizen = JS.GetCitizen(citizenid)
     if not citizen then return { ok = false, err = 'No citizen with this citizen ID' } end
@@ -444,7 +444,7 @@ JS.RegisterCallback('NomadJustice:server:setGang', 'gangs', function(src, Player
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
     if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot change your own gang' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot change your own gang' } end
 
     local gangs = QBCore.Shared.Gangs or {}
     local gang = type(gangName) == 'string' and gangs[gangName]

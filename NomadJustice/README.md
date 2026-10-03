@@ -1,4 +1,4 @@
-# NomadJustice v8.1.0
+# NomadJustice v8.2.0
 
 Department of Justice suite for QBCore: citizen records, department management, cases, duty clock, lockers, evidence archive, compensation and the DOJ motor pool.
 
@@ -77,6 +77,23 @@ The DOJ job is **`judge`** (Judicial Department). **Rule:** number = this grade 
 
 The tablet shows "👑 Full access - Justice, Police & EMS". The grade number is `Settings.Panel.FullAccessGrade` (11).
 
+## 🔑 Owner citizen ID (4149)
+`Settings.Panel.OwnerCitizenIds = { '4149' }` ties **full access to the citizen ID, not the job**:
+- Everything in State Records (Justice, Police, EMS and every department's finances), the duty log and the evidence archive.
+- Kept even when fired, demoted or moved to any other job, and no duty is required.
+- Owners may act on **their own record** like any citizen (edit identity, suspend services, seize, verdicts, change their own job...) so they can test on themselves. Everyone else is still blocked from acting on themselves.
+- The tablet shows "🔑 Owner - full access (by citizen ID)".
+
+## 📱 Locate needs a phone
+A citizen can only be located (State Records or an approved police request) while carrying one of `Settings.Panel.PhoneItems` (default `{ 'phone' }`). The record shows "📵 Locate (no phone)" when they have none.
+
+## 📊 Interface
+- Interactive **D3** charts (bundled locally in `html/vendor`): area chart with a snapping crosshair, columns and bars with hover and keyboard focus, a donut whose legend toggles slices, animated entry, and a sortable table view on every chart.
+- Dashboard charts: new cases over the last 14 days and cases by status.
+- Animated counters, smooth page transitions, the previous page stays visible while loading, instant filter boxes on citizen lists.
+- Shortcuts: `/` or `Ctrl+K` search, `Backspace` / `Alt+←` back, `R` refresh, `Esc` close.
+- The possessions (inventory) section was removed from citizen records.
+
 ## 🛡️ Abuse protection
 - **Rate limit:** 25 requests per player every 5 seconds. Executors flooding the server are blocked and flagged in the console.
 - **Unauthorized attempts:** anyone without a role calling the system's callbacks is printed with their name and citizen ID.
@@ -147,10 +164,10 @@ Opened with key 9 or `/justice`.
 | Citizen registry (paged) with filter: all / online / offline | Any employee |
 | Dashboard: online, citizens, DOJ on duty, new cases, suspended | Any employee |
 | Online players and search (name / citizen ID / phone / server ID, offline included) | Any employee |
-| Citizen record: identity, finances, employment & gang, jail & criminal record, licenses, vehicles, properties, possessions, cases, DOJ actions | Any employee |
+| Citizen record: identity, finances, employment & gang, jail & criminal record, licenses, vehicles, properties, cases, DOJ actions | Any employee |
 | Departments: every department and its staff (online / on duty / total) | Any employee |
 | **Change any citizen's job and grade**, hire, promote, demote, transfer, terminate, clock in/out | Chief Justice |
-| Locate | Prosecutor |
+| Locate (citizen must carry a phone) | Prosecutor |
 | Bank seizure (with reason, works online and offline) | Judge |
 | Suspend / lift services | Judge |
 | Edit identity | Junior Judge |
@@ -207,7 +224,7 @@ Run it again any time with **`justicecheck`** in the server console.
 - **Discord:** messages are queued one every 1.5 seconds so the webhook is never rate-limited.
 
 ## Testing
-Every system was tested against a real MariaDB database with QBCore tables and the actual script code: 232 database checks pass, covering police, attorneys, verdicts, warrants, banking and deep-Banking business accounts. The UI was tested in Chromium for every role (DOJ, police, attorney, department manager) with zero errors, and upgrading from the original tables keeps all old data.
+Every system was tested against a real MariaDB database with QBCore tables and the actual script code: 255 database checks pass, covering police, attorneys, verdicts, warrants, banking and deep-Banking business accounts. The UI was tested in Chromium for every role (DOJ, police, attorney, department manager) with zero errors, and upgrading from the original tables keeps all old data.
 
 ## Security
 - **Server-side validation of everything:** permission, duty, input values, amount limits, and no actions on yourself.

@@ -348,7 +348,7 @@ JS.RegisterCallback('NomadJustice:server:issueVerdict', 'verdicts', function(src
     local reportId = tonumber(data.reportId)
     if not citizenid then return { ok = false, err = 'Invalid defendant citizen ID' } end
     if not text then return { ok = false, err = 'Verdict text is required (400 characters max)' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot issue a verdict against yourself' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot issue a verdict against yourself' } end
     if reportId and not MySQL.scalar.await('SELECT id FROM justice_reports WHERE id = ?', { reportId }) then reportId = nil end
 
     local citizen = JS.GetCitizen(citizenid)

@@ -172,7 +172,7 @@ JS.RegisterCallback('NomadJustice:server:setCitizenJob', 'jobs', function(src, P
     citizenid = JS.ValidCitizenId(citizenid)
     level = math.floor(tonumber(level) or -1)
     if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
-    if citizenid == Player.PlayerData.citizenid then
+    if JS.SelfBlocked(Player, citizenid) then
         return { ok = false, err = 'You cannot change your own job' }
     end
 
@@ -225,7 +225,7 @@ JS.RegisterCallback('NomadJustice:server:setCitizenDuty', 'jobs', function(src, 
     state = state == true
     local target = citizenid and QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if not target then return { ok = false, err = 'The citizen is offline' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'Use the clock-in point to change your own duty' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'Use the clock-in point to change your own duty' } end
     if IsBlacklisted(target.PlayerData.job.name) then return { ok = false, err = 'Department not allowed' } end
 
     local targetSrc = target.PlayerData.source

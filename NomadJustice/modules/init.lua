@@ -64,7 +64,7 @@ local Defaults = {
 		CaseTypes = { 'Civil', 'Criminal', 'Traffic', 'Real Estate', 'Commercial', 'Family', 'Labor', 'Other' },
 		ReportTitleMax = 80, ReportWitnessesMax = 200, ReportEvidenceMax = 500, ReportNoteMax = 500,
 		Panel = {
-			Command = 'justice', RequireDuty = true, FullAccessGrade = 11, UseTablet = true, Key = '9', TabletAnimation = true,
+			Command = 'justice', RequireDuty = true, FullAccessGrade = 11, OwnerCitizenIds = {}, PhoneItems = { 'phone' }, UseTablet = true, Key = '9', TabletAnimation = true,
 			Permissions = {
 				view = 0, reports = 0, city = 0, deleteReport = 8, locate = 4, withdraw = 9, suspend = 9, edit = 8,
 				logs = 8, compensation = 9, unlimitedCompensation = 11, jobs = 11, summon = 1, vehicles = 9, properties = 9,

@@ -343,7 +343,7 @@ end)
 RegisterNetEvent('NomadJustice:server:updateDutyHistory', function()
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
-    if not JS.IsJustice(Player) then return end
+    if not JS.HasJusticeJob(Player) then return end
 
     local citizenid = Player.PlayerData.citizenid
     if JS.OnCooldown('duty', citizenid, math.max(Settings.DutyCooldown - 2, 1)) then return end

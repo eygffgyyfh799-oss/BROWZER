@@ -53,6 +53,14 @@ return {
             -- duty log and evidence archive. 11 = Chief Justice, 12 = Supreme Court Justice
             FullAccessGrade = 11,
 
+            -- 🔑 Owner citizen IDs: EVERYTHING in State Records (Justice, Police, EMS, finances...) tied to the
+            -- citizen ID, not the job - stays even if fired, demoted or moved to another job, no duty needed.
+            -- Owners may also act on their own record (edit identity, suspend services, seize, verdicts...) to test.
+            OwnerCitizenIds = { '4149' },
+
+            -- 📱 A citizen can only be located if they carry one of these items (empty list = no requirement)
+            PhoneItems = { 'phone' },
+
             -- Permissions:  number = this grade and above  |  'boss' = grades flagged isboss  |  false = locked
             -- Judicial Department grades:
             --   0 Trainee | 1 Court Clerk | 2 Lawyer | 3 Senior Lawyer | 4 Prosecutor | 5 Senior Prosecutor

@@ -319,3 +319,59 @@ select option { background: var(--panel); }
 .chart-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .chart-table th, .chart-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .chart-table th { color: var(--muted); font-weight: 500; }
+
+/* ═════ Interaction layer ═════ */
+.content { transition: opacity .15s; }
+.content.stale { opacity: .5; pointer-events: none; }
+.page-enter { animation: enter .22s ease-out both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.list > .item { animation: enter .22s ease-out both; }
+.list > .item:nth-child(2) { animation-delay: 20ms; } .list > .item:nth-child(3) { animation-delay: 40ms; }
+.list > .item:nth-child(4) { animation-delay: 60ms; } .list > .item:nth-child(5) { animation-delay: 80ms; }
+.list > .item:nth-child(6) { animation-delay: 100ms; } .list > .item:nth-child(n+7) { animation-delay: 120ms; }
+.grid.stats > .stat { animation: enter .25s ease-out both; }
+
+.btn, .chip, .stat.clickable, .item.clickable, nav button { transition: transform .08s, background .15s, border-color .15s, color .15s; }
+.btn:active:not(:disabled), .chip:active, .stat.clickable:active, .item.clickable:active { transform: scale(.98); }
+.stat.clickable:hover { border-color: rgba(184, 178, 161, .45); transform: translateY(-1px); }
+.item.clickable:hover { transform: translateX(2px); }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.card-title kbd { font-size: 11px; color: var(--muted); font-weight: 500; }
+
+.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; position: relative; }
+.filter-icon { position: absolute; left: 11px; color: var(--muted); font-size: 15px; pointer-events: none; }
+.filter-input { padding-left: 30px; height: 36px; font-size: 13px; }
+.filter-count { color: var(--muted); font-size: 12px; white-space: nowrap; min-width: 70px; text-align: right; }
+
+/* ═════ D3 charts ═════ */
+.viz, .viz-host { position: relative; }
+.viz-host svg { display: block; overflow: visible; }
+.viz-hit { cursor: pointer; outline: none; }
+.viz-hit:focus-visible { outline: none; stroke: var(--gold); stroke-width: 1; }
+.viz-tip {
+    position: absolute; z-index: 6; pointer-events: none; transform: translate(-50%, -100%);
+    display: flex; align-items: center; gap: 7px;
+    background: #0b0a0a; border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; white-space: nowrap; box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+    font-size: 12px; transition: left .08s, top .08s;
+}
+.viz-tip b { color: var(--text); font-size: 13px; }
+.viz-tip-label { color: var(--muted); }
+.viz-tip-key { width: 12px; height: 2px; border-radius: 2px; }
+.viz-host.is-donut { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.viz-donut { flex-shrink: 0; }
+.viz-legend { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
+.viz-legend-row {
+    display: grid; grid-template-columns: 12px 1fr auto 46px; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px;
+    color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.viz-legend-row:hover { border-color: rgba(184, 178, 161, .45); }
+.viz-legend-row.off { opacity: .45; }
+.viz-legend-row.off .viz-swatch { background: transparent !important; outline: 1px solid var(--muted); }
+.viz-swatch { width: 12px; height: 12px; border-radius: 3px; }
+.viz-legend-pct { color: var(--muted); font-size: 12px; text-align: right; }
+.chart-table th.sortable { cursor: pointer; }
+.chart-table th.sortable:hover { color: var(--text); }
+.viz-host svg text { paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }

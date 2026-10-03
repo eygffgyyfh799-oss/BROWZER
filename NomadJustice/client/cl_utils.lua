@@ -24,12 +24,24 @@ RegisterNetEvent('NomadJustice:client:notify', function(msg, msgType, length)
     if type(msg) == 'string' then JC.Notify(msg, msgType, length) end
 end)
 
+-- Owner citizen IDs keep full access whatever their job (the server makes the real decision)
+function JC.IsOwner()
+    local cid = QBCore.Functions.GetPlayerData().citizenid
+    if not cid then return false end
+    for _, owner in ipairs(JC.Settings.Panel.OwnerCitizenIds or {}) do
+        if tostring(owner) == cid then return true end
+    end
+    return false
+end
+
 function JC.IsJustice()
+    if JC.IsOwner() then return true end
     local job = QBCore.Functions.GetPlayerData().job
     return job ~= nil and job.name == JC.Job
 end
 
 function JC.IsBoss()
+    if JC.IsOwner() then return true end
     local job = QBCore.Functions.GetPlayerData().job
     if not job or job.name ~= JC.Job then return false end
     if job.isboss == true then return true end
@@ -40,6 +52,7 @@ end
 
 -- Full access grade (Chief Justice / Supreme Court Justice) - display only, the server decides
 function JC.HasFullAccess()
+    if JC.IsOwner() then return true end
     local job = QBCore.Functions.GetPlayerData().job
     if not job or job.name ~= JC.Job then return false end
     local grade = type(job.grade) == 'table' and job.grade.level or job.grade
@@ -51,7 +64,7 @@ end
 function JC.GuessRole()
     local pd = QBCore.Functions.GetPlayerData()
     local job = pd.job or {}
-    if job.name == JC.Job then return 'justice' end
+    if job.name == JC.Job or JC.IsOwner() then return 'justice' end
     for _, name in ipairs(JC.Settings.Police.Jobs or {}) do
         if job.name == name then return 'police' end
     end

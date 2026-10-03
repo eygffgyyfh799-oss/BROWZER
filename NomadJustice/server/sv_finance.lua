@@ -86,7 +86,7 @@ end
 -- requestedJob: the judge can pick any department
 function JS.GetFinanceSector(Player, ignoreDuty, requestedJob)
     if Player and JS.IsJudge(Player) then
-        if not ignoreDuty and Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return nil, 'You must be on duty' end
+        if not ignoreDuty and Settings.Panel.RequireDuty and not JS.IsOwner(Player) and not Player.PlayerData.job.onduty then return nil, 'You must be on duty' end
         local list = JS.SectorList()
         if #list == 0 then return nil end
         local chosen = list[1]

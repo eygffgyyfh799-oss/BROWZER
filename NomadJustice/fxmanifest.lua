@@ -5,7 +5,7 @@ lua54 'yes'
 name 'NomadJustice'
 description 'Nomad Justice - Department of Justice suite: citizen records, cases, duty clock, lockers, evidence archive, compensation and motor pool'
 author '2rayan'
-version '8.1.0'
+version '8.2.0'
 
 shared_scripts {
     '@ox_lib/init.lua',
@@ -46,6 +46,8 @@ files {
     'html/index.html',
     'html/style.css',
     'html/app.js',
+    'html/charts.js',
+    'html/vendor/d3.min.js',
 }
 
 dependencies {

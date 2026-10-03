@@ -155,7 +155,6 @@ local PointOptions = {
         {
             icon = 'fas fa-laptop',
             label = 'Duty Log',
-            job = JOB,
             canInteract = IsJusticeBoss,
             action = OpenDutyHistory,
         },
@@ -165,7 +164,7 @@ local PointOptions = {
         {
             icon = 'fas fa-box',
             label = 'Personal Locker',
-            job = JOB,
+            canInteract = IsJustice,
             action = function()
                 TriggerServerEvent('NomadJustice:server:openStash', 'personal')
             end,
@@ -173,7 +172,6 @@ local PointOptions = {
         {
             icon = 'fas fa-box-archive',
             label = 'Evidence Archive',
-            job = JOB,
             canInteract = IsJusticeBoss,
             action = function()
                 local input = lib.inputDialog('Evidence Archive', {
@@ -192,7 +190,7 @@ local PointOptions = {
         {
             icon = 'fas fa-scale-balanced',
             label = 'View Filed Cases',
-            job = JOB,
+            canInteract = IsJustice,
             action = function()
                 if Settings.Panel.UseTablet ~= false and JC.Tablet then return JC.Tablet.Open('reports') end
                 JC.Reports.OpenList()
@@ -204,7 +202,7 @@ local PointOptions = {
         {
             icon = 'fas fa-address-card',
             label = 'State Records',
-            job = JOB,
+            canInteract = IsJustice,
             action = function() JC.Panel.Open() end,
         },
     },
@@ -288,7 +286,6 @@ local function create_zones()
         {
             icon = 'fa-solid fa-car',
             label = 'Talk',
-            job = JOB,
             canInteract = IsJustice,
             action = function()
                 TriggerEvent('NomadJustice:client:spawnVehicleMenu', {

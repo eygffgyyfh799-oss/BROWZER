@@ -174,8 +174,30 @@ function item({ icon, title, sub, side, onclick }) {
 }
 
 function stat(label, value, tone, onclick) {
-    return h('div', { class: 'stat' + (onclick ? ' clickable' : ''), style: tone ? `--tone: var(--${tone})` : null, onclick },
-        h('div', { class: 'label' }, label), h('div', { class: 'value' }, value));
+    const valueEl = h('div', { class: 'value' }, value);
+    if (typeof Charts !== 'undefined' && value !== '' && value != null && !isNaN(Number(value))) Charts.countUp(valueEl, value);
+    return h('div', { class: 'stat' + (onclick ? ' clickable' : ''), style: tone ? `--tone: var(--${tone})` : null, onclick, tabindex: onclick ? 0 : null,
+        onkeydown: onclick ? (e) => { if (e.key === 'Enter') onclick(); } : null },
+        h('div', { class: 'label' }, label), valueEl);
+}
+
+// Instant client-side filter for a list: hides items that do not contain the typed text
+function filterable(listNode, placeholder = 'Filter this list...') {
+    if (!listNode) return null;
+    const count = h('span', { class: 'filter-count' });
+    const input = h('input', { class: 'filter-input', placeholder });
+    const apply = () => {
+        const q = input.value.trim().toLowerCase();
+        let shown = 0;
+        for (const el of listNode.children) {
+            const match = !q || el.textContent.toLowerCase().includes(q);
+            el.classList.toggle('hidden', !match);
+            if (match) shown++;
+        }
+        count.textContent = q ? `${shown} shown` : '';
+    };
+    input.addEventListener('input', apply);
+    return h('div', null, h('div', { class: 'filter-bar' }, h('span', { class: 'filter-icon' }, '⌕'), input, count), listNode);
 }
 
 function card(title, ...body) {
@@ -287,14 +309,19 @@ async function render() {
     const token = Symbol('render');
     S.renderToken = token;
     let node;
+    const staleTimer = setTimeout(() => content.classList.add('stale'), 120);
     try {
         node = await def.render(arg);
     } catch (e) {
         console.error(e);
         node = empty('Could not render this page', '⚠️');
     }
+    clearTimeout(staleTimer);
     if (S.renderToken !== token) return; // another page was opened while loading
-    content.replaceChildren(node || empty('Could not load data', '⚠️'));
+    content.classList.remove('stale');
+    const view = node || empty('Could not load data', '⚠️');
+    if (view.classList) view.classList.add('page-enter');
+    content.replaceChildren(view);
     content.scrollTop = 0;
     renderNav();
 }
@@ -325,7 +352,14 @@ PAGES.home = {
                 S.perms.policeRequests ? stat('Police Requests', info.policeRequests, 'blue', () => go('policeRequests')) : null,
             ),
             h('div', { style: 'height:14px' }),
-            card('🔎 Quick Search', h('div', { class: 'searchbar' }, quick, btn('Search', () => quick.value.trim() && go('search', quick.value.trim()), 'primary'))),
+            S.perms.reports && info.trend ? h('div', { class: 'grid two' },
+                barChart({ title: '📈 New Cases (last 14 days)', data: info.trend, kind: 'area' }),
+                barChart({ title: '⚖️ Cases by Status', kind: 'donut', data: [
+                    { label: 'New', value: (info.caseStatus || {}).new },
+                    { label: 'Under Review', value: (info.caseStatus || {}).review },
+                    { label: 'Closed', value: (info.caseStatus || {}).closed },
+                ] })) : null,
+            card(h('span', null, '🔎 Quick Search ', h('kbd', null, '/')), h('div', { class: 'searchbar' }, quick, btn('Search', () => quick.value.trim() && go('search', quick.value.trim()), 'primary'))),
             card('⚡ Shortcuts', h('div', { class: 'actions' },
                 btn('🟢 Online Citizens', () => go('online')),
                 btn('👥 Citizen Registry', () => go('citizens')),
@@ -344,7 +378,7 @@ PAGES.online = {
         const res = await call('getOnlinePlayers');
         if (!res) return null;
         return card(`🟢 Online Now (${arr(res.players).length})`,
-            arr(res.players).length ? h('div', { class: 'list' }, arr(res.players).map(citizenItem)) : empty('No players online'));
+            arr(res.players).length ? filterable(h('div', { class: 'list' }, arr(res.players).map(citizenItem)), 'Filter by name, citizen ID, job or phone...') : empty('No players online'));
     },
 };
 
@@ -359,7 +393,7 @@ PAGES.citizens = {
         return h('div', null,
             h('div', { class: 'chips' }, chip('all', `All`), chip('online', `🟢 Online (${res.online})`), chip('offline', '⚫ Offline')),
             card(`👥 ${res.total} citizens`,
-                arr(res.list).length ? h('div', { class: 'list' }, arr(res.list).map(citizenItem)) : empty('No citizens found'),
+                arr(res.list).length ? filterable(h('div', { class: 'list' }, arr(res.list).map(citizenItem)), 'Filter this page...') : empty('No citizens found'),
                 pager(res.page, res.pages, (p) => set({ page: p })),
             ),
         );
@@ -431,7 +465,7 @@ PAGES.profile = {
         const tabs = [
             ['personal', '🪪 Identity'], ['money', '💰 Finances'], ['job', '💼 Employment & Record'],
             ['licenses', '📄 Licenses'], ['vehicles', `🚗 Vehicles${p.vehicles ? ` (${arr(p.vehicles).length})` : ''}`],
-            ['houses', `🏠 Properties${p.houses ? ` (${arr(p.houses).length})` : ''}`], ['items', `📦 Possessions (${arr(p.items).length})`],
+            ['houses', `🏠 Properties${p.houses ? ` (${arr(p.houses).length})` : ''}`],
             ['reports', `⚖️ Cases (${arr(p.reports).length})`], ['summons', `📜 Summonses (${arr(p.summons).length})`],
             ['court', `🔨 Verdicts & Warrants (${arr(p.court && p.court.verdicts).length})`],
             perms.logs ? ['logs', '🗂️ Audit Log'] : null,
@@ -451,7 +485,9 @@ function profileActions(p, perms, reload) {
     const list = [];
     const self = p.isSelf;
 
-    if (perms.locate) list.push(btn('📍 Locate', async () => {
+    if (perms.locate) list.push(btn(p.online && !p.hasPhone ? '📵 Locate (no phone)' : '📍 Locate', async () => {
+        if (!p.online) return toast('The citizen is not online', 'error');
+        if (!p.hasPhone) return toast('The citizen has no phone - location cannot be traced', 'error');
         const r = await call('locateCitizen', p.citizenid);
         if (r) toast(`${r.name} is at: ${val(r.street)}${r.inVehicle ? ' (in a vehicle)' : ''} - marked on the map`, 'success', 7000);
     }, 'blue'));
@@ -580,8 +616,6 @@ async function profileTab(tab, p, perms, reload) {
         case 'houses':
             if (!p.houses) return empty('Property registry is not enabled');
             return card(null, arr(p.houses).length ? h('div', { class: 'list' }, arr(p.houses).map((x) => item({ icon: '🏠', title: x.label }))) : empty('No properties', '🏠'));
-        case 'items':
-            return card(null, arr(p.items).length ? h('div', { class: 'list' }, arr(p.items).map((x) => item({ icon: '📦', title: x.label, side: badge(`× ${x.amount}`) }))) : empty('No possessions', '📦'));
         case 'reports':
             return card(null, arr(p.reports).length ? h('div', { class: 'list' }, arr(p.reports).map((r) => item({
                 icon: '⚖️', title: `#${r.id} | ${r.title}`, sub: `${r.role} | ${val(r.caseType)} | ${val(r.status)} | ${val(r.date)}`,
@@ -1195,7 +1229,38 @@ PAGES.policeRequests = {
 };
 
 // ═════ Charts: single-hue column/bar, value at bar end, hover tooltip, and a table alternative ═════
-function barChart({ title, data, unit = '', vertical = false }) {
+// Interactive D3 chart card (column / area / hbar / donut) with a sortable table view
+function barChart({ title, data, unit = '', vertical = false, kind }) {
+    if (typeof Charts === 'undefined' || !Charts.available()) return legacyChart({ title, data, unit, vertical });
+    kind = kind || (vertical ? 'column' : 'hbar');
+    const rows = arr(data).map((d) => ({ label: String(d.label), value: Number(d.value) || 0 }));
+    const fmt = (v) => `${Number(v).toLocaleString('en-US')}${unit}`;
+    let showTable = false;
+    let sort = { key: null, dir: 1 };
+    const body = h('div', { class: 'viz' });
+
+    const table = () => {
+        const sorted = [...rows];
+        if (sort.key) sorted.sort((a, b) => (sort.key === 'value' ? a.value - b.value : a.label.localeCompare(b.label)) * sort.dir);
+        const th = (key, text) => h('th', { class: 'sortable', onclick: () => { sort = { key, dir: sort.key === key ? -sort.dir : (key === 'value' ? -1 : 1) }; draw(); } },
+            text, sort.key === key ? (sort.dir > 0 ? ' ▲' : ' ▼') : '');
+        return h('table', { class: 'chart-table' }, h('tr', null, th('label', 'Item'), th('value', 'Value')),
+            sorted.map((d) => h('tr', null, h('td', null, d.label), h('td', null, fmt(d.value)))));
+    };
+
+    const draw = () => {
+        if (!rows.length || (kind === 'donut' && !rows.some((d) => d.value > 0))) return body.replaceChildren(empty('No data', '📊'));
+        if (showTable) return body.replaceChildren(table());
+        const host = h('div', { class: 'viz-host' });
+        body.replaceChildren(host);
+        Charts[kind](host, rows, { unit });
+    };
+    draw();
+    const toggle = btn('Table', () => { showTable = !showTable; toggle.textContent = showTable ? 'Chart' : 'Table'; draw(); }, 'small');
+    return h('div', { class: 'card chart' }, h('div', { class: 'card-title' }, title, h('span', { class: 'spacer' }), toggle), body);
+}
+
+function legacyChart({ title, data, unit = '', vertical = false }) {
     const rows = arr(data);
     const max = Math.max(1, ...rows.map((d) => Number(d.value) || 0));
     const fmt = (v) => `${Number(v).toLocaleString('en-US')}${unit}`;
@@ -1256,13 +1321,13 @@ PAGES.stats = {
             h('div', { class: 'grid stats', style: 'margin-bottom:14px' },
                 stat('Total Cases', t.cases), stat('Active Verdicts', t.verdicts, 'red'),
                 stat('Active Warrants', t.warrants, 'yellow'), stat('Persons of Interest', t.suspects, 'purple')),
-            barChart({ title: '📈 New Cases per Week (last 8 weeks)', data: res.casesPerWeek, vertical: true }),
+            barChart({ title: '📈 New Cases per Week (last 8 weeks)', data: res.casesPerWeek, kind: 'area' }),
             h('div', { class: 'grid two' },
                 barChart({ title: '📂 Most Common Case Types', data: res.caseTypes }),
                 barChart({ title: '🔨 Active Verdicts by Type', data: res.verdictTypes })),
             h('div', { class: 'grid two' },
                 barChart({ title: '👥 Staff Activity: Actions (30 days)', data: res.officers }),
-                barChart({ title: '🕒 Duty Hours (last 7 days)', data: res.dutyHours, unit: ' h' })),
+                barChart({ title: '🕒 Duty Hours (last 7 days)', data: res.dutyHours, unit: ' h', vertical: true })),
         );
     },
 };
@@ -1520,7 +1585,7 @@ function onLiveEvent(ev) {
 
 // ═════ Open and close ═════
 function renderMe() {
-    const roleLabel = S.info && S.info.judge ? '👑 Full access - Justice, Police & EMS' : ({ justice: '⚖️ Judicial Department', police: '🚓 Police Department', lawyer: '💼 Attorney', sector: '💰 Department Manager' }[S.role] || '');
+    const roleLabel = S.info && S.info.owner ? '🔑 Owner - full access (by citizen ID)' : S.info && S.info.judge ? '👑 Full access - Justice, Police & EMS' : ({ justice: '⚖️ Judicial Department', police: '🚓 Police Department', lawyer: '💼 Attorney', sector: '💰 Department Manager' }[S.role] || '');
     $('me').replaceChildren(h('b', null, S.me.name || '-'), h('br'), h('span', null, `${val(S.me.job)} - ${val(S.me.grade)}`), h('br'), h('span', { class: 'role-tag' }, roleLabel));
 }
 
@@ -1559,9 +1624,25 @@ window.addEventListener('message', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !S.open) return;
-    if ($('modal-root').children.length) closeModal();
-    else closeTablet();
+    if (!S.open) return;
+    if (e.key === 'Escape') {
+        if ($('modal-root').children.length) closeModal();
+        else closeTablet();
+        return;
+    }
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement || {}).tagName || '');
+    if (typing || $('modal-root').children.length) return;
+    // "/" or Ctrl+K: search | Alt+Left or Backspace: back | R: refresh
+    if (e.key === '/' || (e.ctrlKey && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        if (S.role === 'justice') go('search');
+        else if (PAGES.psearch && S.role === 'police') go('psearch');
+    } else if ((e.altKey && e.key === 'ArrowLeft') || e.key === 'Backspace') {
+        e.preventDefault();
+        back();
+    } else if (e.key.toLowerCase() === 'r' && !e.ctrlKey) {
+        refresh();
+    }
 });
 
 $('btn-close').addEventListener('click', closeTablet);

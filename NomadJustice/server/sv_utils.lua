@@ -178,12 +178,50 @@ function JS.GetGrade(Player)
     return tonumber(type(grade) == 'table' and grade.level or grade) or 0
 end
 
-function JS.IsJustice(Player)
+-- Owner citizen IDs (Settings.Panel.OwnerCitizenIds): full access to everything, whatever their job or grade,
+-- and allowed to act on their own record (to test on themselves)
+function JS.IsOwner(Player)
+    local cid = Player and Player.PlayerData and Player.PlayerData.citizenid
+    if not cid then return false end
+    for _, owner in ipairs(Settings.Panel.OwnerCitizenIds or {}) do
+        if tostring(owner) == cid then return true end
+    end
+    return false
+end
+
+-- Holds the DOJ job (owners excluded)
+function JS.HasJusticeJob(Player)
     return Player ~= nil and Player.PlayerData.job ~= nil and Player.PlayerData.job.name == JS.Job
+end
+
+function JS.IsJustice(Player)
+    return JS.HasJusticeJob(Player) or JS.IsOwner(Player)
+end
+
+-- Blocks actions on your own record, except for owners
+function JS.SelfBlocked(Player, citizenid)
+    return citizenid == Player.PlayerData.citizenid and not JS.IsOwner(Player)
+end
+
+-- Has a phone item: required to locate someone
+function JS.HasPhone(Player)
+    local list = Settings.Panel.PhoneItems or { 'phone' }
+    if #list == 0 then return true end
+    for _, name in ipairs(list) do
+        local ok, item = pcall(Player.Functions.GetItemByName, name)
+        if ok and item and (tonumber(item.amount) or 1) > 0 then return true end
+    end
+    for _, item in pairs(Player.PlayerData.items or {}) do
+        for _, name in ipairs(list) do
+            if type(item) == 'table' and item.name == name and (tonumber(item.amount) or 1) > 0 then return true end
+        end
+    end
+    return false
 end
 
 -- Manager, or the full access grade (FullAccessGrade) and above
 function JS.IsBoss(Player)
+    if JS.IsOwner(Player) then return true end
     if not JS.IsJustice(Player) then return false end
     if Player.PlayerData.job.isboss == true then return true end
     local fullAccess = tonumber(Settings.Panel.FullAccessGrade)
@@ -195,12 +233,17 @@ function JS.Can(Player, action)
         return false, 'You must be a Department of Justice employee'
     end
 
+    local required = Settings.Panel.Permissions[action]
+    if JS.IsOwner(Player) then
+        if required == nil then return false, 'Unknown permission' end
+        return true
+    end
+
     local job = Player.PlayerData.job
     if Settings.Panel.RequireDuty and not job.onduty then
         return false, 'You must be on duty'
     end
 
-    local required = Settings.Panel.Permissions[action]
     if required == nil then return false, 'Unknown permission' end
     if required == false then return false, 'This permission is disabled' end
 
@@ -247,12 +290,13 @@ end
 -- The judge (full access grade) has full access to the whole state system
 function JS.IsJudge(Player)
     local full = tonumber(Settings.Panel.FullAccessGrade)
-    return JS.IsJustice(Player) and full ~= nil and JS.GetGrade(Player) >= full
+    if JS.IsOwner(Player) then return true end
+    return JS.HasJusticeJob(Player) and full ~= nil and JS.GetGrade(Player) >= full
 end
 
 function JS.CanPolice(Player, action)
     if JS.IsJudge(Player) then
-        if Settings.Panel.RequireDuty and not Player.PlayerData.job.onduty then return false, 'You must be on duty' end
+        if Settings.Panel.RequireDuty and not JS.IsOwner(Player) and not Player.PlayerData.job.onduty then return false, 'You must be on duty' end
         if Settings.Police.Permissions[action] == nil then return false, 'Unknown permission' end
         return true
     end
@@ -329,7 +373,7 @@ function JS.BroadcastTablet(filter, event)
 end
 
 function JS.JusticeOnDuty(target)
-    return JS.IsJustice(target) and target.PlayerData.job.onduty == true
+    return JS.IsOwner(target) or (JS.HasJusticeJob(target) and target.PlayerData.job.onduty == true)
 end
 
 function JS.PoliceOnDuty(target)

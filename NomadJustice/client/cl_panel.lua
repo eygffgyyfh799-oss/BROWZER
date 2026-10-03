@@ -358,18 +358,6 @@ local function ProfileSections(p, perms, menuId, reopen)
         }
     end
 
-    -- Possessions
-    sections[#sections + 1] = {
-        title = ('Possessions (%d)'):format(#(p.items or {})), icon = 'fas fa-box-open', arrow = true,
-        onSelect = function()
-            local items = {}
-            for i, item in ipairs(p.items or {}) do
-                items[i] = { title = item.label, description = ('Quantity: %d'):format(item.amount), icon = 'fas fa-box' }
-            end
-            ListMenu('justice_profile_items', 'Possessions', menuId, items, 'No possessions')
-        end,
-    }
-
     -- Cases
     sections[#sections + 1] = {
         title = ('Cases (%d)'):format(#(p.reports or {})), icon = 'fas fa-scale-balanced', arrow = true,
@@ -418,8 +406,8 @@ local function ProfileActions(p, perms, reopen)
     if perms.locate then
         actions[#actions + 1] = {
             title = 'Locate Now', icon = 'fas fa-location-crosshairs', iconColor = 'blue',
-            description = p.online and 'Mark on the map' or 'The citizen is offline',
-            disabled = not p.online,
+            description = not p.online and 'The citizen is offline' or not p.hasPhone and 'No phone - cannot be traced' or 'Mark on the map',
+            disabled = not p.online or not p.hasPhone,
             onSelect = function()
                 local result = JC.Call('NomadJustice:server:locateCitizen', p.citizenid)
                 if not result then return reopen() end

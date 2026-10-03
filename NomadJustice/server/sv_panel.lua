@@ -50,28 +50,6 @@ local function GetHouses(citizenid)
     return list
 end
 
-local function GetItems(items)
-    local shared = QBCore.Shared.Items or {}
-    local grouped, order = {}, {}
-    for _, item in pairs(items or {}) do
-        if type(item) == 'table' and item.name then
-            local amount = tonumber(item.amount or item.count) or 1
-            if not grouped[item.name] then
-                grouped[item.name] = 0
-                order[#order + 1] = item.name
-            end
-            grouped[item.name] = grouped[item.name] + amount
-        end
-    end
-
-    local list = {}
-    for i, name in ipairs(order) do
-        list[i] = { label = shared[name] and shared[name].label or name, amount = grouped[name] }
-    end
-    table.sort(list, function(a, b) return a.label < b.label end)
-    return list
-end
-
 local function GetLicenses(metadata)
     local list, seen = {}, {}
     local current = metadata.licences or metadata.licenses or {}
@@ -123,6 +101,7 @@ local function BuildProfile(citizen, Viewer)
         online = citizen.online ~= nil,
         status = JS.GetStatus(cid, citizen.lastUpdatedRaw),
         serverId = citizen.online and citizen.online.PlayerData.source or nil,
+        hasPhone = citizen.online ~= nil and JS.HasPhone(citizen.online),
         ping = citizen.online and GetPlayerPing(citizen.online.PlayerData.source) or nil,
         lastUpdated = citizen.lastUpdated,
 
@@ -163,14 +142,14 @@ local function BuildProfile(citizen, Viewer)
         licenses = GetLicenses(md),
         vehicles = GetVehicles(cid),
         houses = GetHouses(cid),
-        items = GetItems(citizen.items),
         transactions = transactions,
         reports = reports,
         suspension = JS.Suspended[cid],
         summons = JS.GetSummons and JS.GetSummons(cid) or {},
         court = JS.GetCourtInfo and JS.GetCourtInfo(cid) or nil,
         licenseTypes = Settings.Licenses,
-        isSelf = Viewer.PlayerData.citizenid == cid,
+        isSelf = Viewer.PlayerData.citizenid == cid and not JS.IsOwner(Viewer),
+        owner = JS.IsOwner(Viewer) or nil,
     }
 
     return profile
@@ -189,7 +168,7 @@ JS.RegisterCallback('NomadJustice:server:panelInfo', 'view', function(src, Playe
     local justiceOnDuty = 0
     for _, playerId in pairs(players) do
         local target = QBCore.Functions.GetPlayer(playerId)
-        if JS.IsJustice(target) and target.PlayerData.job.onduty then justiceOnDuty = justiceOnDuty + 1 end
+        if JS.HasJusticeJob(target) and target.PlayerData.job.onduty then justiceOnDuty = justiceOnDuty + 1 end
     end
 
     local totalCitizens = 0
@@ -201,13 +180,30 @@ JS.RegisterCallback('NomadJustice:server:panelInfo', 'view', function(src, Playe
     local suspects = tonumber(MySQL.scalar.await('SELECT COUNT(*) FROM justice_suspects WHERE active = 1')) or 0
     local policeRequests = tonumber(MySQL.scalar.await("SELECT COUNT(*) FROM justice_police_requests WHERE status = 'pending'")) or 0
 
+    -- Dashboard charts: case status split and new cases per day (last 14 days)
+    local caseStatus = { new = 0, review = 0, closed = 0 }
+    for _, row in ipairs(MySQL.query.await('SELECT status, COUNT(*) AS c FROM justice_reports WHERE job = ? GROUP BY status', { JS.Job }) or {}) do
+        if caseStatus[row.status] then caseStatus[row.status] = tonumber(row.c) or 0 end
+    end
+    local days = {}
+    for _, row in ipairs(MySQL.query.await('SELECT DATEDIFF(CURDATE(), DATE(created_at)) AS d, COUNT(*) AS c FROM justice_reports WHERE job = ? AND created_at >= CURDATE() - INTERVAL 13 DAY GROUP BY d', { JS.Job }) or {}) do
+        days[tonumber(row.d) or -1] = tonumber(row.c) or 0
+    end
+    local trend = {}
+    for d = 13, 0, -1 do
+        trend[#trend + 1] = { label = os.date('%d/%m', os.time() - d * 86400), value = days[d] or 0 }
+    end
+
     return {
         ok = true,
         role = 'justice',
         perms = JS.GetPermissions(Player),
         finance = JS.GetFinanceSector and JS.GetFinanceSector(Player) or nil,
         judge = JS.IsJudge(Player) or nil,
+        owner = JS.IsOwner(Player) or nil,
         policePerms = JS.IsJudge(Player) and JS.GetPolicePermissions(Player) or nil,
+        caseStatus = caseStatus,
+        trend = trend,
         warrants = warrants,
         suspects = suspects,
         policeRequests = policeRequests,
@@ -424,6 +420,7 @@ JS.RegisterCallback('NomadJustice:server:locateCitizen', 'locate', function(src,
     citizenid = JS.ValidCitizenId(citizenid)
     local target = citizenid and QBCore.Functions.GetPlayerByCitizenId(citizenid)
     if not target then return { ok = false, err = 'The citizen is not online' } end
+    if not JS.HasPhone(target) then return { ok = false, err = 'The citizen has no phone - location cannot be traced' } end
 
     local ped = GetPlayerPed(target.PlayerData.source)
     if ped == 0 then return { ok = false, err = 'Could not determine the location' } end
@@ -448,7 +445,7 @@ JS.RegisterCallback('NomadJustice:server:withdrawBank', 'withdraw', function(src
     if amount <= 0 then return { ok = false, err = 'Invalid amount' } end
     if amount > Panel.WithdrawMax then return { ok = false, err = ('Maximum seizure is $%d'):format(Panel.WithdrawMax) } end
     if not reason then return { ok = false, err = 'A reason is required (200 characters max)' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot perform this action on yourself' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot perform this action on yourself' } end
 
     local officerCid = Player.PlayerData.citizenid
     local blocked, remaining = JS.OnCooldown('withdraw', officerCid, Panel.WithdrawCooldown)
@@ -513,7 +510,7 @@ JS.RegisterCallback('NomadJustice:server:suspendCitizen', 'suspend', function(sr
     reason = JS.CleanText(reason, 200, true)
     if not citizenid then return { ok = false, err = 'Invalid citizen ID' } end
     if not reason then return { ok = false, err = 'A suspension reason is required (200 characters max)' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot perform this action on yourself' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot perform this action on yourself' } end
     if JS.Suspended[citizenid] then return { ok = false, err = 'This citizen is already suspended' } end
 
     local citizen = JS.GetCitizen(citizenid)
@@ -601,7 +598,7 @@ end
 JS.RegisterCallback('NomadJustice:server:editCitizen', 'edit', function(src, Player, citizenid, data)
     citizenid = JS.ValidCitizenId(citizenid)
     if not citizenid or type(data) ~= 'table' then return { ok = false, err = 'Invalid data' } end
-    if citizenid == Player.PlayerData.citizenid then return { ok = false, err = 'You cannot edit your own identity' } end
+    if JS.SelfBlocked(Player, citizenid) then return { ok = false, err = 'You cannot edit your own identity' } end
 
     local new = {
         firstname = ValidName(data.firstname),
