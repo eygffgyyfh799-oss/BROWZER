@@ -68,29 +68,30 @@ class EnhanceOptions:
 # --------------------------------------------------------------------------- tools
 
 def find_ffmpeg() -> tuple[str, str]:
-    ffmpeg = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
-    ffprobe = os.environ.get("FFPROBE_PATH") or shutil.which("ffprobe")
+    from .bootstrap import local_ffmpeg
+
+    if os.environ.get("FFMPEG_PATH") and os.environ.get("FFPROBE_PATH"):
+        return os.environ["FFMPEG_PATH"], os.environ["FFPROBE_PATH"]
+    local = local_ffmpeg()
+    if local:
+        return local
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
         raise EnhanceError(
-            "FFmpeg was not found. Install it (https://ffmpeg.org/download.html) "
-            "and make sure 'ffmpeg' and 'ffprobe' are on your PATH."
+            "FFmpeg was not found. Run 'python -m enhancer setup' to install it automatically."
         )
     return ffmpeg, ffprobe
 
 
 def find_realesrgan() -> Optional[str]:
+    from .bootstrap import ai_enabled, local_realesrgan
+
     path = os.environ.get("REALESRGAN_PATH")
     if path and Path(path).exists():
         return path
-    for name in ("realesrgan-ncnn-vulkan", "realesrgan-ncnn-vulkan.exe"):
-        found = shutil.which(name)
-        if found:
-            return found
-    local = Path(__file__).resolve().parent.parent / "bin"
-    for name in ("realesrgan-ncnn-vulkan", "realesrgan-ncnn-vulkan.exe"):
-        if (local / name).exists():
-            return str(local / name)
-    return None
+    if not ai_enabled():  # installed but no working GPU on this machine
+        return None
+    return local_realesrgan() or shutil.which("realesrgan-ncnn-vulkan")
 
 
 def probe(path: str | Path) -> VideoInfo:
@@ -278,13 +279,18 @@ def enhance(input_path: str | Path, output_path: str | Path, opts: EnhanceOption
     if use_ai and not realesrgan:
         raise EnhanceError(
             "AI upscaling requested but 'realesrgan-ncnn-vulkan' was not found. "
-            "Download it from https://github.com/xinntao/Real-ESRGAN/releases and put it on PATH, "
-            "in video-enhancer/bin, or set REALESRGAN_PATH."
+            "Run 'python -m enhancer setup' or make sure your GPU supports Vulkan."
         )
 
     if use_ai:
-        _enhance_ai(ffmpeg, realesrgan, input_path, output_path, info, opts, report)
-    else:
+        try:
+            _enhance_ai(ffmpeg, realesrgan, input_path, output_path, info, opts, report)
+            use_ai = "done"
+        except EnhanceError:
+            if opts.use_ai:  # explicitly forced: surface the error
+                raise
+            report(0.0, "AI failed, using FFmpeg")  # automatic fallback
+    if use_ai != "done":
         cmd = [ffmpeg, "-y", "-hide_banner", "-i", str(input_path),
                "-map", "0:v:0", "-map", "0:a?", "-vf", build_filters(info, opts),
                *encoder_args(opts), "-c:a", "aac", "-b:a", "192k", str(output_path)]
@@ -320,6 +326,7 @@ def _enhance_ai(ffmpeg: str, realesrgan: str, input_path: Path, output_path: Pat
         total = len(list(frames_in.glob("*.png"))) or 1
         proc = subprocess.Popen(
             [realesrgan, "-i", str(frames_in), "-o", str(frames_out), "-n", model,
+             "-m", str(Path(realesrgan).parent / "models"),
              "-s", str(scale), "-f", "png"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
         )

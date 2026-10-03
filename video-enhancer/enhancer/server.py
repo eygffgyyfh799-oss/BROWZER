@@ -152,7 +152,7 @@ def serve(host: str = "127.0.0.1", port: int = 7860, open_browser: bool = True) 
     print(f"\n  {APP_NAME} v{__version__}")
     print(f"  Web UI   : {url}")
     print(f"  FFmpeg   : {'OK' if status['ok'] else 'NOT FOUND - ' + status.get('error', '')}")
-    print(f"  AI model : {'Real-ESRGAN found' if status['realesrgan'] else 'Real-ESRGAN not installed (FFmpeg filters)'}")
+    print(f"  AI model : {'Real-ESRGAN ready (GPU)' if status['realesrgan'] else 'Real-ESRGAN unavailable - using FFmpeg filters'}")
     print("  Press Ctrl+C to stop.\n")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

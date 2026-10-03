@@ -62,12 +62,18 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_setup(args: argparse.Namespace) -> int:
+    from .bootstrap import ensure_dependencies
+    ensure_dependencies(force=args.force)
+    return cmd_check(args)
+
+
 def cmd_check(_: argparse.Namespace) -> int:
     status = system_check()
     print(f"{APP_NAME} v{__version__}")
     print(f"  ffmpeg     : {status['ffmpeg'] or 'NOT FOUND'}")
     print(f"  ffprobe    : {status['ffprobe'] or 'NOT FOUND'}")
-    print(f"  Real-ESRGAN: {status['realesrgan'] or 'not installed (Pro engine uses FFmpeg filters only)'}")
+    print(f"  Real-ESRGAN: {status['realesrgan'] or 'unavailable (no Vulkan GPU) - Pro engine uses FFmpeg filters'}")
     if not status["ok"]:
         print(f"\n  {status.get('error')}")
     return 0 if status["ok"] else 1
@@ -97,6 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-browser", action="store_true")
     s.set_defaults(func=cmd_serve)
 
+    st = sub.add_parser("setup", help="Download FFmpeg and Real-ESRGAN (runs automatically on first launch)")
+    st.add_argument("--force", action="store_true", help="Re-run setup even if already done")
+    st.set_defaults(func=cmd_setup)
+
     c = sub.add_parser("check", help="Check that FFmpeg / Real-ESRGAN are available")
     c.set_defaults(func=cmd_check)
     return parser
@@ -107,4 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.command:
         args = parser.parse_args(["serve"])
+    if args.command in ("serve", "enhance"):
+        from .bootstrap import ensure_dependencies
+        try:
+            ensure_dependencies()
+        except Exception as e:  # noqa: BLE001
+            print(f"\n  Setup failed: {e}\n  Check your internet connection and run again.", file=sys.stderr)
+            return 1
     return args.func(args)
