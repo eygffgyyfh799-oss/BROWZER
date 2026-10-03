@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Video Upscaler & Enhancer Pro</title>
+<style>
+  :root {
+    --bg: #0d0f14; --card: #161a22; --line: #262c38; --text: #e8ebf1; --muted: #8a93a6;
+    --accent: #6c5cff; --accent2: #22d3ee; --ok: #22c55e; --err: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Segoe UI", Tahoma, system-ui, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+  header h1 { margin: 0; font-size: 26px; }
+  header h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2));
+                   -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header p { color: var(--muted); margin: 6px 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  #drop { border: 2px dashed var(--line); border-radius: 12px; padding: 40px 16px; text-align: center;
+          cursor: pointer; transition: .2s; }
+  #drop.over, #drop:hover { border-color: var(--accent); background: #1b1f2b; }
+  #drop .big { font-size: 40px; }
+  #drop small { color: var(--muted); }
+  #fileName { margin-top: 10px; color: var(--accent2); font-weight: 600; word-break: break-all; }
+  h3 { margin: 0 0 10px; font-size: 15px; color: var(--muted); font-weight: 600; }
+  .group { margin-bottom: 18px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg input { display: none; }
+  .seg label { flex: 1; min-width: 110px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+               text-align: center; cursor: pointer; transition: .15s; }
+  .seg label b { display: block; }
+  .seg label small { color: var(--muted); font-size: 12px; }
+  .seg input:checked + label { border-color: var(--accent); background: #211d45; }
+  button { width: 100%; padding: 14px; font-size: 17px; font-weight: 700; color: #fff; border: 0; border-radius: 12px;
+           background: linear-gradient(90deg, var(--accent), #8b5cf6); cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .bar { height: 12px; background: #0f1218; border-radius: 99px; overflow: hidden; border: 1px solid var(--line); }
+  .bar div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .4s; }
+  .row { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; margin-top: 8px; gap: 8px; }
+  #download { display: none; margin-top: 14px; text-align: center; padding: 14px; border-radius: 12px; background: var(--ok);
+              color: #fff; text-decoration: none; font-weight: 700; }
+  .err { color: var(--err); margin-top: 10px; white-space: pre-wrap; font-size: 13px; }
+  #sys { font-size: 13px; color: var(--muted); }
+  #sys .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span>AI Video Upscaler</span> & Enhancer Pro</h1>
+    <p>رفع دقة المقاطع إلى 1080p / 4K مع إزالة التشويش وتصحيح الألوان وتحسين التفاصيل إطاراً بإطار.</p>
+  </header>
+
+  <div class="card">
+    <div id="drop">
+      <div class="big">🎬</div>
+      <div>اسحب المقطع وأفلته هنا أو اضغط للاختيار</div>
+      <small>MP4 · MOV · WEBM</small>
+      <div id="fileName"></div>
+    </div>
+    <input type="file" id="file" accept=".mp4,.mov,.webm,video/mp4,video/quicktime,video/webm" hidden>
+  </div>
+
+  <div class="card">
+    <div class="group">
+      <h3>محرك التحسين</h3>
+      <div class="seg">
+        <input type="radio" name="engine" id="e1" value="standard" checked><label for="e1"><b>Standard</b><small>معالجة سريعة</small></label>
+        <input type="radio" name="engine" id="e2" value="pro"><label for="e2"><b>Precise / Pro</b><small>إعادة بناء التفاصيل والوجوه</small></label>
+      </div>
+    </div>
+    <div class="group">
+      <h3>دقة الإخراج</h3>
+      <div class="seg">
+        <input type="radio" name="resolution" id="r1" value="1080p" checked><label for="r1"><b>1080p</b><small>Full HD</small></label>
+        <input type="radio" name="resolution" id="r2" value="4k"><label for="r2"><b>4K</b><small>Ultra HD</small></label>
+      </div>
+    </div>
+    <div class="group">
+      <h3>معدل الإطارات (FPS Boost)</h3>
+      <div class="seg">
+        <input type="radio" name="fps" id="f1" value="original" checked><label for="f1"><b>Original</b><small>بدون تغيير</small></label>
+        <input type="radio" name="fps" id="f2" value="30"><label for="f2"><b>30fps</b><small>Interpolation</small></label>
+        <input type="radio" name="fps" id="f3" value="60"><label for="f3"><b>60fps</b><small>سلاسة عالية</small></label>
+      </div>
+    </div>
+    <div class="group" style="margin-bottom:0">
+      <h3>القالب</h3>
+      <div class="seg">
+        <input type="radio" name="preset" id="p1" value="ai"><label for="p1"><b>AI Clips</b><small>مقاطع الذكاء الاصطناعي</small></label>
+        <input type="radio" name="preset" id="p2" value="old_film"><label for="p2"><b>Old Film</b><small>المقاطع القديمة</small></label>
+        <input type="radio" name="preset" id="p3" value="ugc" checked><label for="p3"><b>UGC</b><small>لقطات الهواتف</small></label>
+        <input type="radio" name="preset" id="p4" value="none"><label for="p4"><b>عام</b><small>تحسين متوازن</small></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <button id="go" disabled>✨ تحسين</button>
+    <div id="progressBox" style="display:none; margin-top:16px">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="row"><span id="stage">...</span><span id="pct">0%</span></div>
+      <div class="row"><span id="info"></span></div>
+    </div>
+    <a id="download" href="#">⬇️ تحميل الفيديو المحسّن</a>
+    <div id="error" class="err"></div>
+  </div>
+
+  <div id="sys"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const drop = $("drop"), input = $("file"), go = $("go");
+let file = null;
+const stages = {
+  queued: "في قائمة الانتظار", analyzing: "تحليل المقطع", enhancing: "المعالجة والتحسين",
+  "extracting frames": "استخراج الإطارات", encoding: "الترميز والتصدير", done: "اكتمل",
+};
+
+function pick(f) {
+  if (!f) return;
+  if (!/\.(mp4|mov|webm)$/i.test(f.name)) { $("error").textContent = "صيغة غير مدعومة. استخدم MP4 أو MOV أو WEBM"; return; }
+  file = f; $("error").textContent = "";
+  $("fileName").textContent = `${f.name} — ${(f.size / 1048576).toFixed(1)} MB`;
+  go.disabled = false;
+}
+drop.onclick = () => input.click();
+input.onchange = () => pick(input.files[0]);
+["dragenter", "dragover"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((e) => drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (ev) => pick(ev.dataTransfer.files[0]));
+
+const val = (name) => document.querySelector(`input[name=${name}]:checked`).value;
+function setProgress(p, label) {
+  $("bar").style.width = p + "%"; $("pct").textContent = p.toFixed(1) + "%";
+  $("stage").textContent = stages[label] || (label.startsWith("AI upscaling") ? "تكبير بالذكاء الاصطناعي " + label.slice(13) : label);
+}
+
+go.onclick = () => {
+  if (!file) return;
+  go.disabled = true; $("error").textContent = ""; $("download").style.display = "none";
+  $("progressBox").style.display = "block"; $("info").textContent = "";
+  const params = new URLSearchParams({ filename: file.name, engine: val("engine"), resolution: val("resolution"), fps: val("fps"), preset: val("preset") });
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/enhance?" + params);
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) { $("bar").style.width = (e.loaded / e.total * 100) + "%"; $("pct").textContent = Math.round(e.loaded / e.total * 100) + "%"; $("stage").textContent = "رفع الملف"; } };
+  xhr.onload = () => {
+    const res = JSON.parse(xhr.responseText || "{}");
+    if (xhr.status !== 200) return fail(res.error || "فشل الرفع");
+    const i = res.info; $("info").textContent = `${i.src} → ${i.dst} · ${i.fps}fps · ${i.duration}s`;
+    poll(res.id);
+  };
+  xhr.onerror = () => fail("تعذر الاتصال بالخادم");
+  xhr.send(file);
+};
+
+function poll(id) {
+  fetch("/api/jobs/" + id).then((r) => r.json()).then((j) => {
+    setProgress(j.progress || 0, j.stage || "");
+    if (j.status === "done") {
+      const a = $("download"); a.href = `/api/jobs/${id}/download`; a.style.display = "block"; go.disabled = false;
+    } else if (j.status === "error") fail(j.error);
+    else setTimeout(() => poll(id), 1000);
+  }).catch(() => setTimeout(() => poll(id), 2000));
+}
+function fail(msg) { $("error").textContent = "خطأ: " + msg; go.disabled = !file; }
+
+fetch("/api/status").then((r) => r.json()).then((s) => {
+  const dot = (ok) => `<span class="dot" style="background:${ok ? "var(--ok)" : "var(--err)"}"></span>`;
+  $("sys").innerHTML = `${dot(s.ok)}FFmpeg ${s.ok ? "جاهز" : "غير موجود"} &nbsp;·&nbsp; ${dot(!!s.realesrgan)}Real-ESRGAN ${s.realesrgan ? "مفعّل (وضع Pro)" : "غير مثبت — يعمل وضع Pro بفلاتر FFmpeg"} &nbsp;·&nbsp; v${s.version}`;
+});
+</script>
+</body>
+</html>
