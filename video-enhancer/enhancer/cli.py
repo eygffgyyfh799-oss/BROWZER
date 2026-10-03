@@ -41,7 +41,7 @@ def cmd_enhance(args: argparse.Namespace) -> int:
     out = Path(args.output) if args.output else src.with_name(f"{src.stem}_enhanced_{args.resolution}.mp4")
     opts = EnhanceOptions(engine=args.engine, resolution=args.resolution, fps=args.fps,
                           preset=args.preset, crf=args.crf,
-                          use_ai=True if args.ai else (False if args.no_ai else None))
+                          use_ai=True if args.ai else (False if args.no_ai else None), faces=not args.no_faces)
     try:
         info = probe(src)
         w, h = target_size(info, args.resolution)
@@ -74,10 +74,12 @@ def cmd_setup(args: argparse.Namespace) -> int:
 def cmd_check(_: argparse.Namespace) -> int:
     status = system_check()
     print(f"{APP_NAME} v{__version__}")
+    print(f"  Python     : {sys.executable}")
     print(f"  ffmpeg     : {status['ffmpeg'] or 'NOT FOUND'}")
     print(f"  ffprobe    : {status['ffprobe'] or 'NOT FOUND'}")
     print(f"  Real-ESRGAN: {status['realesrgan'] or 'unavailable (no Vulkan GPU) - using FFmpeg filters'}")
     print(f"  RIFE       : {status['rife'] or 'unavailable - using FFmpeg interpolation'}")
+    print(f"  AI engine  : {'PyTorch CUDA (Real-ESRGAN + CodeFormer faces)' if status['torch'] else 'not installed (needs an NVIDIA GPU)'}")
     print(f"  NVENC      : {'enabled (NVIDIA GPU encoding)' if status['nvenc'] else 'unavailable - using CPU encoder (x264)'}")
     if not status["ok"]:
         print(f"\n  {status.get('error')}")
@@ -99,7 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--crf", type=int, help="x264 quality (lower = better, default 18/16)")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--ai", action="store_true", help="Force Real-ESRGAN upscaling")
-    g.add_argument("--no-ai", action="store_true", help="Never use Real-ESRGAN")
+    g.add_argument("--no-ai", action="store_true", help="Never use AI models (FFmpeg filters only)")
+    p.add_argument("--no-faces", action="store_true", help="Disable CodeFormer face recovery")
     p.set_defaults(func=cmd_enhance)
 
     s = sub.add_parser("serve", help="Start the web interface")
@@ -130,11 +133,22 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.command:
         args = parser.parse_args(["serve"])
-    if args.command in ("serve", "enhance"):
-        from .bootstrap import ensure_dependencies
+    if args.command in ("serve", "enhance", "check"):
+        from .bootstrap import TOOL_DIR, ensure_dependencies, load_state, venv_python
         try:
-            ensure_dependencies()
+            if args.command != "check":
+                ensure_dependencies()
         except Exception as e:  # noqa: BLE001
             print(f"\n  Setup failed: {e}\n  Check your internet connection and run again.", file=sys.stderr)
             return 1
+        # The PyTorch AI engine lives in its own environment (bin/venv): continue there.
+        vpy = venv_python()
+        in_venv = Path(sys.prefix).resolve() == vpy.parent.parent.resolve()
+        if load_state().get("torch_ok") and vpy.exists() and not in_venv:
+            import subprocess
+            try:
+                return subprocess.call([str(vpy), "-m", "enhancer", *(argv if argv is not None else sys.argv[1:])],
+                                       cwd=str(TOOL_DIR))
+            except KeyboardInterrupt:
+                return 130
     return args.func(args)

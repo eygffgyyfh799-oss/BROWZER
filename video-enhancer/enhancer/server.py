@@ -116,7 +116,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "حجم الملف غير صالح"}, 400)
 
         opts = EnhanceOptions(engine=q.get("engine", "standard"), resolution=q.get("resolution", "1080p"),
-                              fps=q.get("fps", "original"), preset=q.get("preset", "ugc"))
+                              fps=q.get("fps", "original"), preset=q.get("preset", "ugc"),
+                              faces=q.get("faces", "1") != "0")
         try:
             opts.validate()
         except EnhanceError as e:
@@ -177,7 +178,7 @@ def serve(host: str = "127.0.0.1", port: int = 7860, open_browser: bool = True) 
     print(f"\n  {APP_NAME} v{__version__}")
     print(f"  Web UI   : {url}")
     print(f"  FFmpeg   : {'OK' if status['ok'] else 'NOT FOUND - ' + status.get('error', '')}")
-    print(f"  Upscaling: {'Real-ESRGAN (GPU)' if status['realesrgan'] else 'FFmpeg filters (CPU)'}")
+    print(f"  AI engine: {'PyTorch CUDA - Real-ESRGAN + CodeFormer faces' if status['torch'] else ('Real-ESRGAN Vulkan (GPU)' if status['realesrgan'] else 'FFmpeg filters (CPU)')}")
     print(f"  FPS boost: {'RIFE (GPU)' if status['rife'] else 'FFmpeg minterpolate (CPU)'}")
     print(f"  Encoder  : {'NVENC (NVIDIA GPU)' if status['nvenc'] else 'x264 (CPU)'}")
     print(f"  Saved to : {OUTPUT_DIR}")

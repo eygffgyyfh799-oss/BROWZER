@@ -87,6 +87,13 @@
         <input type="radio" name="fps" id="f3" value="60"><label for="f3"><b>60fps</b><small>سلاسة عالية</small></label>
       </div>
     </div>
+    <div class="group">
+      <h3>استعادة الوجوه (Face Recovery)</h3>
+      <div class="seg">
+        <input type="radio" name="faces" id="fc1" value="1" checked><label for="fc1"><b>تشغيل</b><small>CodeFormer يعيد بناء ملامح الوجه</small></label>
+        <input type="radio" name="faces" id="fc0" value="0"><label for="fc0"><b>إيقاف</b><small>بدون تعديل الوجوه</small></label>
+      </div>
+    </div>
     <div class="group" style="margin-bottom:0">
       <h3>القالب</h3>
       <div class="seg">
@@ -120,7 +127,7 @@ const drop = $("drop"), input = $("file"), go = $("go");
 let file = null;
 const stages = {
   queued: "في قائمة الانتظار", analyzing: "تحليل المقطع", enhancing: "المعالجة والتحسين",
-  "extracting frames": "استخراج الإطارات", finalizing: "دمج الصوت والتصدير", "AI failed, using FFmpeg": "تعذر الذكاء الاصطناعي، التحويل لفلاتر FFmpeg", encoding: "الترميز والتصدير", done: "اكتمل",
+  "extracting frames": "استخراج الإطارات", finalizing: "دمج الصوت والتصدير", "AI failed, using FFmpeg": "تعذر الذكاء الاصطناعي، التحويل لفلاتر FFmpeg", "loading AI models": "تحميل نماذج الذكاء الاصطناعي", encoding: "الترميز والتصدير", done: "اكتمل",
 };
 
 function pick(f) {
@@ -140,6 +147,7 @@ const val = (name) => document.querySelector(`input[name=${name}]:checked`).valu
 function setProgress(p, label) {
   $("bar").style.width = p + "%"; $("pct").textContent = p.toFixed(1) + "%";
   $("stage").textContent = stages[label] || (label.startsWith("AI upscaling") ? "تكبير بالذكاء الاصطناعي " + label.slice(13)
+    : label.startsWith("AI enhancing") ? "تحسين بالذكاء الاصطناعي " + label.slice(13)
     : label.startsWith("interpolating") ? "توليد إطارات (RIFE) " + label.slice(14) : label);
 }
 
@@ -148,7 +156,7 @@ go.onclick = () => {
   go.disabled = true; $("error").textContent = ""; $("download").style.display = "none";
   $("reveal").style.display = "none"; $("savedTo").style.display = "none";
   $("progressBox").style.display = "block"; $("info").textContent = "";
-  const params = new URLSearchParams({ filename: file.name, engine: val("engine"), resolution: val("resolution"), fps: val("fps"), preset: val("preset") });
+  const params = new URLSearchParams({ filename: file.name, engine: val("engine"), resolution: val("resolution"), fps: val("fps"), preset: val("preset"), faces: val("faces") });
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "/api/enhance?" + params);
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) { $("bar").style.width = (e.loaded / e.total * 100) + "%"; $("pct").textContent = Math.round(e.loaded / e.total * 100) + "%"; $("stage").textContent = "رفع الملف"; } };
@@ -182,7 +190,8 @@ fetch("/api/status").then((r) => r.json()).then((s) => {
   const item = (ok, name, on, off) => `${dot(ok)}${name}: ${ok ? on : off}`;
   $("sys").innerHTML = [
     item(s.ok, "FFmpeg", "جاهز", "غير موجود"),
-    item(!!s.realesrgan, "التكبير", "Real-ESRGAN على كرت الشاشة", "فلاتر FFmpeg على المعالج"),
+    item(s.torch || !!s.realesrgan, "محرك الذكاء الاصطناعي",
+         s.torch ? "PyTorch CUDA (تكبير + وجوه)" : "Real-ESRGAN Vulkan (بدون وجوه)", "فلاتر FFmpeg على المعالج"),
     item(!!s.rife, "رفع الإطارات", "RIFE على كرت الشاشة", "FFmpeg على المعالج"),
     item(s.nvenc, "الترميز", "NVENC على كرت الشاشة", "x264 على المعالج"),
   ].join(" &nbsp;·&nbsp; ") + ` &nbsp;·&nbsp; v${s.version}`;

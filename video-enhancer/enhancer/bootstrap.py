@@ -28,6 +28,22 @@ RIFE_URL = ("https://github.com/nihui/rife-ncnn-vulkan/releases/download/2022102
             "rife-ncnn-vulkan-20221029-windows.zip")
 RIFE_MODEL = "rife-v4.6"
 
+# PyTorch AI engine (NVIDIA): models downloaded from their official GitHub releases.
+AI_MODELS = {
+    "realesr-general-x4v3": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+    "RealESRGAN_x4plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+    "RealESRGAN_x2plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+    "codeformer": "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth",
+}
+# Face detection / parsing weights used by facexlib (same file names facexlib looks for).
+FACE_WEIGHTS = {
+    "detection_Resnet50_Final.pth": "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth",
+    "parsing_parsenet.pth": "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth",
+}
+# CUDA builds of PyTorch, newest first (RTX 50 series needs CUDA 12.8 or newer).
+TORCH_INDEXES = ["cu130", "cu129", "cu128"]
+AI_PACKAGES = ["spandrel", "spandrel_extra_arches", "opencv-python-headless", "numpy", "scipy", "Pillow", "tqdm"]
+
 # Hide the console window of helper processes started by the web server.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -81,6 +97,27 @@ def local_realesrgan() -> str | None:
 def local_rife() -> str | None:
     exe = bin_dir() / "rife" / "rife-ncnn-vulkan.exe"
     return str(exe) if exe.exists() and (exe.parent / RIFE_MODEL).is_dir() else None
+
+
+def models_dir() -> Path:
+    return Path(os.environ["ENHANCER_MODELS"]) if os.environ.get("ENHANCER_MODELS") else bin_dir() / "models"
+
+
+def model_path(name: str) -> Path:
+    return models_dir() / Path(AI_MODELS[name]).name
+
+
+def face_weights_dir() -> Path:
+    return models_dir() / "facexlib"
+
+
+def ai_models_ready() -> bool:
+    return (all(model_path(n).exists() for n in AI_MODELS)
+            and all((face_weights_dir() / n).exists() for n in FACE_WEIGHTS))
+
+
+def venv_python() -> Path:
+    return bin_dir() / "venv" / "Scripts" / "python.exe"
 
 
 # --------------------------------------------------------------------------- download helpers
@@ -191,6 +228,73 @@ def install_rife() -> str:
     return exe
 
 
+def nvidia_gpus() -> list[str]:
+    smi = shutil.which("nvidia-smi")
+    if not smi:
+        return []
+    try:
+        r = subprocess.run([smi, "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True,
+                           timeout=20, creationflags=NO_WINDOW)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()] if r.returncode == 0 else []
+
+
+_CUDA_TEST = ("import torch;assert torch.cuda.is_available();"
+              "x=torch.randn(256,256,device='cuda',dtype=torch.half);float((x@x).float().mean());"
+              "import torch.nn.functional as F;F.conv2d(x[None,None],torch.ones(1,1,3,3,device='cuda',dtype=torch.half));"
+              "print(torch.__version__, torch.cuda.get_device_name(0))")
+
+
+def install_ai_runtime() -> bool:
+    """Create bin/venv with PyTorch (CUDA) + model libraries and download the AI models."""
+    vpy = venv_python()
+    print("  • Installing the PyTorch AI engine (CUDA) — about 4 GB, one time only ...")
+    if not vpy.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(vpy.parent.parent)], check=True)
+    pip = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location",
+           "--progress-bar", "on"]
+    subprocess.run(pip + ["--upgrade", "pip"], capture_output=True)
+
+    ok = False
+    for i, index in enumerate(TORCH_INDEXES):
+        print(f"    PyTorch ({index}) ...")
+        extra = ["--force-reinstall"] if i else []
+        r = subprocess.run(pip + extra + ["torch", "torchvision", "--index-url", f"https://download.pytorch.org/whl/{index}"])
+        if r.returncode != 0:
+            continue
+        test = subprocess.run([str(vpy), "-c", _CUDA_TEST], capture_output=True, text=True)
+        if test.returncode == 0:
+            print(f"    PyTorch works on the GPU: {test.stdout.strip()}")
+            ok = True
+            break
+        print("    this build does not run on this GPU, trying the next one ...")
+    if not ok:
+        return False
+
+    print("    Model libraries ...")
+    if subprocess.run(pip + AI_PACKAGES).returncode != 0:
+        return False
+    # facexlib without its tracking extras (filterpy/numba fail to build on many PCs; we only need detection).
+    if subprocess.run(pip + ["--no-deps", "facexlib"]).returncode != 0:
+        return False
+
+    print("    AI models (Real-ESRGAN, CodeFormer, face detection) ...")
+    for name, url in AI_MODELS.items():
+        dest = model_path(name)
+        if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            _download(url, dest.with_suffix(".part"), name)
+            dest.with_suffix(".part").rename(dest)
+    for name, url in FACE_WEIGHTS.items():
+        dest = face_weights_dir() / name
+        if not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            _download(url, dest.with_suffix(".part"), name)
+            dest.with_suffix(".part").rename(dest)
+    return True
+
+
 # --------------------------------------------------------------------------- hardware tests
 
 def _quiet_run(cmd: list[str], timeout: int = 180, cwd: str | None = None) -> bool:
@@ -277,7 +381,7 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
 
     state = load_state()
     first = not state.get("setup_done") or force
-    pending = first or not state.get("rife_checked") or "nvenc_ok" not in state
+    pending = first or not state.get("rife_checked") or "nvenc_ok" not in state or not state.get("torch_checked")
     if pending and not quiet:
         print("\n  Setup — downloading and checking required components (one time only)...\n")
 
@@ -313,6 +417,19 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
         ok = bool(exe) and test_rife(exe, ffmpeg)
         print(f"    RIFE (GPU 30/60fps):            {'enabled' if ok else 'not available - using FFmpeg interpolation'}")
         save_state(rife_checked=True, rife_ok=ok)
+
+    # PyTorch AI engine: best quality (face recovery + stronger upscalers), NVIDIA only.
+    if first or not state.get("torch_checked"):
+        gpus = nvidia_gpus()
+        ok = False
+        if gpus:
+            try:
+                ok = install_ai_runtime()
+            except Exception as e:  # noqa: BLE001 - optional, the Vulkan engine still works
+                print(f"    could not be installed: {e}")
+        print(f"    PyTorch AI engine (faces + Pro models): "
+              f"{'enabled' if ok else ('not available' if gpus else 'needs an NVIDIA GPU - skipped')}")
+        save_state(torch_checked=True, torch_ok=ok)
 
     if not state.get("shortcut_done"):
         if create_desktop_shortcut() and not quiet:

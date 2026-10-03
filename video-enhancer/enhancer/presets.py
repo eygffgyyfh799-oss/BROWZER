@@ -42,6 +42,7 @@ FPS_OPTIONS = {
 
 PRESETS = {
     "ai": {
+        "face_fidelity": 0.8,  # CodeFormer: lower = stronger restoration, higher = closer to original
         "label": "AI-generated clips",
         "deflicker": 5,            # AI clips often flicker between frames
         "deblock": 0,
@@ -52,6 +53,7 @@ PRESETS = {
         "ai_model": "realesr-animevideov3",
     },
     "old_film": {
+        "face_fidelity": 0.5,  # CodeFormer: lower = stronger restoration, higher = closer to original
         "label": "Old film",
         "deinterlace": True,
         "deflicker": 7,
@@ -63,6 +65,7 @@ PRESETS = {
         "ai_model": "realesrgan-x4plus",
     },
     "ugc": {
+        "face_fidelity": 0.7,  # CodeFormer: lower = stronger restoration, higher = closer to original
         "label": "Phone footage (UGC)",
         "deflicker": 0,
         "deblock": 0.15,           # heavy compression blocks from social apps
@@ -73,6 +76,7 @@ PRESETS = {
         "ai_model": "realesrgan-x4plus",
     },
     "none": {
+        "face_fidelity": 0.7,  # CodeFormer: lower = stronger restoration, higher = closer to original
         "label": "General",
         "deflicker": 0,
         "deblock": 0.08,

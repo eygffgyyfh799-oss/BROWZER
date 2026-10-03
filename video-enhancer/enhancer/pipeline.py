@@ -58,6 +58,7 @@ class EnhanceOptions:
     fps: str = "original"           # original | 30 | 60
     preset: str = "ugc"             # ai | old_film | ugc | none
     use_ai: Optional[bool] = None   # None = auto (use GPU AI when available)
+    faces: bool = True              # CodeFormer face recovery (PyTorch engine)
     crf: Optional[int] = None
     extra: dict = field(default_factory=dict)
 
@@ -110,6 +111,26 @@ def find_rife() -> Optional[str]:
     if not load_state().get("rife_ok", False):
         return None
     return local_rife()
+
+
+_TORCH_STATUS: Optional[bool] = None
+
+
+def torch_engine_available() -> bool:
+    """PyTorch + CUDA engine (installed by setup on NVIDIA GPUs)."""
+    global _TORCH_STATUS
+    if _TORCH_STATUS is None:
+        from .bootstrap import ai_models_ready
+
+        try:
+            import torch  # noqa: F401
+            import spandrel  # noqa: F401
+
+            gpu_ok = torch.cuda.is_available() or bool(os.environ.get("ENHANCER_DEV_CPU"))
+            _TORCH_STATUS = gpu_ok and ai_models_ready()
+        except Exception:  # noqa: BLE001 - not installed / broken install
+            _TORCH_STATUS = False
+    return _TORCH_STATUS
 
 
 def nvenc_available() -> bool:
@@ -357,14 +378,22 @@ def enhance(input_path: str | Path, output_path: str | Path, opts: EnhanceOption
     report(0.0, "analyzing")
 
     plan = plan_gpu(info, opts)
-    if opts.use_ai and not plan["realesrgan"]:
+    if opts.use_ai and not (plan["realesrgan"] or plan["torch"]):
         raise EnhanceError(
             "AI upscaling requested but Real-ESRGAN is not available. "
             "Run 'python -m enhancer setup' or make sure your GPU supports Vulkan."
         )
 
     done = False
-    if plan["realesrgan"] or plan["rife"]:
+    if plan["torch"]:
+        try:
+            _enhance_torch(ffmpeg, input_path, output_path, info, opts, plan, report)
+            done = True
+        except Exception as e:  # noqa: BLE001 - fall back to the Vulkan / CPU paths
+            if opts.use_ai and plan["realesrgan"] is None:
+                raise EnhanceError(f"AI engine failed: {e}") from e
+            report(0.0, "AI failed, using FFmpeg")
+    if not done and (plan["realesrgan"] or plan["rife"]):
         try:
             _enhance_gpu(ffmpeg, input_path, output_path, info, opts, plan, report)
             done = True
@@ -399,7 +428,112 @@ def plan_gpu(info: VideoInfo, opts: EnhanceOptions) -> dict:
     else:
         scale = 2 if needed <= 2 else (3 if needed <= 3 else 4)
     rife = find_rife() if target_fps(info, opts.fps) else None
-    return {"realesrgan": realesrgan, "rife": rife, "model": model, "scale": scale}
+    use_torch = opts.use_ai is not False and torch_engine_available()
+    return {"realesrgan": realesrgan, "rife": rife, "model": model, "scale": scale, "torch": use_torch,
+            "torch_model": torch_model_for(info, opts)}
+
+
+def torch_model_for(info: VideoInfo, opts: EnhanceOptions) -> str:
+    """Standard = fast compact model for real footage; Pro = full RRDB network (x2 when enough)."""
+    out_w, out_h = target_size(info, opts.resolution)
+    needed = max(out_w / info.width, out_h / info.height)
+    if opts.engine == "standard":
+        return "realesr-general-x4v3"
+    return "RealESRGAN_x2plus" if needed <= 2 else "RealESRGAN_x4plus"
+
+
+def _extract_frames(ffmpeg: str, input_path: Path, info: VideoInfo, opts: EnhanceOptions, rife: str,
+                    tmp_dir: Path, report: ProgressFn, light: bool) -> tuple[Path, int, str]:
+    """Decode to PNG frames and interpolate them with RIFE. Returns (frames_dir, count, rate)."""
+    tfps = target_fps(info, opts.fps)
+    frames = tmp_dir / "frames"
+    frames.mkdir()
+    vf = build_filters(info, opts, stage="pre", light=light, interpolate=False)
+    cmd = [ffmpeg, "-y", "-hide_banner", "-i", str(input_path), "-map", "0:v:0", "-vf", vf,
+           "-fps_mode", "cfr", "-r", info.rate, "-pix_fmt", "rgb24", "-compression_level", "1",
+           str(frames / "%08d.png")]
+    _run_ffmpeg(cmd, info.duration, report, 0.0, 0.08, "extracting frames")
+    n = sum(1 for _ in frames.iterdir())
+    if n == 0:
+        raise EnhanceError("No frames could be decoded from the video.")
+    target_n = max(n + 1, round(n * tfps / info.fps))
+    rife_out = tmp_dir / "rife"
+    rife_out.mkdir()
+    _run_gpu_tool([rife, "-i", str(frames), "-o", str(rife_out), "-n", str(target_n),
+                   "-m", str(Path(rife).parent / "rife-v4.6"), "-j", "2:2:2", "-f", "%08d.png"],
+                  rife_out, target_n, report, 0.08, 0.07, "interpolating", "RIFE")
+    shutil.rmtree(frames)
+    return rife_out, target_n, f"{tfps:g}"
+
+
+def _enhance_torch(ffmpeg: str, input_path: Path, output_path: Path, info: VideoInfo,
+                   opts: EnhanceOptions, plan: dict, report: ProgressFn) -> None:
+    from . import ai_engine
+    from .bootstrap import face_weights_dir, model_path
+
+    preset = PRESETS[opts.preset]
+    report(0.0, "loading AI models")
+    engine = ai_engine.Engine(
+        model_path(plan["torch_model"]),
+        model_path("codeformer") if opts.faces else None,
+        face_weights_dir(),
+        fidelity=preset.get("face_fidelity", 0.7),
+        # Whole-frame on small inputs; tiles on big ones so 8 GB cards never run out of memory.
+        tile=0 if info.width * info.height <= 960 * 540 else 512,
+    )
+    w, h, s = info.width, info.height, engine.scale
+    tfps = target_fps(info, opts.fps)
+
+    with tempfile.TemporaryDirectory(prefix="enhancer_") as tmp:
+        tmp_dir = Path(tmp)
+        start = 0.0
+        if tfps and plan["rife"]:
+            frames, total, rate = _extract_frames(ffmpeg, input_path, info, opts, plan["rife"], tmp_dir,
+                                                  report, light=True)
+            src = [ffmpeg, "-hide_banner", "-loglevel", "error", "-framerate", rate,
+                   "-i", str(frames / "%08d.png")]
+            start = 0.15
+        else:
+            rate = f"{tfps:g}" if tfps else info.rate  # FPS boost without RIFE: minterpolate in "pre"
+            total = max(1, round(info.duration * _rate_value(rate)))
+            src = [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(input_path), "-map", "0:v:0",
+                   "-vf", build_filters(info, opts, stage="pre", light=True, interpolate=bool(tfps)),
+                   "-fps_mode", "cfr", "-r", rate]
+        reader = subprocess.Popen([*src, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  creationflags=NO_WINDOW)
+
+        enc = encoder_args(opts, nvenc=nvenc_available())
+        writer = subprocess.Popen(
+            [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w * s}x{h * s}", "-framerate", rate, "-i", "-",
+             "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
+             "-vf", build_filters(info, opts, stage="post", light=True),
+             *enc, "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output_path)],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+        err_tail: dict[str, bytes] = {}
+        drains = [threading.Thread(target=lambda p=p, k=k: err_tail.__setitem__(k, p.stderr.read()), daemon=True)
+                  for k, p in (("decoder", reader), ("encoder", writer))]
+        for t in drains:
+            t.start()
+
+        started = time.time()
+
+        def on_frame(i: int) -> None:
+            if i % 2 == 0 or i == total:
+                fps_now = i / max(1e-6, time.time() - started)
+                report(start + (0.97 - start) * min(1.0, i / total), f"AI enhancing {i}/{total} ({fps_now:.1f} fps)")
+
+        try:
+            ai_engine.run_stream(engine, reader, writer, w, h, total, on_frame)
+        finally:
+            reader.wait()
+            writer.wait()
+            for t in drains:
+                t.join(timeout=5)
+        if writer.returncode != 0 or reader.returncode != 0:
+            msg = (err_tail.get("encoder") or err_tail.get("decoder") or b"").decode("utf-8", "replace")
+            raise EnhanceError("Encoding failed:\n" + msg[-1500:])
 
 
 def _enhance_gpu(ffmpeg: str, input_path: Path, output_path: Path, info: VideoInfo,
@@ -492,7 +626,7 @@ def _rate_value(rate: str) -> float:
 
 def system_check() -> dict:
     status = {"ffmpeg": None, "ffprobe": None, "realesrgan": find_realesrgan(), "rife": find_rife(),
-              "nvenc": nvenc_available(), "ok": False}
+              "nvenc": nvenc_available(), "torch": torch_engine_available(), "ok": False}
     try:
         status["ffmpeg"], status["ffprobe"] = find_ffmpeg()
         status["ok"] = True
