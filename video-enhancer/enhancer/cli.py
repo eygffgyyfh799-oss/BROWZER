@@ -129,6 +129,13 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32" and not os.environ.get("ENHANCER_DEV"):
         print(f"{APP_NAME} supports Windows only.", file=sys.stderr)
         return 1
+    if sys.platform == "win32":
+        # Below-normal priority: full speed when idle, but the desktop always stays responsive.
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x4000)
+        except (AttributeError, OSError):
+            pass
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:

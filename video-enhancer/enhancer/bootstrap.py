@@ -122,7 +122,7 @@ def venv_python() -> Path:
 
 # --------------------------------------------------------------------------- download helpers
 
-def _download(url: str, dest: Path, label: str) -> None:
+def _download(url: str, dest: Path, label: str, quiet: bool = False) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "ai-video-enhancer"})
     for attempt in range(4):
         try:
@@ -135,6 +135,8 @@ def _download(url: str, dest: Path, label: str) -> None:
                         break
                     f.write(chunk)
                     done += len(chunk)
+                    if quiet:
+                        continue
                     if total:
                         pct = done / total
                         bar = "█" * int(pct * 30) + "░" * (30 - int(pct * 30))
@@ -142,7 +144,8 @@ def _download(url: str, dest: Path, label: str) -> None:
                     else:
                         sys.stdout.write(f"\r    {label}: {done / 1048576:.0f} MB ")
                     sys.stdout.flush()
-            print()
+            if not quiet:
+                print()
             return
         except OSError as e:
             if attempt == 3:
@@ -246,22 +249,74 @@ _CUDA_TEST = ("import torch;assert torch.cuda.is_available();"
               "print(torch.__version__, torch.cuda.get_device_name(0))")
 
 
+def _installer(vpy: Path) -> list[str]:
+    """uv (parallel downloads, many times faster than pip) with pip as fallback."""
+    base = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location"]
+    subprocess.run(base + ["--upgrade", "pip", "uv"], capture_output=True)
+    if subprocess.run([str(vpy), "-m", "uv", "--version"], capture_output=True).returncode == 0:
+        return [str(vpy), "-m", "uv", "pip", "install", "--python", str(vpy)]
+    return base
+
+
+def _install(cmd: list[str], args: list[str], vpy: Path) -> bool:
+    if subprocess.run(cmd + args).returncode == 0:
+        return True
+    if "uv" in cmd:  # retry the same step with pip before giving up
+        pip = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location"]
+        return subprocess.run(pip + [a for a in args if a != "--reinstall"]).returncode == 0
+    return False
+
+
+def _download_models() -> None:
+    """All model files in parallel (they come from different servers, so this is much faster)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    jobs = [(url, model_path(name)) for name, url in AI_MODELS.items()]
+    jobs += [(url, face_weights_dir() / name) for name, url in FACE_WEIGHTS.items()]
+    jobs = [(u, d) for u, d in jobs if not d.exists()]
+    if not jobs:
+        return
+    print(f"    downloading {len(jobs)} model files in parallel ...")
+
+    def fetch(job):
+        url, dest = job
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_suffix(".part")
+        _download(url, part, dest.name, quiet=True)
+        part.replace(dest)
+        print(f"      ✓ {dest.name}")
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(fetch, jobs))
+
+
 def install_ai_runtime() -> bool:
-    """Create bin/venv with PyTorch (CUDA) + model libraries and download the AI models."""
+    """Create bin/venv with PyTorch (CUDA), TensorRT and the model libraries, and download the models."""
     vpy = venv_python()
-    print("  • Installing the PyTorch AI engine (CUDA) — about 4 GB, one time only ...")
+    print("  • Installing the AI engine (PyTorch CUDA + TensorRT) — about 5 GB, one time only ...")
     if not vpy.exists():
         subprocess.run([sys.executable, "-m", "venv", str(vpy.parent.parent)], check=True)
-    pip = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location",
-           "--progress-bar", "on"]
-    subprocess.run(pip + ["--upgrade", "pip"], capture_output=True)
+    inst = _installer(vpy)
+    reinstall = ["--reinstall"] if "uv" in inst else ["--force-reinstall"]
+
+    # Models download in the background while the packages install.
+    import threading
+    models_err: list[BaseException] = []
+
+    def models_job() -> None:
+        try:
+            _download_models()
+        except BaseException as e:  # noqa: BLE001
+            models_err.append(e)
+
+    models_thread = threading.Thread(target=models_job, daemon=True)
+    models_thread.start()
 
     ok = False
     for i, index in enumerate(TORCH_INDEXES):
         print(f"    PyTorch ({index}) ...")
-        extra = ["--force-reinstall"] if i else []
-        r = subprocess.run(pip + extra + ["torch", "torchvision", "--index-url", f"https://download.pytorch.org/whl/{index}"])
-        if r.returncode != 0:
+        args = (reinstall if i else []) + ["torch", "torchvision", "--index-url", f"https://download.pytorch.org/whl/{index}"]
+        if not _install(inst, args, vpy):
             continue
         test = subprocess.run([str(vpy), "-c", _CUDA_TEST], capture_output=True, text=True)
         if test.returncode == 0:
@@ -273,26 +328,36 @@ def install_ai_runtime() -> bool:
         return False
 
     print("    Model libraries ...")
-    if subprocess.run(pip + AI_PACKAGES).returncode != 0:
+    if not _install(inst, AI_PACKAGES, vpy):
         return False
     # facexlib without its tracking extras (filterpy/numba fail to build on many PCs; we only need detection).
-    if subprocess.run(pip + ["--no-deps", "facexlib"]).returncode != 0:
+    if not _install(inst, ["--no-deps", "facexlib"], vpy):
         return False
 
-    print("    AI models (Real-ESRGAN, CodeFormer, face detection) ...")
-    for name, url in AI_MODELS.items():
-        dest = model_path(name)
-        if not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            _download(url, dest.with_suffix(".part"), name)
-            dest.with_suffix(".part").rename(dest)
-    for name, url in FACE_WEIGHTS.items():
-        dest = face_weights_dir() / name
-        if not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            _download(url, dest.with_suffix(".part"), name)
-            dest.with_suffix(".part").rename(dest)
-    return True
+    install_tensorrt(vpy, inst)
+
+    models_thread.join()
+    if models_err:
+        raise models_err[0]
+    return ai_models_ready()
+
+
+_TRT_TEST = ("import tensorrt as trt, torch;assert torch.cuda.is_available();"
+             "b=trt.Builder(trt.Logger(trt.Logger.ERROR));n=b.create_network(0);print(trt.__version__)")
+
+
+def install_tensorrt(vpy: Path, inst: list[str] | None = None) -> bool:
+    """TensorRT for the CUDA version PyTorch uses (optional: PyTorch alone still works)."""
+    inst = inst or _installer(vpy)
+    r = subprocess.run([str(vpy), "-c", "import torch;print(torch.version.cuda.split('.')[0])"],
+                       capture_output=True, text=True)
+    cuda_major = r.stdout.strip() or "12"
+    print(f"    TensorRT (CUDA {cuda_major}) ...")
+    ok = (_install(inst, [f"tensorrt-cu{cuda_major}", "onnx"], vpy)
+          and subprocess.run([str(vpy), "-c", _TRT_TEST], capture_output=True).returncode == 0)
+    print(f"    TensorRT: {'enabled' if ok else 'not available - PyTorch will be used (same quality)'}")
+    save_state(trt_checked=True, trt_ok=ok)
+    return ok
 
 
 # --------------------------------------------------------------------------- hardware tests
@@ -330,10 +395,11 @@ def test_rife(exe: str, ffmpeg: str) -> bool:
 
 
 def test_nvenc(ffmpeg: str) -> bool:
-    """NVIDIA hardware encoder (needs an NVIDIA GPU and a recent driver)."""
-    return _quiet_run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=0.5",
-                       "-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr", "-cq", "19",
-                       "-b:v", "0", "-spatial-aq", "1", "-temporal-aq", "1", "-f", "null", "-"], timeout=60)
+    """NVIDIA hardware encoder with the exact settings used for export (needs a recent driver)."""
+    from .pipeline import EnhanceOptions, encoder_args
+
+    return _quiet_run([ffmpeg, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=1",
+                       *encoder_args(EnhanceOptions(), nvenc=True), "-f", "null", "-"], timeout=60)
 
 
 def gpu_name() -> str:
@@ -381,7 +447,8 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
 
     state = load_state()
     first = not state.get("setup_done") or force
-    pending = first or not state.get("rife_checked") or "nvenc_ok" not in state or not state.get("torch_checked")
+    pending = (first or not state.get("rife_checked") or state.get("nvenc_version") != 2
+               or not state.get("torch_checked") or (state.get("torch_ok") and not state.get("trt_checked")))
     if pending and not quiet:
         print("\n  Setup — downloading and checking required components (one time only)...\n")
 
@@ -406,10 +473,10 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
         save_state(ai_checked=True, ai_ok=ok)
 
     # NVIDIA hardware encoding.
-    if first or "nvenc_ok" not in state:
+    if first or state.get("nvenc_version") != 2:
         ok = test_nvenc(ffmpeg)
         print(f"    NVENC (NVIDIA GPU encoding):    {'enabled' if ok else 'not available - using CPU encoder'}")
-        save_state(nvenc_ok=ok)
+        save_state(nvenc_ok=ok, nvenc_version=2)
 
     # RIFE: frame interpolation on the GPU.
     if first or not state.get("rife_checked"):
@@ -430,6 +497,12 @@ def ensure_dependencies(force: bool = False, quiet: bool = False) -> dict:
         print(f"    PyTorch AI engine (faces + Pro models): "
               f"{'enabled' if ok else ('not available' if gpus else 'needs an NVIDIA GPU - skipped')}")
         save_state(torch_checked=True, torch_ok=ok)
+    elif state.get("torch_ok") and not state.get("trt_checked") and venv_python().exists():
+        try:
+            install_tensorrt(venv_python())
+        except Exception as e:  # noqa: BLE001
+            print(f"    TensorRT could not be installed: {e}")
+            save_state(trt_checked=True, trt_ok=False)
 
     if not state.get("shortcut_done"):
         if create_desktop_shortcut() and not quiet:

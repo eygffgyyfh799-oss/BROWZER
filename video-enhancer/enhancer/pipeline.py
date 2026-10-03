@@ -27,6 +27,10 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .bootstrap import NO_WINDOW
+
+# Helper processes run below normal priority: full speed when the PC is idle,
+# but Windows and the desktop always stay responsive.
+LOW_PRIORITY = getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0)
 from .presets import ENGINES, FPS_OPTIONS, PRESETS, RESOLUTIONS
 
 ProgressFn = Callable[[float, str], None]
@@ -283,11 +287,13 @@ def encoder_args(opts: EnhanceOptions, nvenc: bool = False) -> list[str]:
     engine = ENGINES[opts.engine]
     crf = opts.crf if opts.crf is not None else engine["crf"]
     if nvenc:
-        # NVIDIA hardware encoder: many times faster than x264, near identical quality at this CQ.
+        # NVIDIA hardware encoder (separate chip on the card, does not slow the AI down).
+        # p6 + two-pass lookahead + adaptive quantization = near-transparent quality at very high speed.
         return [
-            "-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr", "-cq", str(crf + 1),
-            "-b:v", "0", "-spatial-aq", "1", "-temporal-aq", "1", "-rc-lookahead", "20",
-            "-profile:v", "high", "-pix_fmt", "yuv420p",
+            "-c:v", "h264_nvenc", "-preset", "p6", "-tune", "hq", "-multipass", "qres",
+            "-rc", "vbr", "-cq", str(crf), "-b:v", "0", "-maxrate", "200M", "-bufsize", "400M",
+            "-spatial-aq", "1", "-temporal-aq", "1", "-aq-strength", "8", "-rc-lookahead", "32",
+            "-bf", "3", "-profile:v", "high", "-pix_fmt", "yuv420p",
         ]
     return [
         "-c:v", "libx264", "-preset", engine["x264_preset"], "-crf", str(crf),
@@ -302,7 +308,7 @@ def _run_ffmpeg(cmd: list[str], duration: float, progress: Optional[ProgressFn],
     proc = subprocess.Popen(
         [cmd[0], "-nostdin", *cmd[1:], "-progress", "pipe:1", "-nostats"],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
-        encoding="utf-8", errors="replace", creationflags=NO_WINDOW,
+        encoding="utf-8", errors="replace", creationflags=NO_WINDOW | LOW_PRIORITY,
     )
     stderr_tail: list[str] = []
 
@@ -346,7 +352,7 @@ def _run_gpu_tool(cmd: list[str], out_dir: Path, total: int, report: ProgressFn,
                   offset: int = 0, grand_total: int = 0) -> None:
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-                            cwd=str(Path(cmd[0]).parent), creationflags=NO_WINDOW)
+                            cwd=str(Path(cmd[0]).parent), creationflags=NO_WINDOW | LOW_PRIORITY)
     err: list[str] = []
     t = threading.Thread(target=lambda: err.extend(proc.stderr or []), daemon=True)
     t.start()
@@ -469,20 +475,30 @@ def _extract_frames(ffmpeg: str, input_path: Path, info: VideoInfo, opts: Enhanc
 def _enhance_torch(ffmpeg: str, input_path: Path, output_path: Path, info: VideoInfo,
                    opts: EnhanceOptions, plan: dict, report: ProgressFn) -> None:
     from . import ai_engine
-    from .bootstrap import face_weights_dir, model_path
+    from .bootstrap import bin_dir, face_weights_dir, model_path
 
-    preset = PRESETS[opts.preset]
+    preset, engine_cfg = PRESETS[opts.preset], ENGINES[opts.engine]
+    out_w, out_h = target_size(info, opts.resolution)
     report(0.0, "loading AI models")
     engine = ai_engine.Engine(
-        model_path(plan["torch_model"]),
-        model_path("codeformer") if opts.faces else None,
-        face_weights_dir(),
+        model_path(plan["torch_model"]), plan["torch_model"],
+        model_path("codeformer") if opts.faces else None, face_weights_dir(),
+        in_size=(info.width, info.height), out_size=(out_w, out_h),
+        post={
+            # The AI model already restores detail, so sharpening stays light.
+            "sharpen": min(1.0, preset["sharpen"] * engine_cfg["sharpen_mul"] * 0.5),
+            "color": preset["color"],
+            "temporal": 0.55 if preset.get("deflicker") else 0.4,
+        },
         fidelity=preset.get("face_fidelity", 0.7),
-        # Whole-frame on small inputs; tiles on big ones so 8 GB cards never run out of memory.
-        tile=0 if info.width * info.height <= 960 * 540 else 512,
+        # Whole frame on small inputs; tiles on big ones so 8 GB cards never run out of memory.
+        tile=0 if info.width * info.height <= 1280 * 720 else 512,
+        trt_cache=bin_dir() / "trt",
+        report=lambda label: report(0.0, label),
     )
-    w, h, s = info.width, info.height, engine.scale
+    w, h = info.width, info.height
     tfps = target_fps(info, opts.fps)
+    hwdec = ["-hwaccel", "cuda"] if nvenc_available() else []  # NVDEC: decode on the GPU too
 
     with tempfile.TemporaryDirectory(prefix="enhancer_") as tmp:
         tmp_dir = Path(tmp)
@@ -496,21 +512,24 @@ def _enhance_torch(ffmpeg: str, input_path: Path, output_path: Path, info: Video
         else:
             rate = f"{tfps:g}" if tfps else info.rate  # FPS boost without RIFE: minterpolate in "pre"
             total = max(1, round(info.duration * _rate_value(rate)))
-            src = [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(input_path), "-map", "0:v:0",
+            src = [ffmpeg, "-hide_banner", "-loglevel", "error", *hwdec, "-i", str(input_path), "-map", "0:v:0",
                    "-vf", build_filters(info, opts, stage="pre", light=True, interpolate=bool(tfps)),
                    "-fps_mode", "cfr", "-r", rate]
         reader = subprocess.Popen([*src, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  creationflags=NO_WINDOW)
+                                  creationflags=NO_WINDOW | LOW_PRIORITY)
 
+        # Frames arrive finished (YUV 4:2:0 BT.709) - FFmpeg only encodes (NVENC) and adds the audio.
         enc = encoder_args(opts, nvenc=nvenc_available())
         writer = subprocess.Popen(
             [ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w * s}x{h * s}", "-framerate", rate, "-i", "-",
-             "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
-             "-vf", build_filters(info, opts, stage="post", light=True),
-             *enc, "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output_path)],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=NO_WINDOW)
+             "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", f"{out_w}x{out_h}", "-framerate", rate,
+             "-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+             "-i", "-", "-i", str(input_path), "-map", "0:v:0", "-map", "1:a?",
+             *enc, "-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+             "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart", str(output_path)],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            creationflags=NO_WINDOW | LOW_PRIORITY)
         err_tail: dict[str, bytes] = {}
         drains = [threading.Thread(target=lambda p=p, k=k: err_tail.__setitem__(k, p.stderr.read()), daemon=True)
                   for k, p in (("decoder", reader), ("encoder", writer))]
@@ -522,7 +541,8 @@ def _enhance_torch(ffmpeg: str, input_path: Path, output_path: Path, info: Video
         def on_frame(i: int) -> None:
             if i % 2 == 0 or i == total:
                 fps_now = i / max(1e-6, time.time() - started)
-                report(start + (0.97 - start) * min(1.0, i / total), f"AI enhancing {i}/{total} ({fps_now:.1f} fps)")
+                report(start + (0.98 - start) * min(1.0, i / total),
+                       f"AI enhancing {i}/{total} ({fps_now:.1f} fps, {engine.backend})")
 
         try:
             ai_engine.run_stream(engine, reader, writer, w, h, total, on_frame)
