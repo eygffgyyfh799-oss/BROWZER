@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- مشغل يوتيوب مخفي (صوت فقط) -->
+  <div id="yt-wrap"><div id="yt"></div></div>
+
+  <div id="app" class="hidden">
+    <div class="screen">
+      <aside class="dock">
+        <div class="clock" id="clock">--:--</div>
+        <button class="tab active" data-tab="now" title="يشتغل الآن">♪</button>
+        <button class="tab" data-tab="fav" title="المفضلة">♥</button>
+        <button class="tab" data-tab="hist" title="السجل">↺</button>
+        <div class="spacer"></div>
+        <button class="close" id="close" title="إغلاق">✕</button>
+      </aside>
+
+      <main>
+        <section id="tab-now" class="page active">
+          <form id="linkForm" class="link">
+            <input id="link" placeholder="الصق رابط يوتيوب هنا..." autocomplete="off" spellcheck="false">
+            <button type="submit">تشغيل</button>
+          </form>
+
+          <div class="now">
+            <div class="cover" id="cover"><span>♪</span></div>
+            <div class="info">
+              <div class="title" id="title">ما فيه شي يشتغل</div>
+              <div class="sub" id="sub">CarPlay</div>
+
+              <div class="seek" dir="ltr">
+                <span id="cur">0:00</span>
+                <input type="range" id="seek" min="0" max="100" value="0" step="1">
+                <span id="dur">0:00</span>
+              </div>
+
+              <div class="ctrls" dir="ltr">
+                <button data-act="back" class="ghost" id="backBtn">−10</button>
+                <button data-act="toggle" class="big" id="toggle">▶</button>
+                <button data-act="fwd" class="ghost" id="fwdBtn">+10</button>
+              </div>
+
+              <div class="row" dir="ltr">
+                <button data-act="fav" class="icon" id="favBtn" title="مفضلة">♡</button>
+                <div class="vol" title="صوت السيارة">
+                  <span>🔈</span><input type="range" id="vol" min="0" max="100" value="50"><span class="pct" id="volPct">50%</span>
+                </div>
+                <button data-act="boost" class="boost" id="boostBtn" title="رفع مستوى الصوت">BOOST</button>
+                <button data-act="stop" class="icon" title="إيقاف">■</button>
+              </div>
+
+              <div class="row sub-row" dir="ltr">
+                <span class="badge" id="badge3d" title="الصوت ينسمع برا السيارة حسب المسافة">3D</span>
+                <div class="vol mine" title="صوتك أنت (ما يأثر على غيرك)">
+                  <span>🎧</span><input type="range" id="myVol" min="0" max="100" value="100"><span class="pct" id="myVolPct">100%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="note hidden" id="note">التحكم للسائق فقط</div>
+        </section>
+
+        <section id="tab-fav" class="page">
+          <div class="head">المفضلة</div>
+          <div class="list" id="favList"></div>
+        </section>
+
+        <section id="tab-hist" class="page">
+          <div class="head">آخر تشغيل</div>
+          <div class="list" id="histList"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>
