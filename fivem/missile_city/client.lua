@@ -2,7 +2,9 @@
 -- ما فيه AddExplosion ولا StartScriptFire، يعني ما فيه ضرر ولا يموت أي أحد
 
 local active = false
-local loopedFx = {}
+local strikeId = 0
+local plumeFx = {}        -- أعمدة الدخان الضخمة مكان الصواريخ
+local cells = {}          -- النيران المرسومة حول اللاعب: [key] = { fx... }
 
 local function loadPtfx(asset)
     RequestNamedPtfxAsset(asset)
@@ -16,42 +18,53 @@ local function loadModel(model)
     while not HasModelLoaded(model) and GetGameTimer() < timeout do Wait(0) end
 end
 
-local function groundZ(x, y, fallback)
-    local found, z = GetGroundZFor_3dCoord(x, y, fallback + 500.0, false)
-    return found and z or fallback
+-- يرجع ارتفاع أعلى سطح (أرض أو سطح مبنى)
+local function surfaceZ(x, y, fallback)
+    local found, z = GetGroundZFor_3dCoord(x, y, fallback + 800.0, false)
+    return found, found and z or fallback
 end
 
-local function startLooped(asset, name, x, y, z, scale)
+local function looped(asset, name, x, y, z, scale)
     UseParticleFxAssetNextCall(asset)
-    local fx = StartParticleFxLoopedAtCoord(name, x, y, z, 0.0, 0.0, 0.0, scale, false, false, false, false)
-    loopedFx[#loopedFx + 1] = fx
+    return StartParticleFxLoopedAtCoord(name, x, y, z, 0.0, 0.0, 0.0, scale, false, false, false, false)
 end
 
--- سقوط الصاروخ من السما
-local function dropMissile(target)
+local function burst(asset, name, x, y, z, scale)
+    UseParticleFxAssetNextCall(asset)
+    StartParticleFxNonLoopedAtCoord(name, x, y, z, 0.0, 0.0, 0.0, scale, false, false, false)
+end
+
+-- رقم عشوائي ثابت لكل مربع، عشان النار تطلع بنفس المكان كل مرة ترجع له
+local function cellRng(seed, ix, iy)
+    local state = (seed * 73856093 ~ ix * 19349663 ~ iy * 83492791) & 0x7fffffff
+    return function(a, b)
+        state = (state * 1103515245 + 12345) & 0x7fffffff
+        return a + (state / 0x7fffffff) * (b - a)
+    end
+end
+
+-- ===================== الصواريخ والانفجار =====================
+
+local function dropMissile(x, y, z)
     local model = `w_lr_rpg_rocket`
     loadModel(model)
-    loadPtfx('scr_ar_planes')
-    loadPtfx('core')
 
-    local startZ = target.z + Config.MissileHeight
-    local missile = CreateObject(model, target.x, target.y, startZ, false, false, false)
+    local startZ = z + Config.MissileHeight
+    local missile = CreateObject(model, x, y, startZ, false, false, false)
     SetEntityCollision(missile, false, false)
     SetEntityRotation(missile, -90.0, 0.0, 0.0, 2, true)
-    SetEntityLodDist(missile, 2000)
-    SetModelAsNoLongerNeeded(model)
+    SetEntityLodDist(missile, 3000)
 
     UseParticleFxAssetNextCall('scr_ar_planes')
-    local trail = StartParticleFxLoopedOnEntity('scr_ar_trail_smoke', missile, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 3.0, false, false, false)
+    local trail = StartParticleFxLoopedOnEntity('scr_ar_trail_smoke', missile, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 4.0, false, false, false)
     UseParticleFxAssetNextCall('core')
-    local flame = StartParticleFxLoopedOnEntity('fire_wrecked_plane_cockpit', missile, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.6, false, false, false)
+    local flame = StartParticleFxLoopedOnEntity('fire_wrecked_plane_cockpit', missile, 0.0, -1.2, 0.0, 0.0, 0.0, 0.0, 1.2, false, false, false)
 
     local startTime = GetGameTimer()
     while true do
         local t = (GetGameTimer() - startTime) / Config.FallTime
         if t >= 1.0 then break end
-        -- تسارع بسيط أثناء السقوط
-        SetEntityCoordsNoOffset(missile, target.x, target.y, startZ - (startZ - target.z) * (t * t), false, false, false)
+        SetEntityCoordsNoOffset(missile, x, y, startZ - (startZ - z) * (t * t), false, false, false)
         Wait(0)
     end
 
@@ -60,56 +73,120 @@ local function dropMissile(target)
     DeleteEntity(missile)
 end
 
--- الانفجار (شكل وصوت واهتزاز فقط)
-local function explosionFx(target)
-    loadPtfx('scr_xm_orbital')
-    RequestScriptAudioBank('DLC_CHRISTMAS2017/XM_ION_CANNON', false)
+local function explosionFx(x, y, z, id)
+    -- الانفجار الرئيسي: انفجار مداري + انفجارات وقود فوق بعض
+    burst('scr_xm_orbital', 'scr_xm_orbital_blast', x, y, z, Config.BlastScale)
+    burst('core', 'exp_grd_petrol_pump', x, y, z + 5.0, Config.BlastScale)
+    burst('core', 'exp_grd_petrol_pump', x, y, z + 25.0, Config.BlastScale * 0.8)
+    PlaySoundFromCoord(-1, 'DLC_XM_Explosions_Orbital_Cannon', x, y, z, 0, true, 0, false)
 
-    UseParticleFxAssetNextCall('scr_xm_orbital')
-    StartParticleFxNonLoopedAtCoord('scr_xm_orbital_blast', target.x, target.y, target.z, 0.0, 0.0, 0.0, 2.0, false, false, false)
-    PlaySoundFromCoord(-1, 'DLC_XM_Explosions_Orbital_Cannon', target.x, target.y, target.z, 0, true, 0, false)
+    local dist = #(GetEntityCoords(PlayerPedId()) - vector3(x, y, z))
+    ShakeGameplayCam('LARGE_EXPLOSION_SHAKE', math.max(0.4, 3.0 - dist / 400.0))
+    if dist < 600.0 then
+        AnimpostfxPlay('ExplosionJosh3', 0, false)
+    end
 
-    local dist = #(GetEntityCoords(PlayerPedId()) - vector3(target.x, target.y, target.z))
-    ShakeGameplayCam('LARGE_EXPLOSION_SHAKE', math.max(0.3, 2.0 - dist / 500.0))
-    AnimpostfxPlay('ExplosionJosh3', 0, false)
+    -- عمود دخان ضخم ونار كبيرة يبقون مكان السقوط
+    local plume = looped('scr_agencyheistb', 'scr_env_agency3b_smoke', x, y, z, 6.0)
+    local plume2 = looped('scr_trevor3', 'scr_trev3_trailer_plume', x, y, z, 4.0)
+    local core = looped('core', 'ent_ray_heli_aprtmnt_l_fire', x, y, z, 6.0)
+    for _, fx in ipairs({ plume, plume2, core }) do plumeFx[#plumeFx + 1] = fx end
 
-    -- انفجارات ثانوية حول مكان السقوط
+    -- انفجارات ثانوية متتالية حول مكان السقوط
     CreateThread(function()
-        for _ = 1, 6 do
-            Wait(math.random(250, 700))
+        for _ = 1, Config.SecondaryBlasts do
+            Wait(math.random(120, 450))
+            if strikeId ~= id then return end
             local a = math.random() * 2 * math.pi
-            local r = math.random(30, 120) + 0.0
-            local x, y = target.x + math.cos(a) * r, target.y + math.sin(a) * r
-            UseParticleFxAssetNextCall('scr_xm_orbital')
-            StartParticleFxNonLoopedAtCoord('scr_xm_orbital_blast', x, y, groundZ(x, y, target.z), 0.0, 0.0, 0.0, 0.8, false, false, false)
+            local r = math.random(20, 160) + 0.0
+            local bx, by = x + math.cos(a) * r, y + math.sin(a) * r
+            local _, bz = surfaceZ(bx, by, z)
+            if math.random() < 0.4 then
+                burst('scr_xm_orbital', 'scr_xm_orbital_blast', bx, by, bz, 1.0)
+            else
+                burst('core', 'exp_grd_petrol_pump', bx, by, bz, 2.0)
+            end
+            ShakeGameplayCam('SMALL_EXPLOSION_SHAKE', 0.4)
         end
     end)
 end
 
--- تحويل المدينة لمدينة محروقة
-local function burnCity(target)
-    active = true
+-- ===================== النار المنتشرة في المدينة =====================
 
-    loadPtfx('core')
-    loadPtfx('scr_agencyheistb')
+local function spawnCell(state, ix, iy, refZ)
+    local rnd = cellRng(state.seed, ix, iy)
+    local cs = Config.CellSize
+    local list = {}
 
-    -- عمود دخان ضخم في مكان السقوط
-    startLooped('scr_agencyheistb', 'scr_env_agency3b_smoke', target.x, target.y, target.z, 4.0)
+    local function point()
+        local x = (ix + rnd(0, 1)) * cs
+        local y = (iy + rnd(0, 1)) * cs
+        local found, z = surfaceZ(x, y, refZ)
+        return found, x, y, z
+    end
 
-    -- نيران ودخان موزعة على المنطقة
-    for i = 1, Config.FireCount + Config.SmokeCount do
-        local a = math.random() * 2 * math.pi
-        local r = math.sqrt(math.random()) * Config.Radius
-        local x, y = target.x + math.cos(a) * r, target.y + math.sin(a) * r
-        local z = groundZ(x, y, target.z)
-        if i <= Config.FireCount then
-            startLooped('core', 'fire_wrecked_plane_cockpit', x, y, z, math.random(15, 35) / 10.0)
-        else
-            startLooped('core', 'ent_amb_smoke_foundry', x, y, z, math.random(20, 40) / 10.0)
+    for i = 1, Config.FiresPerCell + Config.BigFiresPerCell + Config.SmokePerCell do
+        local found, x, y, z = point()
+        local scale = rnd(Config.FireScale[1], Config.FireScale[2])
+        if found then
+            if i <= Config.FiresPerCell then
+                list[#list + 1] = looped('core', 'fire_wrecked_plane_cockpit', x, y, z, scale)
+            elseif i <= Config.FiresPerCell + Config.BigFiresPerCell then
+                list[#list + 1] = looped('core', 'ent_ray_heli_aprtmnt_l_fire', x, y, z, scale)
+            else
+                list[#list + 1] = looped('core', 'ent_amb_smoke_foundry', x, y, z, scale * 1.5)
+            end
         end
     end
 
-    -- جو المدينة: فلتر أحمر محروق + دخان + انطفاء الأنوار
+    -- لو المنطقة ما تحملت بعد ما نحفظ المربع، عشان نحاول مرة ثانية
+    if #list == 0 then return nil end
+    return list
+end
+
+local function clearCell(list)
+    for _, fx in ipairs(list) do StopParticleFxLooped(fx, false) end
+end
+
+local function streamFires(state, id)
+    local cs = Config.CellSize
+    local reach = math.ceil(Config.StreamDistance / cs)
+    local center = vector2(state.x, state.y)
+
+    while active and strikeId == id do
+        local p = GetEntityCoords(PlayerPedId())
+        local pcx, pcy = math.floor(p.x / cs), math.floor(p.y / cs)
+        local wanted = {}
+
+        for dx = -reach, reach do
+            for dy = -reach, reach do
+                local ix, iy = pcx + dx, pcy + dy
+                local mid = vector2((ix + 0.5) * cs, (iy + 0.5) * cs)
+                if #(mid - vector2(p.x, p.y)) <= Config.StreamDistance and #(mid - center) <= Config.Radius then
+                    local key = ix .. ':' .. iy
+                    wanted[key] = true
+                    if not cells[key] then
+                        cells[key] = spawnCell(state, ix, iy, p.z)
+                        Wait(0)
+                    end
+                end
+            end
+        end
+
+        for key, list in pairs(cells) do
+            if not wanted[key] then
+                clearCell(list)
+                cells[key] = nil
+            end
+        end
+
+        Wait(1000)
+    end
+end
+
+-- ===================== الجو والتحكم =====================
+
+local function applyAtmosphere(id)
     SetTimecycleModifier(Config.TimecycleModifier)
     SetTimecycleModifierStrength(Config.TimecycleStrength)
     if Config.Blackout then
@@ -119,7 +196,7 @@ local function burnCity(target)
 
     -- نعيد تطبيق الطقس باستمرار عشان سكربتات مزامنة الطقس ما تلغيه
     CreateThread(function()
-        while active do
+        while active and strikeId == id do
             SetOverrideWeather(Config.Weather)
             SetWeatherTypeNowPersist(Config.Weather)
             Wait(5000)
@@ -129,24 +206,49 @@ end
 
 local function resetCity()
     active = false
-    for _, fx in ipairs(loopedFx) do
-        StopParticleFxLooped(fx, false)
-    end
-    loopedFx = {}
+    strikeId = strikeId + 1
+    for _, fx in ipairs(plumeFx) do StopParticleFxLooped(fx, false) end
+    plumeFx = {}
+    for _, list in pairs(cells) do clearCell(list) end
+    cells = {}
     ClearTimecycleModifier()
     ClearOverrideWeather()
     SetArtificialLightsState(false)
     AnimpostfxStopAll()
 end
 
-local function strike(target, animated)
-    if active then resetCity() end
-    if animated then
-        dropMissile(target)
-        explosionFx(target)
-        Wait(800)
+local function strike(state, animated)
+    resetCity()
+    local id = strikeId
+    active = true
+
+    for _, asset in ipairs({ 'core', 'scr_ar_planes', 'scr_xm_orbital', 'scr_agencyheistb', 'scr_trevor3' }) do
+        loadPtfx(asset)
     end
-    burnCity(target)
+    RequestScriptAudioBank('DLC_CHRISTMAS2017/XM_ION_CANNON', false)
+
+    if animated then
+        for i, imp in ipairs(state.impacts) do
+            CreateThread(function()
+                Wait((i - 1) * Config.MissileDelay)
+                local _, z = surfaceZ(imp.x, imp.y, state.z)
+                dropMissile(imp.x, imp.y, z)
+                if strikeId == id then explosionFx(imp.x, imp.y, z, id) end
+            end)
+        end
+        -- النار تبدأ تنتشر مع أول انفجار
+        Wait(Config.FallTime + 300)
+    else
+        for _, imp in ipairs(state.impacts) do
+            local _, z = surfaceZ(imp.x, imp.y, state.z)
+            plumeFx[#plumeFx + 1] = looped('scr_agencyheistb', 'scr_env_agency3b_smoke', imp.x, imp.y, z, 6.0)
+            plumeFx[#plumeFx + 1] = looped('core', 'ent_ray_heli_aprtmnt_l_fire', imp.x, imp.y, z, 6.0)
+        end
+    end
+
+    if strikeId ~= id then return end
+    applyAtmosphere(id)
+    streamFires(state, id)
 end
 
 AddStateBagChangeHandler('missileCity', 'global', function(_, _, value)
@@ -159,7 +261,7 @@ AddStateBagChangeHandler('missileCity', 'global', function(_, _, value)
     end)
 end)
 
--- اللي يدخل السيرفر والمدينة محروقة يشوفها محروقة مباشرة بدون الصاروخ
+-- اللي يدخل السيرفر والمدينة محروقة يشوفها محروقة مباشرة بدون الصواريخ
 CreateThread(function()
     Wait(2000)
     local state = GlobalState.missileCity

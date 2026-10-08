@@ -4,15 +4,27 @@ Config = {}
 Config.MissileCommand = 'missile'
 Config.ResetCommand = 'resetcity'
 
--- الصاروخ
-Config.MissileHeight = 400.0      -- ارتفاع بداية سقوط الصاروخ فوق الهدف
-Config.FallTime = 4000            -- مدة السقوط بالملي ثانية
+-- الصواريخ
+Config.MissileCount = 6           -- عدد الصواريخ (الأول على مكانك والباقي حوله)
+Config.MissileSpread = 180.0      -- مسافة انتشار الصواريخ الإضافية
+Config.MissileDelay = 600         -- الفرق الزمني بين كل صاروخ (ملي ثانية)
+Config.MissileHeight = 450.0      -- ارتفاع بداية السقوط
+Config.FallTime = 3500            -- مدة السقوط (ملي ثانية)
+Config.BlastScale = 3.0           -- حجم الانفجار الرئيسي
+Config.SecondaryBlasts = 14       -- انفجارات صغيرة بعد كل صاروخ
 
 -- المدينة المحروقة
-Config.Radius = 300.0             -- نصف قطر منطقة النيران والدخان حول مكان السقوط
-Config.FireCount = 45             -- عدد النيران (شكل فقط، ما تضر أحد)
-Config.SmokeCount = 20            -- عدد أعمدة الدخان
-Config.TimecycleModifier = 'REDMIST'  -- فلتر لون الجو المحروق
-Config.TimecycleStrength = 0.55
-Config.Weather = 'SMOG'           -- طقس دخاني
-Config.Blackout = true            -- إطفاء أنوار المدينة
+-- المنطقة مقسمة مربعات، والنار تنرسم حولك وانت تمشي عشان تكون كثيفة في كل مكان
+Config.Radius = 2500.0            -- نصف قطر المنطقة المحروقة (2500 = تقريباً المدينة كلها)
+Config.CellSize = 50.0            -- حجم كل مربع
+Config.StreamDistance = 160.0     -- المسافة اللي تنرسم فيها النار حولك
+Config.FiresPerCell = 5           -- نيران في كل مربع
+Config.BigFiresPerCell = 1        -- نيران كبيرة في كل مربع
+Config.SmokePerCell = 1           -- أعمدة دخان في كل مربع
+Config.FireScale = { 2.0, 4.5 }   -- أصغر وأكبر حجم للنار
+
+-- الجو
+Config.TimecycleModifier = 'REDMIST'
+Config.TimecycleStrength = 0.75
+Config.Weather = 'SMOG'
+Config.Blackout = true
