@@ -10,9 +10,15 @@ end
 
 -- يضيف صواريخ جديدة ويرسلها لكل اللاعبين
 -- reset = true يمسح الحريق القديم ويبدأ ضربة جديدة
-local function launch(cx, cy, cz, count, spread, reset)
+-- target (اختياري): آيدي لاعب، والصواريخ تلاحقه
+local function launch(cx, cy, cz, count, spread, reset, target)
     local state = GlobalState.missileCity
-    if reset or not state then
+
+    -- صاروخ موجّه والمدينة مو محروقة: انفجار بس بدون ما تحترق المدينة (لو الإعداد كذا)
+    local temp = target and not state and not Config.TargetBurnsCity
+    if temp then
+        state = { x = cx, y = cy, z = cz, seed = 0, impacts = {} }
+    elseif reset or not state then
         state = { x = cx, y = cy, z = cz, seed = math.random(1, 1000000), impacts = {} }
         reset = true
     end
@@ -20,12 +26,17 @@ local function launch(cx, cy, cz, count, spread, reset)
     local new = {}
     for i = 1, count do
         local x, y = cx, cy
-        if i > 1 or spread > Config.MissileSpread then
+        if (i > 1 or spread > Config.MissileSpread) and spread > 0 then
             local a = math.random() * 2 * math.pi
             local r = math.sqrt(math.random()) * spread
             x, y = cx + math.cos(a) * r, cy + math.sin(a) * r
         end
-        local imp = { id = nextImpactId, x = x, y = y, z = cz }
+        local imp = { id = nextImpactId, x = x, y = y, z = cz, temp = temp or nil }
+        if target then
+            -- الأول على اللاعب بالضبط، والباقي حوله بمسافة صغيرة
+            imp.target = target
+            imp.ox, imp.oy = x - cx, y - cy
+        end
         nextImpactId = nextImpactId + 1
         new[#new + 1] = imp
         state.impacts[#state.impacts + 1] = imp
@@ -33,6 +44,11 @@ local function launch(cx, cy, cz, count, spread, reset)
 
     -- نخلي آخر 300 صاروخ بس عشان الحالة ما تكبر بزيادة
     while #state.impacts > 300 do table.remove(state.impacts, 1) end
+
+    if temp then
+        TriggerClientEvent('missile_city:strike', -1, false, new, false)
+        return
+    end
 
     GlobalState.missileCity = state
     TriggerClientEvent('missile_city:strike', -1, state, new, reset)
@@ -99,4 +115,20 @@ RegisterCommand(Config.Commands.nuke, function(src)
 
     local t = Config.Nuke.Target or playerCoords(src)
     TriggerClientEvent('missile_city:nuke', -1, { x = t.x, y = t.y, z = t.z, seed = math.random(1, 1000000) })
+end, false)
+
+-- /missileid [آيدي] [عدد] : صاروخ موجّه يلاحق لاعب معين
+RegisterCommand(Config.Commands.target, function(src, args)
+    if not inGame(src) then return end
+    local id = tonumber(args[1])
+    if not id or not GetPlayerName(id) then
+        TriggerClientEvent('chat:addMessage', src, { args = { 'missile_city', 'اكتب آيدي لاعب موجود، مثال: /' .. Config.Commands.target .. ' 12' } })
+        return
+    end
+
+    local count = clampCount(args[2], 1)
+    local c = GetEntityCoords(GetPlayerPed(id))
+    launch(c.x, c.y, c.z, count, Config.TargetSpread, false, id)
+    TriggerClientEvent('missile_city:targeted', id, count)
+    TriggerClientEvent('chat:addMessage', src, { args = { 'missile_city', ('🎯 تم إطلاق %d صاروخ على %s'):format(count, GetPlayerName(id)) } })
 end, false)

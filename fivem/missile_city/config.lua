@@ -7,6 +7,8 @@ Config = {}
 --   /missilewp [عدد]    زيادة صواريخ على النقطة (Waypoint) في الخريطة
 --   /missilerain [عدد]  مطر صواريخ عشوائي حولك
 --   /resetcity          يرجع المدينة طبيعية
+--   /missileid [آيدي] [عدد]  صاروخ موجّه يلاحق لاعب
+--   /nuke               فلم نووي ينتهي بحلم
 Config.Commands = {
     missile = 'missile',
     add = 'addmissile',
@@ -14,6 +16,7 @@ Config.Commands = {
     rain = 'missilerain',
     reset = 'resetcity',
     nuke = 'nuke',
+    target = 'missileid',
 }
 Config.Ace = 'command.missile'
 Config.MaxPerCommand = 60         -- أكبر عدد صواريخ في الأمر الواحد
@@ -24,6 +27,8 @@ Config.DefaultAddCount = 1        -- العدد الافتراضي لـ /addmiss
 Config.DefaultRainCount = 25      -- العدد الافتراضي لـ /missilerain
 Config.MissileSpread = 200.0      -- انتشار الصواريخ حول الهدف
 Config.RainRadius = 700.0         -- مساحة مطر الصواريخ
+Config.TargetSpread = 25.0        -- انتشار الصواريخ حول اللاعب المستهدف (لو أكثر من صاروخ)
+Config.TargetBurnsCity = false    -- true = الصاروخ الموجّه يحرق المدينة بعد، false = انفجار بس
 Config.MissileDelay = 450         -- الفرق الزمني بين كل صاروخ (ملي ثانية)
 Config.MissileHeight = 600.0      -- ارتفاع بداية السقوط
 Config.FallTime = 3200            -- مدة السقوط (ملي ثانية)

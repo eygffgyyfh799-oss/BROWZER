@@ -56,7 +56,9 @@ end
 
 -- ===================== الصاروخ =====================
 
-local function dropMissile(x, y, z)
+-- track (اختياري): دالة ترجع مكان الهدف الحالي، والصاروخ يلاحقه وهو نازل
+-- ترجع مكان السقوط النهائي
+local function dropMissile(x, y, z, track)
     local model = `w_lr_rpg_rocket`
     loadModel(model)
 
@@ -71,23 +73,46 @@ local function dropMissile(x, y, z)
     UseParticleFxAssetNextCall('core')
     local flame = StartParticleFxLoopedOnEntity('fire_wrecked_plane_cockpit', missile, 0.0, -1.2, 0.0, 0.0, 0.0, 0.0, 1.5, false, false, false)
 
+    local startX, startY = x, y
     local startTime = GetGameTimer()
     while true do
         local t = (GetGameTimer() - startTime) / Config.FallTime
         if t >= 1.0 then break end
-        SetEntityCoordsNoOffset(missile, x, y, startZ - (startZ - z) * (t * t), false, false, false)
+        local pos = track and track()
+        if pos then x, y, z = pos.x, pos.y, pos.z end
+        -- كل ما قرب من الأرض يلف أكثر باتجاه الهدف
+        local mx, my = startX + (x - startX) * t, startY + (y - startY) * t
+        local mz = startZ - (startZ - z) * (t * t)
+        SetEntityCoordsNoOffset(missile, mx, my, mz, false, false, false)
+        if track then
+            local dx, dy, dz = x - mx, y - my, z - mz
+            SetEntityRotation(missile, math.deg(math.atan(dz, math.sqrt(dx * dx + dy * dy))), 0.0, math.deg(math.atan(-dx, dy)), 2, true)
+        end
         Wait(0)
     end
 
     StopParticleFxLooped(trail, false)
     StopParticleFxLooped(flame, false)
     DeleteEntity(missile)
+    return x, y, z
+end
+
+-- مكان لاعب حسب الآيدي، لو قريب ومحمّل عندنا
+local function trackPlayer(serverId, ox, oy)
+    return function()
+        local player = GetPlayerFromServerId(serverId)
+        if player == -1 then return nil end
+        local ped = GetPlayerPed(player)
+        if not DoesEntityExist(ped) then return nil end
+        local p = GetEntityCoords(ped)
+        return vector3(p.x + ox, p.y + oy, p.z - 1.0)
+    end
 end
 
 -- ===================== الانفجار =====================
 
 local function addPlume(imp, z)
-    if plumed[imp.id] then return end
+    if imp.temp or plumed[imp.id] then return end
     plumed[imp.id] = true
     -- حد لأعمدة الدخان الضخمة، الباقي تكفيه نار المدينة
     if #plumeFx >= Config.MaxPlumes * 3 then return end
@@ -292,12 +317,35 @@ RegisterNetEvent('missile_city:strike', function(state, impacts, reset)
             Wait((i - 1) * Config.MissileDelay)
             if session ~= sid then return end
             local _, z = surfaceZ(imp.x, imp.y, imp.z)
-            dropMissile(imp.x, imp.y, z)
+            if imp.target then
+                -- صاروخ موجّه: يلاحق اللاعب لين يوصله
+                local track = trackPlayer(imp.target, imp.ox or 0.0, imp.oy or 0.0)
+                imp.x, imp.y, z = dropMissile(imp.x, imp.y, z, track)
+            else
+                dropMissile(imp.x, imp.y, z)
+            end
             if session ~= sid then return end
             explosionFx(imp, z, sid)
-            igniteCity(state)
+            -- الصاروخ الموجّه لحاله (state = false) ما يحرق المدينة
+            if state then igniteCity(state) end
         end)
     end
+end)
+
+-- انت مستهدف: تحذير قبل ما يوصلك الصاروخ
+RegisterNetEvent('missile_city:targeted', function(count)
+    if dreaming then return end
+    SendNUIMessage({ type = 'alarm', on = true })
+    SendNUIMessage({ type = 'caption', style = 'alarm', duration = Config.FallTime,
+        text = count > 1 and ('🎯 أنت مستهدف! %d صواريخ في الطريق'):format(count) or '🎯 أنت مستهدف! صاروخ في الطريق' })
+    CreateThread(function()
+        local untilT = GetGameTimer() + Config.FallTime + (count - 1) * Config.MissileDelay
+        while GetGameTimer() < untilT do
+            PlaySoundFrontend(-1, 'Beep_Red', 'DLC_HEIST_HACKING_SNAKE_SOUNDS', true)
+            Wait(500)
+        end
+        SendNUIMessage({ type = 'alarm', on = false })
+    end)
 end)
 
 RegisterNetEvent('missile_city:reset', function()
@@ -324,6 +372,7 @@ CreateThread(function()
     TriggerEvent('chat:addSuggestion', '/' .. c.waypoint, 'زيادة صواريخ على النقطة في الخريطة', { { name = 'عدد', help = 'عدد الصواريخ' } })
     TriggerEvent('chat:addSuggestion', '/' .. c.rain, 'مطر صواريخ عشوائي حولك', { { name = 'عدد', help = 'عدد الصواريخ' } })
     TriggerEvent('chat:addSuggestion', '/' .. c.reset, 'يرجع المدينة طبيعية')
+    TriggerEvent('chat:addSuggestion', '/' .. c.target, 'صاروخ موجّه يلاحق لاعب', { { name = 'آيدي', help = 'آيدي اللاعب' }, { name = 'عدد', help = 'عدد الصواريخ (اختياري)' } })
 end)
 
 -- يرسم حالة المدينة الحالية من السيرفر (محروقة أو لا) بدون صواريخ
