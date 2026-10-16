@@ -78,6 +78,21 @@ RegisterCommand(Config.Commands.leaveAll, function(src)
     reply(src, ('تم إرجاع %d لاعب إلى العالم العادي'):format(n))
 end, false)
 
+-- لو سكربت ثاني (مثل اختيار الشخصية أو الشقق) غير عالم اللاعب، نحدث الحالة عشان ما يعلق الثلج عنده
+CreateThread(function()
+    while true do
+        Wait(5000)
+        for id in pairs(members) do
+            if not GetPlayerName(id) then
+                members[id] = nil
+            elseif GetPlayerRoutingBucket(id) ~= Config.Bucket then
+                members[id] = nil
+                Player(id).state:set('snowWorld', false, true)
+            end
+        end
+    end
+end)
+
 AddEventHandler('playerDropped', function()
     members[source] = nil
 end)
