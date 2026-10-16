@@ -227,3 +227,4 @@ exports('GetPoliceCount', function(src) return #Worlds.police(Worlds.of(src)) en
 exports('TriggerWorldEvent', function(src, eventName, ...)
     for _, id in ipairs(Worlds.players(Worlds.of(src))) do TriggerClientEvent(eventName, id, ...) end
 end)
+

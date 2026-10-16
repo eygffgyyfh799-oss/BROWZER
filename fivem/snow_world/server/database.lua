@@ -40,12 +40,10 @@ function DB.load()
             if type(at) == 'number' then at = os.date('%Y-%m-%d %H:%M', math.floor(at / 1000)) end
             DB.members[row.citizenid] = { world = row.world, name = row.name, added_by = row.added_by, added_at = at }
         end
-        print(('[worlds] تم تحميل %d لاعب من قاعدة البيانات (oxmysql)'):format(#rows))
     else
         local raw = LoadResourceFile(GetCurrentResourceName(), FILE)
         local ok, data = pcall(json.decode, raw or '{}')
         if ok and type(data) == 'table' then DB.members = data end
-        print('[worlds] oxmysql مو موجود، الحفظ في ' .. FILE)
     end
 end
 

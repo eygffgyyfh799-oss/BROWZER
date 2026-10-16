@@ -21,7 +21,9 @@ RegisterCommand('-worlds_scoreboard', function()
     SendNUIMessage({ type = 'scoreboard', show = false })
 end, false)
 
-RegisterKeyMapping('+worlds_scoreboard', 'قائمة اللاعبين في عالمك', 'keyboard', Config.Scoreboard.Key)
+if Config.Scoreboard.Enabled then
+    RegisterKeyMapping('+worlds_scoreboard', 'Players', 'keyboard', Config.Scoreboard.Key)
+end
 
 RegisterNetEvent('worlds:scoreboard', function(data)
     if not showing then return end
@@ -49,13 +51,35 @@ RegisterNetEvent('worlds:dispatch', function(alert)
 end)
 
 -- ===================== اقتراحات الأوامر =====================
+-- أوامر الأدمن ما لها اقتراحات عشان ما تبين لأحد
 CreateThread(function()
-    local c, cc = Config.Commands, Config.ChatCommands
+    local cc = Config.ChatCommands
     local add = function(cmd, help, params) if cmd then TriggerEvent('chat:addSuggestion', '/' .. cmd, help, params) end end
-    add(c.add, 'ينقل لاعب للعالم الثلجي', { { name = 'آيدي', help = 'آيدي اللاعب' } })
-    add(c.remove, 'يرجع لاعب للعالم العادي', { { name = 'آيدي', help = 'آيدي اللاعب' } })
     add(cc.me, 'حركة يشوفها اللي حولك في عالمك', { { name = 'نص', help = '' } })
     add(cc['do'], 'وصف يشوفه اللي حولك في عالمك', { { name = 'نص', help = '' } })
     add(cc.ooc, 'كلام خارج الرول لكل اللي في عالمك', { { name = 'نص', help = '' } })
     add(cc['911'], 'بلاغ للشرطة اللي في عالمك', { { name = 'البلاغ', help = '' } })
+end)
+
+-- أوامر الأدمن ما تطلع في اقتراحات الشات لأي أحد
+-- (الشات يضيف اقتراحات كل الأوامر تلقائياً، فنشيلها بعده)
+local function hideAdminCommands()
+    for _, cmd in pairs(Config.Commands) do
+        TriggerEvent('chat:removeSuggestion', '/' .. cmd)
+    end
+end
+
+RegisterNetEvent('chat:addSuggestions', function() SetTimeout(300, hideAdminCommands) end)
+RegisterNetEvent('chat:addSuggestion', function(name)
+    if type(name) ~= 'string' then return end
+    for _, cmd in pairs(Config.Commands) do
+        if name == '/' .. cmd then SetTimeout(300, hideAdminCommands) return end
+    end
+end)
+
+CreateThread(function()
+    for _ = 1, 6 do
+        Wait(5000)
+        hideAdminCommands()
+    end
 end)

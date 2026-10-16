@@ -59,8 +59,10 @@ AddStateBagChangeHandler('callChannel', nil, onChannelChange)
 
 -- ===================== الشات العادي =====================
 -- لو ما فيه أحد في عالم ثاني نخلي الشات طبيعي بدون أي تدخل
+-- ما نلمس الأوامر (تبدأ بـ /) ولا الرسائل اللي سكربت ثاني منعها، عشان ما تطلع رسائل مثل /-toggleSiren
 AddEventHandler('chatMessage', function(src, author, message)
     if not I.Chat or not Worlds.any() then return end
+    if WasEventCanceled() or type(message) ~= 'string' or message:sub(1, 1) == '/' then return end
     CancelEvent()
     for _, id in ipairs(Worlds.players(Worlds.of(src))) do
         TriggerClientEvent('chat:addMessage', id, { args = { author, message } })
