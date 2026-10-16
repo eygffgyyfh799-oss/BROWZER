@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        }
+
+        /* الأشرطة السوداء حق الأفلام */
+        .bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            height: 0;
+            background: #000;
+            transition: height 1.5s ease;
+            z-index: 3;
+        }
+        .bar.top { top: 0; }
+        .bar.bottom { bottom: 0; }
+        body.letterbox .bar { height: 12vh; }
+
+        /* النص تحت مثل ترجمة الأفلام */
+        #caption {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 14vh;
+            text-align: center;
+            color: #fff;
+            font-size: 2.4vw;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-shadow: 0 0 12px #000, 0 0 4px #000;
+            opacity: 0;
+            transition: opacity 1.2s ease;
+            z-index: 4;
+        }
+        #caption.show { opacity: 1; }
+        #caption.alarm { color: #ff3b30; font-size: 2.8vw; }
+
+        /* الوميض الأبيض حق الانفجار */
+        #flash {
+            position: fixed;
+            inset: 0;
+            background: #fff8ec;
+            opacity: 0;
+            z-index: 2;
+        }
+
+        /* الإنذار الأحمر */
+        #alarm {
+            position: fixed;
+            inset: 0;
+            box-shadow: inset 0 0 18vw rgba(255, 0, 0, 0.75);
+            opacity: 0;
+            z-index: 1;
+        }
+        body.alarm #alarm { animation: pulse 0.9s ease-in-out infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bar top"></div>
+    <div class="bar bottom"></div>
+    <div id="alarm"></div>
+    <div id="flash"></div>
+    <div id="caption"></div>
+
+    <script>
+        const caption = document.getElementById('caption');
+        const flash = document.getElementById('flash');
+        let captionTimer = null;
+
+        window.addEventListener('message', (e) => {
+            const d = e.data || {};
+
+            if (d.type === 'letterbox') {
+                document.body.classList.toggle('letterbox', !!d.on);
+            }
+
+            if (d.type === 'alarm') {
+                document.body.classList.toggle('alarm', !!d.on);
+            }
+
+            if (d.type === 'caption') {
+                clearTimeout(captionTimer);
+                caption.textContent = d.text || '';
+                caption.classList.toggle('alarm', !!d.alarm);
+                caption.classList.toggle('show', !!d.text);
+                if (d.duration) {
+                    captionTimer = setTimeout(() => caption.classList.remove('show'), d.duration);
+                }
+            }
+
+            // وميض: يطلع أبيض فوراً، يثبت شوي، بعدين يختفي بهدوء
+            if (d.type === 'flash') {
+                flash.style.transition = 'none';
+                flash.style.opacity = d.strength ?? 1;
+                setTimeout(() => {
+                    flash.style.transition = `opacity ${d.fade || 2000}ms ease-out`;
+                    flash.style.opacity = 0;
+                }, d.hold || 0);
+            }
+
+            if (d.type === 'clear') {
+                document.body.className = '';
+                caption.classList.remove('show');
+                flash.style.opacity = 0;
+            }
+        });
+    </script>
+</body>
+</html>

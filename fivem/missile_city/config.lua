@@ -13,6 +13,7 @@ Config.Commands = {
     waypoint = 'missilewp',
     rain = 'missilerain',
     reset = 'resetcity',
+    nuke = 'nuke',
 }
 Config.Ace = 'command.missile'
 Config.MaxPerCommand = 60         -- أكبر عدد صواريخ في الأمر الواحد
@@ -49,3 +50,25 @@ Config.TimecycleModifier = 'REDMIST'
 Config.TimecycleStrength = 0.85
 Config.Weather = 'SMOG'
 Config.Blackout = true
+
+-- ===================== النووي (حلم) =====================
+-- /nuke : فلم كامل لتفجير نووي يشوفه كل اللاعبين، وبالأخير يطلع حلم
+-- وكل واحد يرجع مكانه كأن ما صار شي
+Config.Nuke = {
+    Target = nil,                 -- nil = مكان اللي كتب الأمر، أو حط مكان ثابت مثل vector3(-75.0, -818.0, 32.0)
+    ClockHour = 19,               -- وقت المغرب في الحلم
+    MissileHeight = 1500.0,
+    FallTime = 4500,
+    BlastScale = 12.0,
+    MushroomHeight = 520.0,       -- ارتفاع سحابة الفطر
+    ShockwaveRadius = 1200.0,     -- إلى وين توصل موجة الصدمة
+    Cooldown = 120,               -- ثواني بين كل نووي
+    Captions = {
+        intro = 'لوس سانتوس... مساء عادي مثل كل يوم',
+        alarm = '⚠ إنذار: صاروخ نووي في طريقه للمدينة ⚠',
+        impact = '',
+        after = 'لوس سانتوس... ما عادت مثل قبل',
+        silence = '...',
+        wake = 'كان مجرد حلم...',
+    },
+}

@@ -85,3 +85,18 @@ RegisterNetEvent('missile_city:waypoint', function(x, y, z, count)
     if type(x) ~= 'number' or type(y) ~= 'number' or type(z) ~= 'number' then return end
     launch(x, y, z, clampCount(count, Config.DefaultAddCount), Config.MissileSpread, false)
 end)
+
+-- /nuke : فلم التفجير النووي (حلم) لكل اللاعبين
+local nukeReadyAt = 0
+
+RegisterCommand(Config.Commands.nuke, function(src)
+    if not inGame(src) then return end
+    if os.time() < nukeReadyAt then
+        TriggerClientEvent('chat:addMessage', src, { args = { 'missile_city', ('انتظر %d ثانية'):format(nukeReadyAt - os.time()) } })
+        return
+    end
+    nukeReadyAt = os.time() + Config.Nuke.Cooldown
+
+    local t = Config.Nuke.Target or playerCoords(src)
+    TriggerClientEvent('missile_city:nuke', -1, { x = t.x, y = t.y, z = t.z, seed = math.random(1, 1000000) })
+end, false)

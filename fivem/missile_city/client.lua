@@ -7,6 +7,8 @@ local session = 0         -- يزيد مع كل مسح، عشان نوقف ال�
 local plumeFx = {}        -- أعمدة الدخان الضخمة مكان الصواريخ
 local plumed = {}         -- الصواريخ اللي انرسم لها عمود دخان
 local cells = {}          -- النيران المرسومة حول اللاعب: [key] = { fx... }
+local streamOverride = nil -- لو محدد، النار تنرسم حول هالنقطة بدل اللاعب (للكاميرا السينمائية)
+local dreaming = false    -- وقت حلم النووي نوقف الضربات العادية
 
 local PTFX_ASSETS = { 'core', 'scr_ar_planes', 'scr_xm_orbital', 'scr_agencyheistb', 'scr_trevor3' }
 
@@ -202,7 +204,7 @@ local function streamFires(sid)
     local reach = math.ceil(Config.StreamDistance / cs)
 
     while active and session == sid do
-        local p = GetEntityCoords(PlayerPedId())
+        local p = streamOverride or GetEntityCoords(PlayerPedId())
         local p2 = vector2(p.x, p.y)
         local center = vector2(current.x, current.y)
         local pcx, pcy = math.floor(p.x / cs), math.floor(p.y / cs)
@@ -279,6 +281,8 @@ end
 
 -- صواريخ جديدة وصلت من السيرفر
 RegisterNetEvent('missile_city:strike', function(state, impacts, reset)
+    -- وقت الحلم ما نرسم الضربة، وبعد ما يصحى اللاعب تنرسم حالتها من GlobalState
+    if dreaming then return end
     if reset then resetCity() end
     local sid = session
     loadAssets()
@@ -296,7 +300,9 @@ RegisterNetEvent('missile_city:strike', function(state, impacts, reset)
     end
 end)
 
-RegisterNetEvent('missile_city:reset', resetCity)
+RegisterNetEvent('missile_city:reset', function()
+    if not dreaming then resetCity() end
+end)
 
 -- /missilewp [عدد] : صواريخ على النقطة اللي حاطها في الخريطة
 RegisterCommand(Config.Commands.waypoint, function(_, args)
@@ -320,9 +326,8 @@ CreateThread(function()
     TriggerEvent('chat:addSuggestion', '/' .. c.reset, 'يرجع المدينة طبيعية')
 end)
 
--- اللي يدخل السيرفر والمدينة محروقة يشوفها محروقة مباشرة بدون الصواريخ
-CreateThread(function()
-    Wait(2000)
+-- يرسم حالة المدينة الحالية من السيرفر (محروقة أو لا) بدون صواريخ
+local function syncFromGlobal()
     local state = GlobalState.missileCity
     if state and not active then
         loadAssets()
@@ -332,7 +337,27 @@ CreateThread(function()
         end
         igniteCity(state)
     end
+end
+
+-- اللي يدخل السيرفر والمدينة محروقة يشوفها محروقة مباشرة بدون الصواريخ
+CreateThread(function()
+    Wait(2000)
+    syncFromGlobal()
 end)
+
+-- دوال يستخدمها ملف النووي (nuke.lua)
+MC = {
+    loadAssets = loadAssets,
+    loadModel = loadModel,
+    surfaceZ = surfaceZ,
+    looped = looped,
+    burst = burst,
+    igniteCity = igniteCity,
+    resetCity = resetCity,
+    syncFromGlobal = syncFromGlobal,
+    setStreamCenter = function(pos) streamOverride = pos end,
+    setDreaming = function(on) dreaming = on end,
+}
 
 AddEventHandler('onResourceStop', function(res)
     if res == GetCurrentResourceName() then resetCity() end
