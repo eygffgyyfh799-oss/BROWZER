@@ -9,6 +9,7 @@ shared_script 'config.lua'
 client_scripts {
     'client.lua',
     'nuke.lua',
+    'nuke_real.lua',
 }
 server_script 'server.lua'
 

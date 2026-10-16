@@ -102,19 +102,41 @@ RegisterNetEvent('missile_city:waypoint', function(x, y, z, count)
     launch(x, y, z, clampCount(count, Config.DefaultAddCount), Config.MissileSpread, false)
 end)
 
--- /nuke : فلم التفجير النووي (حلم) لكل اللاعبين
+-- /nuke        : نووي حقيقي، المواطنين عندهم دقيقتين يهربون للبحر
+-- /nuke dream  : الفلم القديم اللي ينتهي بحلم
 local nukeReadyAt = 0
+local realNukeActive = false
 
-RegisterCommand(Config.Commands.nuke, function(src)
+RegisterCommand(Config.Commands.nuke, function(src, args)
     if not inGame(src) then return end
-    if os.time() < nukeReadyAt then
-        TriggerClientEvent('chat:addMessage', src, { args = { 'missile_city', ('انتظر %d ثانية'):format(nukeReadyAt - os.time()) } })
+    if os.time() < nukeReadyAt or realNukeActive then
+        TriggerClientEvent('chat:addMessage', src, { args = { 'missile_city', ('انتظر %d ثانية'):format(math.max(0, nukeReadyAt - os.time())) } })
         return
     end
     nukeReadyAt = os.time() + Config.Nuke.Cooldown
 
     local t = Config.Nuke.Target or playerCoords(src)
-    TriggerClientEvent('missile_city:nuke', -1, { x = t.x, y = t.y, z = t.z, seed = math.random(1, 1000000) })
+    local data = { x = t.x, y = t.y, z = t.z, seed = math.random(1, 1000000) }
+
+    if args[1] == 'dream' then
+        TriggerClientEvent('missile_city:nuke', -1, data)
+        return
+    end
+
+    -- النووي الحقيقي
+    local R = Config.NukeReal
+    realNukeActive = true
+    data.countdown = R.Countdown
+    TriggerClientEvent('missile_city:nukeReal', -1, data)
+
+    SetTimeout(R.Countdown * 1000, function()
+        realNukeActive = false
+        if not R.BurnCity then return end
+        -- المدينة تبقى محروقة (للي يدخل بعدين بعد)، وتنمسح بـ /resetcity
+        local imp = { id = nextImpactId, x = data.x, y = data.y, z = data.z }
+        nextImpactId = nextImpactId + 1
+        GlobalState.missileCity = { x = data.x, y = data.y, z = data.z, seed = data.seed, impacts = { imp } }
+    end)
 end, false)
 
 -- /missileid [آيدي] [عدد] : صاروخ موجّه يلاحق لاعب معين

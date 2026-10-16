@@ -477,7 +477,7 @@ RegisterNetEvent('missile_city:nuke', function(t)
     CreateThread(function() runNuke(t) end)
 end)
 
-TriggerEvent('chat:addSuggestion', '/' .. Config.Commands.nuke, 'فلم تفجير نووي للمدينة (حلم)')
+TriggerEvent('chat:addSuggestion', '/' .. Config.Commands.nuke, 'نووي حقيقي: دقيقتين للهروب للبحر (أو dream للحلم)', { { name = 'dream', help = 'اختياري: الفلم اللي ينتهي بحلم' } })
 
 AddEventHandler('onResourceStop', function(res)
     if res == GetCurrentResourceName() and running then

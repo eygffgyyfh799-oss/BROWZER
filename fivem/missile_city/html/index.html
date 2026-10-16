@@ -24,7 +24,7 @@
         #flash   { z-index: 6; opacity: 0; }
         #static  { z-index: 7; opacity: 0; }
         .bar     { z-index: 8; }
-        #caption, #stamp, #eas, #nosignal { z-index: 9; }
+        #caption, #stamp, #eas, #nosignal, #countdown { z-index: 9; }
 
         body.film #grain { opacity: 0.35; }
         body.film #vignette { opacity: 1; }
@@ -79,6 +79,22 @@
         @keyframes blink { 50% { background: #7a0000; } }
         @keyframes tick { from { transform: translateX(-100%); } to { transform: translateX(100vw); } }
 
+        /* عداد الهروب للبحر */
+        #countdown {
+            position: fixed; top: 3vh; left: 50%; transform: translateX(-50%);
+            text-align: center; background: rgba(0, 0, 0, 0.75);
+            border: 2px solid #d10000; border-radius: 12px;
+            padding: 0.8vw 2.2vw; color: #fff; display: none;
+        }
+        #countdown.show { display: block; }
+        #countdown .label { font-size: 1.1vw; color: #ff8a80; }
+        #countdown .time { font-family: 'Consolas', monospace; font-size: 3.2vw; font-weight: 700; direction: ltr; }
+        #countdown.urgent .time { color: #ff3b30; animation: tblink 0.6s steps(2) infinite; }
+        @keyframes tblink { 50% { opacity: 0.35; } }
+        #countdown .safe { margin-top: 0.3vw; font-size: 1.1vw; font-weight: 700; }
+        #countdown .safe.yes { color: #4cd964; }
+        #countdown .safe.no { color: #ff3b30; }
+
         #nosignal {
             position: fixed; top: 50%; left: 0; right: 0; transform: translateY(-50%);
             text-align: center; color: #fff; font-family: 'Consolas', monospace;
@@ -100,6 +116,11 @@
     <div id="stamp"></div>
     <div id="caption"></div>
     <div id="nosignal">لا توجد إشارة</div>
+    <div id="countdown">
+        <div class="label"></div>
+        <div class="time">02:00</div>
+        <div class="safe"></div>
+    </div>
     <div id="eas">
         <div class="head"></div>
         <div class="body"></div>
@@ -435,8 +456,22 @@
                     break;
                 }
                 case 'sound': sound(d); break;
+                case 'countdown': {
+                    const c = $('countdown');
+                    if (!d.on) { c.classList.remove('show'); break; }
+                    const sec = Math.max(0, Math.ceil(d.seconds));
+                    c.querySelector('.time').textContent = String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+                    if (d.label) c.querySelector('.label').textContent = d.label;
+                    c.classList.toggle('urgent', sec <= 10);
+                    const s = c.querySelector('.safe');
+                    s.textContent = d.safeText || '';
+                    s.className = 'safe ' + (d.safe ? 'yes' : 'no');
+                    c.classList.add('show');
+                    break;
+                }
                 case 'clear':
                     body.className = '';
+                    $('countdown').classList.remove('show');
                     caption('', 0);
                     $('stamp').classList.remove('show');
                     $('eas').classList.remove('show');
