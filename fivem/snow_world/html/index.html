@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        :root {
+            --bg: rgba(12, 16, 24, 0.88);
+            --line: rgba(120, 200, 255, 0.35);
+            --accent: #78c8ff;
+            --text: #eef3f8;
+            --muted: #9aa8b8;
+            --danger: #ff4d4d;
+        }
+
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            color: var(--text);
+        }
+
+        .hidden { display: none !important; }
+
+        /* تلميح البوابة */
+        #hint {
+            position: fixed;
+            bottom: 12vh;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 12px 22px;
+            font-size: 18px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+        }
+        #hint b {
+            display: inline-block;
+            background: var(--accent);
+            color: #0b1220;
+            border-radius: 6px;
+            padding: 1px 9px;
+            margin-left: 6px;
+        }
+
+        /* قائمة اللاعبين */
+        #board {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(560px, 92vw);
+            max-height: 72vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        #board header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--line);
+        }
+        #board h2 { margin: 0; font-size: 20px; }
+        #board .stats { color: var(--muted); font-size: 14px; display: flex; gap: 14px; }
+        #board .stats span b { color: var(--text); }
+        #board ul { list-style: none; margin: 0; padding: 6px 0; overflow-y: auto; }
+        #board li {
+            display: grid;
+            grid-template-columns: 56px 1fr 70px;
+            padding: 7px 18px;
+            font-size: 15px;
+        }
+        #board li:nth-child(odd) { background: rgba(255, 255, 255, 0.03); }
+        #board li.me { color: var(--accent); font-weight: 600; }
+        #board li .id { color: var(--muted); }
+        #board li .ping { text-align: left; color: var(--muted); direction: ltr; }
+
+        /* تنبيهات البلاغات */
+        #alerts {
+            position: fixed;
+            top: 18vh;
+            right: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 330px;
+        }
+        .alert {
+            background: var(--bg);
+            border-right: 4px solid var(--danger);
+            border-radius: 10px;
+            padding: 12px 14px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+            animation: slide 0.35s ease-out;
+        }
+        .alert .title { font-weight: 700; color: var(--danger); margin-bottom: 4px; }
+        .alert .text { font-size: 15px; line-height: 1.5; }
+        .alert .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+        .alert.out { opacity: 0; transform: translateX(30px); transition: 0.4s; }
+        @keyframes slide { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+    </style>
+</head>
+<body>
+    <div id="hint" class="hidden"></div>
+
+    <div id="board" class="hidden">
+        <header>
+            <h2 id="world"></h2>
+            <div class="stats">
+                <span>اللاعبين: <b id="count">0</b></span>
+                <span id="policeWrap">الشرطة: <b id="police">0</b></span>
+            </div>
+        </header>
+        <ul id="players"></ul>
+    </div>
+
+    <div id="alerts"></div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+
+        // نحمي النص من أي أكواد HTML
+        const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+        function showHint(text) {
+            const h = $('hint');
+            if (!text) return h.classList.add('hidden');
+            // "E" يطلع كزر
+            h.innerHTML = esc(text).replace(' E ', ' <b>E</b> ');
+            h.classList.remove('hidden');
+        }
+
+        function showBoard(d) {
+            const b = $('board');
+            if (!d.show) return b.classList.add('hidden');
+            $('world').textContent = d.world || '';
+            $('count').textContent = (d.players || []).length;
+            $('policeWrap').classList.toggle('hidden', d.police == null);
+            $('police').textContent = d.police ?? 0;
+            $('players').innerHTML = (d.players || []).map((p) =>
+                `<li class="${p.id === d.me ? 'me' : ''}"><span class="id">#${p.id}</span><span>${esc(p.name)}</span><span class="ping">${p.ping} ms</span></li>`
+            ).join('');
+            b.classList.remove('hidden');
+        }
+
+        function addAlert(d) {
+            const el = document.createElement('div');
+            el.className = 'alert';
+            el.innerHTML = `<div class="title">${esc(d.title)}</div>
+                <div class="text">${esc(d.text)}</div>
+                <div class="meta">${esc(d.street || '')}${d.caller ? ' — ' + esc(d.caller) : ''}</div>`;
+            $('alerts').prepend(el);
+            while ($('alerts').children.length > 4) $('alerts').lastChild.remove();
+            setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 450); }, 12000);
+        }
+
+        window.addEventListener('message', (e) => {
+            const d = e.data || {};
+            if (d.type === 'hint') showHint(d.text);
+            if (d.type === 'scoreboard') showBoard(d);
+            if (d.type === 'dispatch') addAlert(d);
+        });
+    </script>
+</body>
+</html>
