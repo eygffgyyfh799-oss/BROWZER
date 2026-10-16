@@ -218,6 +218,7 @@ local function cleanup()
     restorePlayer()
     MC.setDreaming(false)
     if GetResourceState('always_snow') == 'started' then exports.always_snow:Pause(false) end
+    if GetResourceState('always_storm') == 'started' then exports.always_storm:Pause(false) end
 end
 
 local function playAnim(ped, dict, name, flag)
@@ -231,6 +232,7 @@ end
 
 local function pauseSnow(on)
     if GetResourceState('always_snow') == 'started' then exports.always_snow:Pause(on) end
+    if GetResourceState('always_storm') == 'started' then exports.always_storm:Pause(on) end
 end
 
 local function runNuke(t)
