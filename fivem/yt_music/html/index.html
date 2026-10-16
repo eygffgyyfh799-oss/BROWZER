@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        html, body { margin: 0; background: transparent; overflow: hidden; }
+        /* المشغل مخفي، نسمع الصوت بس */
+        #wrap { position: fixed; left: -10000px; top: -10000px; width: 320px; height: 180px; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="wrap"><div id="player"></div></div>
+
+    <script>
+        const resource = typeof GetParentResourceName === 'function' ? GetParentResourceName() : 'yt_music';
+        const post = (name, data) => fetch(`https://${resource}/${name}`, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => {});
+
+        let player = null;
+        let apiReady = false;
+        let pending = null;    // أمر تشغيل وصل قبل ما يجهز يوتيوب
+        let loop = false;
+        let volume = 0;
+
+        // نحمل مكتبة يوتيوب
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+
+        window.onYouTubeIframeAPIReady = () => {
+            apiReady = true;
+            if (pending) { play(pending); pending = null; }
+        };
+
+        function play(d) {
+            if (!apiReady) { pending = d; return; }
+            loop = !!d.loop;
+            volume = d.volume || 0;
+            const start = Math.max(0, Math.floor(d.at || 0));
+
+            if (player) {
+                player.loadVideoById({ videoId: d.id, startSeconds: start });
+                player.setVolume(volume);
+                return;
+            }
+
+            player = new YT.Player('player', {
+                width: 320,
+                height: 180,
+                videoId: d.id,
+                playerVars: { autoplay: 1, controls: 0, disablekb: 1, start, playsinline: 1, rel: 0 },
+                events: {
+                    onReady: (e) => {
+                        e.target.unMute();
+                        e.target.setVolume(volume);
+                        e.target.playVideo();
+                    },
+                    onStateChange: (e) => {
+                        if (e.data === YT.PlayerState.ENDED) {
+                            if (loop) { e.target.seekTo(0); e.target.playVideo(); }
+                            else post('ended');
+                        }
+                    },
+                    onError: (e) => post('error', { code: e.data }),
+                },
+            });
+        }
+
+        function stop() {
+            pending = null;
+            if (player) { player.stopVideo(); }
+        }
+
+        window.addEventListener('message', (e) => {
+            const d = e.data || {};
+            if (d.type === 'play') play(d);
+            if (d.type === 'stop') stop();
+            if (d.type === 'volume') {
+                volume = d.volume;
+                if (player && player.setVolume) player.setVolume(volume);
+            }
+        });
+    </script>
+</body>
+</html>
