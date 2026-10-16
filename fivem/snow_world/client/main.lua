@@ -165,20 +165,6 @@ AddStateBagChangeHandler('world', ('player:%d'):format(GetPlayerServerId(PlayerI
     switchTo(value or nil, false)
 end)
 
--- ===================== جاهزية اللاعب (للحفظ) =====================
--- لما اللاعب ينزل أو يختار شخصيته نقول للسيرفر يرجعه لعالمه المحفوظ
-
-local lastReady = 0
-local function ready()
-    if GetGameTimer() - lastReady < 10000 then return end
-    lastReady = GetGameTimer()
-    TriggerServerEvent('worlds:ready')
-end
-
-AddEventHandler('playerSpawned', ready)
-RegisterNetEvent('QBCore:Client:OnPlayerLoaded', ready)
-RegisterNetEvent('esx:playerLoaded', ready)
-
 CreateThread(function()
     Wait(1500)
     local key = LocalPlayer.state.world

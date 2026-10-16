@@ -1,7 +1,15 @@
 Config = {}
 
--- الصلاحية المطلوبة لأوامر الأدمن (نفس القديمة عشان ما تحتاج تغير server.cfg)
-Config.Ace = 'command.snowworld'
+-- ===================== الأدمن =====================
+-- الأوامر بس لأدمن god:
+--   QBCore / Qbox : صلاحية god
+--   ESX           : قروب superadmin
+--   أو أي ACE من القائمة (مثلاً add_principal identifier.license:xxx group.god)
+Config.Admin = {
+    QBPermission = 'god',
+    ESXGroups = { 'superadmin' },
+    Aces = { 'god', 'group.god' },
+}
 
 -- ===================== العوالم =====================
 -- كل عالم منفصل بالكامل عن الباقي: لاعبين، سيارات، صوت، راديو، شات، بلاغات
@@ -12,8 +20,10 @@ Config.Ace = 'command.snowworld'
 -- timecycle: فلتر لون للشاشة (اختياري)
 -- snow     : true = آثار أقدام وكفرات وأصوات مشي على الثلج
 -- population: ناس وسيارات NPC
+-- ruins    : المدينة خربانة بشكل بسيط (سيارات محروقة، ركام، دخان) تطلع بس عند اللي في هذا العالم
 Config.Worlds = {
     snow = {
+        ruins = true,          -- المدينة خربانة بشكل بسيط
         label = '❄ العالم الثلجي',
         bucket = 777,
         weather = 'XMAS',
@@ -21,6 +31,7 @@ Config.Worlds = {
         population = true,
     },
     desert = {
+        ruins = true,          -- المدينة خربانة بشكل بسيط
         label = '🏜 العالم الرملي',
         bucket = 778,
         weather = 'EXTRASUNNY',
@@ -30,6 +41,7 @@ Config.Worlds = {
         population = true,
     },
     night = {
+        ruins = true,          -- المدينة خربانة بشكل بسيط
         label = '🌙 عالم الليل',
         bucket = 779,
         weather = 'CLEAR',
@@ -37,6 +49,7 @@ Config.Worlds = {
         population = true,
     },
     horror = {
+        ruins = true,          -- المدينة خربانة بشكل بسيط
         label = '👻 عالم الرعب',
         bucket = 780,
         weather = 'HALLOWEEN',
@@ -48,24 +61,19 @@ Config.Worlds = {
     },
 }
 
--- ===================== الأوامر =====================
--- /world [آيدي] [عالم]   ينقل لاعب لعالم (main = العالم العادي). مثال: /world 12 snow  أو  /world desert
--- /worlds                 قائمة العوالم ومين فيها
--- /worldall [عالم]        يرجع كل اللي في العالم (أو كل العوالم) للعالم العادي
--- /portal add [عالم]      يحط بوابة في مكانك  |  /portal del  يحذف أقرب بوابة  |  /portal list
--- /snow [آيدي] و /unsnow [آيدي]  مثل قبل
+-- ===================== الأوامر (god بس) =====================
+-- كلها برقم الهوية (citizenid)، وتشتغل سواء اللاعب متصل أو مطفي
+-- /setworld [رقم الهوية] [عالم]   يسجله في العالم ويقفل عليه (لو متصل ينتقل الحين)
+-- /unsetworld [رقم الهوية]        يطلعه ويرجعه للعالم العادي
+-- /worldlist [عالم]               مين مسجل (ومين متصل)
+-- /checkworld [رقم الهوية]        وين مسجل
+-- ما فيه أي طريقة ثانية للدخول أو الخروج
 Config.Commands = {
-    world = 'world',
-    list = 'worlds',
-    all = 'worldall',
-    portal = 'portal',
-    snow = 'snow',
-    unsnow = 'unsnow',
+    add = 'setworld',
+    remove = 'unsetworld',
+    list = 'worldlist',
+    check = 'checkworld',
 }
-
--- ===================== الحفظ =====================
--- اللاعب يرجع لنفس عالمه لو طلع من السيرفر ورجع
-Config.SaveWorld = true
 
 -- ===================== الفصل بين العوالم =====================
 Config.Isolation = {
@@ -100,13 +108,34 @@ Config.Scoreboard = {
     ShowPoliceCount = true,
 }
 
--- ===================== البوابات =====================
--- بوابات ثابتة (غير اللي تحطها بأمر /portal وتنحفظ تلقائياً)
--- twoWay = true: نفس البوابة داخل العالم ترجعك للعالم العادي
--- ace = 'اسم صلاحية' لو تبي البوابة بس لناس معينين
-Config.Portals = {
-    -- { world = 'snow', coords = vector3(195.0, -933.0, 30.7), twoWay = true, blip = 'Snow World' },
+-- ===================== شكل المدينة الخربانة =====================
+-- كل شي هنا يطلع بس على شاشة اللاعبين اللي داخل العالم (أشياء محلية مو متزامنة)
+-- العالم العادي والعوالم الثانية ما يتأثرون أبد، وما يتغير أي شي في المدينة الحقيقية
+-- ينرسم حولك وانت تتحرك وينشال لما تبعد، عشان ما يثقل
+Config.Ruins = {
+    CellSize = 70.0,
+    StreamDistance = 170.0,
+    Wrecks = { 0, 2 },          -- سيارات محروقة في كل مربع (من - إلى)
+    Debris = { 1, 3 },          -- ركام وزبالة في كل مربع
+    SmokeChance = 0.35,         -- احتمال دخان في المربع
+    FireChance = 0.08,          -- احتمال نار صغيرة في المربع
+    Collision = true,           -- السيارات المحروقة والركام لها تصادم
+    TrafficMultiplier = 0.5,    -- سيارات NPC أقل (1.0 = طبيعي)
+    Models = {
+        wrecks = {
+            'prop_rub_carwreck_2', 'prop_rub_carwreck_3', 'prop_rub_carwreck_5',
+            'prop_rub_carwreck_7', 'prop_rub_carwreck_8', 'prop_rub_carwreck_9',
+            'prop_rub_carwreck_10', 'prop_rub_carwreck_11', 'prop_rub_carwreck_12',
+            'prop_rub_carwreck_13', 'prop_rub_carwreck_14', 'prop_rub_carwreck_15',
+        },
+        debris = {
+            'prop_rub_tyre_01', 'prop_rub_tyre_02', 'prop_rub_tyre_03',
+            'prop_rub_binbag_01', 'prop_rub_binbag_03', 'prop_rub_binbag_04',
+            'prop_rub_binbag_05', 'prop_rub_binbag_06', 'prop_rub_cardpile_01',
+            'prop_rub_cardpile_03', 'prop_rub_pile_01', 'prop_rub_pile_02',
+            'prop_rub_scrap_02', 'prop_rub_scrap_05', 'prop_rub_carpart_02',
+            'prop_rub_carpart_03', 'prop_rub_trolley01a', 'prop_barrier_work05',
+            'prop_mp_barrier_02b', 'prop_rub_planks_01',
+        },
+    },
 }
-Config.PortalKey = 38             -- E
-Config.PortalCooldown = 5         -- ثواني
-Config.PortalMarkerColor = { 120, 200, 255 }

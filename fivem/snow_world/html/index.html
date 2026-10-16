@@ -24,28 +24,6 @@
 
         .hidden { display: none !important; }
 
-        /* تلميح البوابة */
-        #hint {
-            position: fixed;
-            bottom: 12vh;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--bg);
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            padding: 12px 22px;
-            font-size: 18px;
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
-        }
-        #hint b {
-            display: inline-block;
-            background: var(--accent);
-            color: #0b1220;
-            border-radius: 6px;
-            padding: 1px 9px;
-            margin-left: 6px;
-        }
-
         /* قائمة اللاعبين */
         #board {
             position: fixed;
@@ -110,7 +88,6 @@
     </style>
 </head>
 <body>
-    <div id="hint" class="hidden"></div>
 
     <div id="board" class="hidden">
         <header>
@@ -130,14 +107,6 @@
 
         // نحمي النص من أي أكواد HTML
         const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-        function showHint(text) {
-            const h = $('hint');
-            if (!text) return h.classList.add('hidden');
-            // "E" يطلع كزر
-            h.innerHTML = esc(text).replace(' E ', ' <b>E</b> ');
-            h.classList.remove('hidden');
-        }
 
         function showBoard(d) {
             const b = $('board');
@@ -165,7 +134,6 @@
 
         window.addEventListener('message', (e) => {
             const d = e.data || {};
-            if (d.type === 'hint') showHint(d.text);
             if (d.type === 'scoreboard') showBoard(d);
             if (d.type === 'dispatch') addAlert(d);
         });
