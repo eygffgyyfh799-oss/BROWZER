@@ -159,3 +159,6 @@ AddEventHandler('onResourceStop', function(res)
     redirectWeather(false)
     DoScreenFadeIn(0)
 end)
+
+-- للسكربتات الثانية في الكلاينت: exports.snow_world:IsInSnowWorld()
+exports('IsInSnowWorld', function() return inSnow end)

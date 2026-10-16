@@ -38,10 +38,16 @@ local function moveTo(id, bucket)
         end
         if alone then SetEntityRoutingBucket(veh, bucket) end
     end
-    SetPlayerRoutingBucket(id, bucket)
-    Player(id).state:set('snowWorld', bucket == Config.Bucket, true)
-    members[id] = bucket == Config.Bucket or nil
+    local entering = bucket == Config.Bucket
+    Isolation.setBucket(id, bucket)
+    members[id] = entering or nil
+    Player(id).state:set('snowWorld', entering, true)
+    Isolation.onMove(id, entering)
 end
+
+-- للسكربتات الثانية: مين في العالم الثلجي
+Isolation.isMember = function(id) return members[id] == true end
+Isolation.anyMembers = function() return next(members) ~= nil end
 
 RegisterCommand(Config.Commands.enter, function(src, args)
     if not allowed(src) then return end
@@ -88,6 +94,7 @@ CreateThread(function()
             elseif GetPlayerRoutingBucket(id) ~= Config.Bucket then
                 members[id] = nil
                 Player(id).state:set('snowWorld', false, true)
+                Isolation.onMove(id, false)
             end
         end
     end

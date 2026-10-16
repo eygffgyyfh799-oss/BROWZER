@@ -25,6 +25,25 @@
 لو اللاعب سايق سيارة ولحاله فيها، السيارة تنتقل معه.
 لو طلع من السيرفر ورجع يرجع للعالم العادي تلقائياً.
 
+## الفصل الكامل بين العالمين (`isolation.lua`)
+| الشي | وش يصير |
+|---|---|
+| الناس والسيارات والأصوات | منفصلة بالكامل (Routing Bucket) |
+| الصوت القريب | منفصل (pma-voice) |
+| موجات الراديو | نفس رقم الموجة بس كل عالم لحاله: موجة 1 في الثلج غير موجة 1 في العادي |
+| مكالمات الجوال الصوتية | ما يسمع اللي في العالم الثاني (pma-voice) |
+| الشات العادي | يوصل بس لنفس العالم |
+
+سكربتات الشرطة والبلاغات والجوال تحتاج تفلتر حسب العالم. السكربت يعطيها exports جاهزة:
+```lua
+exports.snow_world:GetWorld(source)              -- 'snow' أو 'main'
+exports.snow_world:IsSameWorld(a, b)             -- true / false
+exports.snow_world:GetPlayersInWorld('snow')     -- قائمة الآيديات
+exports.snow_world:TriggerWorldEvent(source, 'اسم الحدث', ...) -- يرسل بس لنفس العالم
+-- في الكلاينت:
+exports.snow_world:IsInSnowWorld()               -- true / false
+```
+
 ## الإعدادات (`config.lua`)
 - رقم العالم `Bucket`
 - وجود ناس وسيارات NPC في العالم الثلجي `Population`
