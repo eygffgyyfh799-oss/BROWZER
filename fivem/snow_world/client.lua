@@ -1,34 +1,71 @@
 -- الثلج يطلع بس عند اللاعبين اللي داخل العالم الثلجي
 -- اللاعبين العاديين يكملون بجوهم الطبيعي وما يشوفون أي شي
+--
+-- طريقة منع التعارض مع سكربت الطقس:
+-- ما نوقف سكربت الطقس (إيقافه في qb-weathersync يجبر جو صافي والساعة 11 بالليل)
+-- بدال كذا نخلي سكربت الطقس نفسه يطبق الثلج عند هذا اللاعب، فما يصير بينهم قتال ولا رمشة
+-- والوقت ما نلمسه أبد، يبقى متزامن مع السيرفر مثل باقي اللاعبين
 
 local inSnow = false
 local version = 0          -- يمنع التداخل لو انتقل اللاعب ورجع بسرعة
-local weatherHash = joaat(Config.Weather)
+local SNOW = Config.Weather
+local snowHash = joaat(SNOW)
+
+-- آخر طقس حقيقي وصل من سكربت الطقس، عشان نرجعه لما يطلع اللاعب
+local real = {}
 
 -- نستخدم الشات لأن خط اللعبة ما يدعم العربي
 local function notify(text)
     TriggerEvent('chat:addMessage', { args = { 'snow_world', text } })
 end
 
--- نوقف سكربتات مزامنة الطقس المشهورة عند هذا اللاعب بس، عشان ما يصير تعارض
--- (لو السكربت مو موجود عندك ما يصير شي)
-local function setWeatherSync(enabled)
-    if enabled then
-        TriggerEvent('qb-weathersync:client:EnableSync')
-    else
-        TriggerEvent('qb-weathersync:client:DisableSync')
+-- ===================== سكربتات الطقس المشهورة =====================
+
+-- qb-weathersync / qbx_weathersync
+RegisterNetEvent('qb-weathersync:client:SyncWeather', function(weather, blackout)
+    if weather == SNOW and inSnow then return end
+    real.qb = { weather, blackout }
+    if inSnow then
+        -- سكربت الطقس حاول يغير الجو، نرجعه ثلج عن طريقه هو
+        SetTimeout(0, function()
+            if inSnow then TriggerEvent('qb-weathersync:client:SyncWeather', SNOW, false) end
+        end)
     end
-    TriggerEvent('cd_easytime:PauseSync', not enabled)
-    LocalPlayer.state:set('syncWeather', enabled, false) -- Renewed-Weathersync
+end)
+
+-- vSync
+RegisterNetEvent('vSync:updateWeather', function(weather, blackout)
+    if weather == SNOW and inSnow then return end
+    real.vsync = { weather, blackout }
+    if inSnow then
+        SetTimeout(0, function()
+            if inSnow then TriggerEvent('vSync:updateWeather', SNOW, false) end
+        end)
+    end
+end)
+
+local function redirectWeather(toSnow)
+    if toSnow then
+        TriggerEvent('qb-weathersync:client:SyncWeather', SNOW, false)
+        TriggerEvent('vSync:updateWeather', SNOW, false)
+        LocalPlayer.state:set('syncWeather', false, false) -- Renewed-Weathersync
+    else
+        -- نرجع آخر طقس حقيقي فوراً، ونطلب من السيرفر يزامن الطقس والوقت من جديد
+        if real.qb then TriggerEvent('qb-weathersync:client:SyncWeather', real.qb[1], real.qb[2]) end
+        if real.vsync then TriggerEvent('vSync:updateWeather', real.vsync[1], real.vsync[2]) end
+        TriggerServerEvent('qb-weathersync:server:RequestStateSync')
+        TriggerServerEvent('vSync:requestSync')
+        LocalPlayer.state:set('syncWeather', true, false)
+    end
 end
 
+-- ===================== الثلج =====================
+
 local function applySnow(force)
-    -- نغير الطقس بس لو تغير، عشان ما يرمش الجو ولا يثقل
-    if force or GetPrevWeatherTypeHashName() ~= weatherHash or GetNextWeatherTypeHashName() ~= weatherHash then
-        ClearWeatherTypePersist()
-        SetWeatherTypeOvertimePersist(Config.Weather, 0.0)
-        SetWeatherTypeNowPersist(Config.Weather)
-        SetOverrideWeather(Config.Weather)
+    -- نغير الطقس بس لو فعلاً تغير، عشان ما يرمش الجو ولا يثقل
+    if force or GetPrevWeatherTypeHashName() ~= snowHash or GetNextWeatherTypeHashName() ~= snowHash then
+        SetWeatherTypeNowPersist(SNOW)
+        SetOverrideWeather(SNOW)
     end
     ForceSnowPass(true)
     if Config.FootTracks then
@@ -53,7 +90,7 @@ local function enterSnow(v)
     Wait(900)
     if v ~= version then return end
 
-    setWeatherSync(false)
+    redirectWeather(true)
     RequestScriptAudioBank('ICE_FOOTSTEPS', false)
     RequestScriptAudioBank('SNOW_FOOTSTEPS', false)
     applySnow(true)
@@ -62,11 +99,11 @@ local function enterSnow(v)
         SetTimecycleModifierStrength(Config.TimecycleStrength)
     end
 
-    -- فحص خفيف كل 5 ثواني: لو سكربت ثاني غير الطقس نرجعه ثلج
+    -- حماية لأي سكربت طقس ثاني مو معروف: فحص خفيف ونرجع الثلج بس لو انغير
     CreateThread(function()
         while inSnow and v == version do
-            Wait(5000)
-            if inSnow and v == version then applySnow(false) end
+            applySnow(false)
+            Wait(250)
         end
     end)
 
@@ -81,9 +118,9 @@ local function leaveSnow(v)
     if v ~= version then return end
 
     clearSnow()
-    setWeatherSync(true)
+    redirectWeather(false)
 
-    Wait(800)
+    Wait(1000)
     DoScreenFadeIn(1500)
     notify(Config.LeaveText)
 end
@@ -119,6 +156,6 @@ AddEventHandler('onResourceStop', function(res)
     inSnow = false
     version = version + 1
     clearSnow()
-    setWeatherSync(true)
+    redirectWeather(false)
     DoScreenFadeIn(0)
 end)

@@ -472,6 +472,8 @@ end
 
 RegisterNetEvent('missile_city:nuke', function(t)
     if running then return end
+    -- اللي في العالم الثلجي ما يدخل الحلم
+    if LocalPlayer.state.snowWorld then return end
     CreateThread(function() runNuke(t) end)
 end)
 

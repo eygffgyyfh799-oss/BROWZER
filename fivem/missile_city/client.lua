@@ -308,6 +308,8 @@ end
 RegisterNetEvent('missile_city:strike', function(state, impacts, reset)
     -- وقت الحلم ما نرسم الضربة، وبعد ما يصحى اللاعب تنرسم حالتها من GlobalState
     if dreaming then return end
+    -- اللي في العالم الثلجي (snow_world) في عالم ثاني، ما يشوف الضربة
+    if LocalPlayer.state.snowWorld then return end
     if reset then resetCity() end
     local sid = session
     loadAssets()
@@ -378,7 +380,7 @@ end)
 -- يرسم حالة المدينة الحالية من السيرفر (محروقة أو لا) بدون صواريخ
 local function syncFromGlobal()
     local state = GlobalState.missileCity
-    if state and not active then
+    if state and not active and not LocalPlayer.state.snowWorld then
         loadAssets()
         for _, imp in ipairs(state.impacts) do
             local _, z = surfaceZ(imp.x, imp.y, imp.z)
@@ -392,6 +394,16 @@ end
 CreateThread(function()
     Wait(2000)
     syncFromGlobal()
+end)
+
+-- لو اللاعب انتقل للعالم الثلجي نشيل الحريق عنده، ولما يرجع نرجعه
+AddStateBagChangeHandler('snowWorld', ('player:%d'):format(GetPlayerServerId(PlayerId())), function(_, _, value)
+    if dreaming then return end
+    if value then
+        resetCity()
+    else
+        SetTimeout(3000, syncFromGlobal)
+    end
 end)
 
 -- دوال يستخدمها ملف النووي (nuke.lua)
