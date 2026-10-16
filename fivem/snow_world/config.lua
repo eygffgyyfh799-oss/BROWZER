@@ -23,49 +23,23 @@ Config.Admin = {
 -- ruins    : المدينة خربانة بشكل بسيط (سيارات محروقة، ركام، دخان) تطلع بس عند اللي في هذا العالم
 Config.Worlds = {
     snow = {
-        ruins = true,          -- المدينة خربانة بشكل بسيط
         label = '❄ العالم الثلجي',
         bucket = 777,
         weather = 'XMAS',
         snow = true,
-        population = true,
-    },
-    desert = {
         ruins = true,          -- المدينة خربانة بشكل بسيط
-        label = '🏜 العالم الرملي',
-        bucket = 778,
-        weather = 'EXTRASUNNY',
-        time = { 13, 0 },
-        timecycle = 'NG_filmic02',
-        timecycleStrength = 0.6,
         population = true,
-    },
-    night = {
-        ruins = true,          -- المدينة خربانة بشكل بسيط
-        label = '🌙 عالم الليل',
-        bucket = 779,
-        weather = 'CLEAR',
-        time = { 0, 0 },
-        population = true,
-    },
-    horror = {
-        ruins = true,          -- المدينة خربانة بشكل بسيط
-        label = '👻 عالم الرعب',
-        bucket = 780,
-        weather = 'HALLOWEEN',
-        time = { 0, 30 },
-        blackout = true,
-        timecycle = 'REDMIST',
-        timecycleStrength = 0.25,
-        population = false,
     },
 }
 
+-- العالم اللي ينتقل له اللاعب بأمر /setworld
+Config.DefaultWorld = 'snow'
+
 -- ===================== الأوامر (للأدمن بس) =====================
 -- كلها برقم الهوية (citizenid)، وتشتغل سواء اللاعب متصل أو مطفي
--- /setworld [رقم الهوية] [عالم]   يسجله في العالم ويقفل عليه (لو متصل ينتقل الحين)
+-- /setworld [رقم الهوية]         ينقله للعالم الثلجي ويقفل عليه (لو متصل ينتقل الحين)
 -- /unsetworld [رقم الهوية]        يطلعه ويرجعه للعالم العادي
--- /worldlist [عالم]               مين مسجل (ومين متصل)
+-- /worldlist                      مين مسجل (ومين متصل)
 -- /checkworld [رقم الهوية]        وين مسجل
 -- ما فيه أي طريقة ثانية للدخول أو الخروج
 Config.Commands = {

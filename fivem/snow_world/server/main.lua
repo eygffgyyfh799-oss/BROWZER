@@ -205,12 +205,19 @@ local function worldKeys()
     return table.concat(keys, ', ')
 end
 
--- /setworld [رقم الهوية] [عالم]
+-- /setworld [رقم الهوية]  (العالم اختياري، الافتراضي Config.DefaultWorld)
 RegisterCommand(C.add, function(src, args) CreateThread(function()
     if not guard(src) then return end
-    local cid, key = args[1], args[2]
-    if not cid or not key or not Config.Worlds[key] then
-        return Worlds.reply(src, ('الاستخدام: /%s [رقم الهوية] [عالم] — العوالم: %s'):format(C.add, worldKeys()))
+    local cid, key = args[1], args[2] or Config.DefaultWorld
+    if not cid then
+        return Worlds.reply(src, ('الاستخدام: /%s [رقم الهوية]'):format(C.add))
+    end
+    if not Config.Worlds[key] then
+        return Worlds.reply(src, 'العالم ' .. key .. ' مو موجود — العوالم: ' .. worldKeys())
+    end
+    local existing = DB.get(cid)
+    if existing and existing.world == key then
+        return Worlds.reply(src, ('%s [%s] أصلاً في %s'):format(existing.name or '', cid, Worlds.label(key)))
     end
 
     local online = Framework.sourceOf(cid)

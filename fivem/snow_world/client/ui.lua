@@ -52,9 +52,9 @@ end)
 CreateThread(function()
     local c, cc = Config.Commands, Config.ChatCommands
     local add = function(cmd, help, params) if cmd then TriggerEvent('chat:addSuggestion', '/' .. cmd, help, params) end end
-    add(c.add, 'يسجل لاعب في عالم ويقفل عليه (أدمن)', { { name = 'رقم الهوية', help = 'citizenid' }, { name = 'عالم', help = 'snow, desert, night, horror' } })
+    add(c.add, 'ينقل لاعب للعالم الثلجي ويقفل عليه (أدمن)', { { name = 'رقم الهوية', help = 'citizenid' } })
     add(c.remove, 'يطلع لاعب من عالمه (أدمن)', { { name = 'رقم الهوية', help = 'citizenid' } })
-    add(c.list, 'مين مسجل في العوالم (أدمن)', { { name = 'عالم', help = 'اختياري' } })
+    add(c.list, 'مين في العالم الثلجي (أدمن)')
     add(c.check, 'وين مسجل اللاعب (أدمن)', { { name = 'رقم الهوية', help = 'citizenid' } })
     add(cc.me, 'حركة يشوفها اللي حولك في عالمك', { { name = 'نص', help = '' } })
     add(cc['do'], 'وصف يشوفه اللي حولك في عالمك', { { name = 'نص', help = '' } })
