@@ -2,7 +2,7 @@
 -- كل عالم = Routing Bucket منفصل، فاللي في عالم ما يشوف ولا يسمع ولا يتأثر باللي في عالم ثاني
 --
 -- التسجيل حسب رقم الهوية ومحفوظ في قاعدة البيانات:
--- اللي ينضاف لعالم يدخله كل ما يدخل بشخصيته، وما يقدر يطلع منه إلا بأمر أدمن god
+-- اللي ينضاف لعالم يدخله كل ما يدخل بشخصيته، وما يقدر يطلع منه إلا بأمر أدمن
 -- ما فيه أي طريقة ثانية للدخول أو الخروج (لا بوابات ولا أوامر للاعبين)
 
 Worlds = {
@@ -183,13 +183,13 @@ AddEventHandler('onResourceStop', function(res)
     end
 end)
 
--- ===================== أوامر الأدمن (god بس) =====================
+-- ===================== أوامر الأدمن =====================
 
 local C = Config.Commands
 
 local function guard(src)
-    if Framework.isGod(src) then return true end
-    if src ~= 0 then Worlds.reply(src, 'هذا الأمر لأدمن god بس') end
+    if Framework.isAdmin(src) then return true end
+    if src ~= 0 then Worlds.reply(src, 'هذا الأمر للأدمن بس') end
     return false
 end
 

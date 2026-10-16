@@ -1,14 +1,14 @@
 Config = {}
 
 -- ===================== الأدمن =====================
--- الأوامر بس لأدمن god:
---   QBCore / Qbox : صلاحية god
---   ESX           : قروب superadmin
---   أو أي ACE من القائمة (مثلاً add_principal identifier.license:xxx group.god)
+-- الأوامر لأي أدمن (يكفي واحد من هذول):
+--   QBCore / Qbox : صلاحية admin أو god
+--   ESX           : قروب admin أو superadmin
+--   أو أي ACE من القائمة (group.admin من server.cfg أو txAdmin)
 Config.Admin = {
-    QBPermission = 'god',
-    ESXGroups = { 'superadmin' },
-    Aces = { 'god', 'group.god' },
+    QBPermissions = { 'admin', 'god' },
+    ESXGroups = { 'admin', 'superadmin' },
+    Aces = { 'group.admin', 'admin', 'group.god', 'god', 'command' },
 }
 
 -- ===================== العوالم =====================
@@ -61,7 +61,7 @@ Config.Worlds = {
     },
 }
 
--- ===================== الأوامر (god بس) =====================
+-- ===================== الأوامر (للأدمن بس) =====================
 -- كلها برقم الهوية (citizenid)، وتشتغل سواء اللاعب متصل أو مطفي
 -- /setworld [رقم الهوية] [عالم]   يسجله في العالم ويقفل عليه (لو متصل ينتقل الحين)
 -- /unsetworld [رقم الهوية]        يطلعه ويرجعه للعالم العادي

@@ -85,25 +85,27 @@ function Framework.isPolice(id)
     return data.job.onduty ~= false
 end
 
--- أدمن god؟ (الكونسول دايم مسموح)
-function Framework.isGod(id)
+-- أدمن؟ (الكونسول دايم مسموح)
+function Framework.isAdmin(id)
     if id == 0 then return true end
     for _, ace in ipairs(Config.Admin.Aces) do
         if IsPlayerAceAllowed(id, ace) then return true end
     end
     local fw = Framework.name()
-    if fw == 'qbx' then
-        local ok, res = pcall(function() return exports.qbx_core:HasPermission(id, Config.Admin.QBPermission) end)
+    for _, perm in ipairs(Config.Admin.QBPermissions) do
+        local ok, res
+        if fw == 'qbx' then
+            ok, res = pcall(function() return exports.qbx_core:HasPermission(id, perm) end)
+        elseif fw == 'qb' then
+            ok, res = pcall(QB.Functions.HasPermission, id, perm)
+        end
         if ok and res then return true end
-    elseif fw == 'qb' then
-        local ok, res = pcall(QB.Functions.HasPermission, id, Config.Admin.QBPermission)
-        if ok and res then return true end
-    elseif fw == 'esx' then
+    end
+    if fw == 'esx' then
         local x = ESX.GetPlayerFromId(id)
-        if x then
-            for _, g in ipairs(Config.Admin.ESXGroups) do
-                if x.getGroup() == g then return true end
-            end
+        local group = x and x.getGroup()
+        for _, g in ipairs(Config.Admin.ESXGroups) do
+            if group == g then return true end
         end
     end
     return false
