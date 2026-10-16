@@ -1,9 +1,8 @@
 -- النواة: العوالم، نقل اللاعبين، القفل، والأوامر
 -- كل عالم = Routing Bucket منفصل، فاللي في عالم ما يشوف ولا يسمع ولا يتأثر باللي في عالم ثاني
 --
--- التسجيل حسب رقم الهوية ومحفوظ في قاعدة البيانات:
--- اللي ينضاف لعالم يدخله كل ما يدخل بشخصيته، وما يقدر يطلع منه إلا بأمر أدمن
--- ما فيه أي طريقة ثانية للدخول أو الخروج (لا بوابات ولا أوامر للاعبين)
+-- الأدمن ينقل اللاعب بالآيدي، والسكربت يحفظ شخصيته في قاعدة البيانات
+-- فيرجع للعالم الثلجي كل ما يدخل، وما يطلع إلا بـ /unsetworld
 
 Worlds = {
     members = {},   -- [serverId] = مفتاح العالم (للمتصلين الحين)
@@ -87,7 +86,7 @@ end
 
 -- ===================== النقل =====================
 
-local function move(id, key, notify)
+local function move(id, key)
     local old = Worlds.of(id)
     if old == key then return end
 
@@ -101,17 +100,14 @@ local function move(id, key, notify)
     state:set('snowWorld', key ~= 'main', true) -- للتوافق مع missile_city
 
     for _, hook in ipairs(Worlds.hooks) do hook(id, key, old) end
-    if notify then
-        TriggerClientEvent('chat:addMessage', id, { color = { 120, 200, 255 }, args = { 'العوالم', 'انتقلت إلى ' .. Worlds.label(key) } })
-    end
 end
 
 -- يطبق عالم اللاعب حسب قاعدة البيانات (لما يختار شخصيته)
-local function apply(id, notify)
+local function apply(id)
     local cid = Framework.citizenId(id)
     local entry = cid and DB.get(cid)
     local key = entry and Config.Worlds[entry.world] and entry.world or 'main'
-    move(id, key, notify)
+    move(id, key)
 end
 
 -- ===================== دخول وخروج الشخصيات =====================
@@ -119,7 +115,7 @@ end
 -- QBCore و Qbox
 AddEventHandler('QBCore:Server:PlayerLoaded', function(Player)
     local id = Player and Player.PlayerData and Player.PlayerData.source
-    if id then SetTimeout(500, function() apply(id, false) end) end
+    if id then SetTimeout(500, function() apply(id) end) end
 end)
 
 -- خرج من شخصيته (رجع لاختيار الشخصيات): نشيل جو العالم، وسكربت الشخصيات يحطه في مكانه
@@ -134,13 +130,13 @@ AddEventHandler('esx:playerLogout', unload)
 
 -- ESX
 AddEventHandler('esx:playerLoaded', function(id)
-    SetTimeout(500, function() apply(id, false) end)
+    SetTimeout(500, function() apply(id) end)
 end)
 
 -- بدون فريمورك: حسب license لما يدخل السيرفر
 AddEventHandler('playerJoining', function()
     local src = source
-    if Framework.name() == 'none' then SetTimeout(3000, function() apply(src, false) end) end
+    if Framework.name() == 'none' then SetTimeout(3000, function() apply(src) end) end
 end)
 
 AddEventHandler('playerDropped', function()
@@ -168,7 +164,7 @@ AddEventHandler('onResourceStart', function(res)
         DB.load()
         -- اللاعبين المتصلين الحين يرجعون لعوالمهم
         Wait(1000)
-        for _, p in ipairs(GetPlayers()) do apply(tonumber(p), false) end
+        for _, p in ipairs(GetPlayers()) do apply(tonumber(p)) end
     end)
 end)
 
@@ -184,90 +180,37 @@ AddEventHandler('onResourceStop', function(res)
 end)
 
 -- ===================== أوامر الأدمن =====================
+-- /setworld [آيدي]    ينقله للعالم الثلجي (ويبقى فيه لين /unsetworld)
+-- /unsetworld [آيدي]  يرجعه للعالم العادي
+-- بدون أي رسائل
 
 local C = Config.Commands
 
-local function guard(src)
-    if Framework.isAdmin(src) then return true end
-    if src ~= 0 then Worlds.reply(src, 'هذا الأمر للأدمن بس') end
-    return false
+local function target(src, arg)
+    if not Framework.isAdmin(src) then return nil end
+    local id = tonumber(arg)
+    if not id or not GetPlayerName(id) then return nil end
+    return id
 end
 
-local function adminName(src)
-    if src == 0 then return 'console' end
-    return ('%s (%s)'):format(GetPlayerName(src), Framework.citizenId(src) or src)
-end
-
-local function worldKeys()
-    local keys = {}
-    for key in pairs(Config.Worlds) do keys[#keys + 1] = key end
-    table.sort(keys)
-    return table.concat(keys, ', ')
-end
-
--- /setworld [رقم الهوية]  (العالم اختياري، الافتراضي Config.DefaultWorld)
-RegisterCommand(C.add, function(src, args) CreateThread(function()
-    if not guard(src) then return end
-    local cid, key = args[1], args[2] or Config.DefaultWorld
-    if not cid then
-        return Worlds.reply(src, ('الاستخدام: /%s [رقم الهوية]'):format(C.add))
-    end
-    if not Config.Worlds[key] then
-        return Worlds.reply(src, 'العالم ' .. key .. ' مو موجود — العوالم: ' .. worldKeys())
-    end
-    local existing = DB.get(cid)
-    if existing and existing.world == key then
-        return Worlds.reply(src, ('%s [%s] أصلاً في %s'):format(existing.name or '', cid, Worlds.label(key)))
-    end
-
-    local online = Framework.sourceOf(cid)
-    local name = online and Framework.charName(online) or DB.lookupName(cid)
-    if name == nil then
-        return Worlds.reply(src, 'رقم الهوية ' .. cid .. ' مو موجود')
-    end
-
-    DB.set(cid, key, name, adminName(src))
-    if online then move(online, key, true) end
-    Worlds.reply(src, ('تم تسجيل %s [%s] في %s %s'):format(name, cid, Worlds.label(key), online and '(متصل، انتقل الحين)' or '(مطفي، بيدخله أول ما يدخل)'))
-end) end, false)
-
--- /unsetworld [رقم الهوية]
-RegisterCommand(C.remove, function(src, args) CreateThread(function()
-    if not guard(src) then return end
-    local cid = args[1]
-    if not cid then return Worlds.reply(src, ('الاستخدام: /%s [رقم الهوية]'):format(C.remove)) end
-    local entry = DB.get(cid)
-    if not entry then return Worlds.reply(src, 'رقم الهوية ' .. cid .. ' مو مسجل في أي عالم') end
-
-    DB.remove(cid)
-    local online = Framework.sourceOf(cid)
-    if online then move(online, 'main', true) end
-    Worlds.reply(src, ('تم إخراج %s [%s] من %s %s'):format(entry.name or '', cid, Worlds.label(entry.world), online and '(رجع للعادي الحين)' or ''))
-end) end, false)
-
--- /worldlist [عالم]
-RegisterCommand(C.list, function(src, args)
-    if not guard(src) then return end
-    local only = args[1]
-    local n = 0
-    for cid, e in pairs(DB.members) do
-        if not only or e.world == only then
-            n = n + 1
-            local online = Framework.sourceOf(cid)
-            Worlds.reply(src, ('%s [%s] — %s — %s — أضافه %s %s'):format(
-                e.name or '', cid, Worlds.label(e.world), online and ('🟢 متصل (' .. online .. ')') or '⚫ مطفي', e.added_by or '?', e.added_at or ''))
-        end
-    end
-    if n == 0 then Worlds.reply(src, 'ما فيه أحد مسجل') end
+RegisterCommand(C.add, function(src, args)
+    local id = target(src, args[1])
+    if not id then return end
+    CreateThread(function()
+        local cid = Framework.citizenId(id)
+        if cid then DB.set(cid, Config.DefaultWorld, Framework.charName(id), src == 0 and 'console' or GetPlayerName(src)) end
+        move(id, Config.DefaultWorld)
+    end)
 end, false)
 
--- /checkworld [رقم الهوية]
-RegisterCommand(C.check, function(src, args)
-    if not guard(src) then return end
-    local cid = args[1]
-    if not cid then return Worlds.reply(src, ('الاستخدام: /%s [رقم الهوية]'):format(C.check)) end
-    local e = DB.get(cid)
-    Worlds.reply(src, e and ('%s [%s] مسجل في %s'):format(e.name or '', cid, Worlds.label(e.world)) or (cid .. ' في العالم العادي'))
+RegisterCommand(C.remove, function(src, args)
+    local id = target(src, args[1])
+    if not id then return end
+    CreateThread(function()
+        local cid = Framework.citizenId(id)
+        if cid and DB.get(cid) then DB.remove(cid) end
+        move(id, 'main')
+    end)
 end, false)
 
 -- ===================== exports للسكربتات الثانية =====================
