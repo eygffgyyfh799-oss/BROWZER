@@ -12,110 +12,438 @@
             font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
         }
 
-        /* الأشرطة السوداء حق الأفلام */
-        .bar {
-            position: fixed;
-            left: 0;
-            right: 0;
-            height: 0;
-            background: #000;
-            transition: height 1.5s ease;
-            z-index: 3;
-        }
+        .layer { position: fixed; inset: 0; pointer-events: none; }
+        canvas.layer { width: 100%; height: 100%; }
+
+        /* ترتيب الطبقات */
+        #tint    { z-index: 1; opacity: 0; }
+        #ash     { z-index: 2; opacity: 0; transition: opacity 3s; }
+        #alarm   { z-index: 3; opacity: 0; box-shadow: inset 0 0 18vw rgba(255, 0, 0, 0.8); }
+        #grain   { z-index: 4; opacity: 0; transition: opacity 2s; mix-blend-mode: overlay; }
+        #vignette{ z-index: 4; opacity: 0; transition: opacity 2s; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.75) 100%); }
+        #flash   { z-index: 6; opacity: 0; }
+        #static  { z-index: 7; opacity: 0; }
+        .bar     { z-index: 8; }
+        #caption, #stamp, #eas, #nosignal { z-index: 9; }
+
+        body.film #grain { opacity: 0.35; }
+        body.film #vignette { opacity: 1; }
+        body.ash #ash { opacity: 1; }
+        body.alarm #alarm { animation: pulse 0.9s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+
+        /* أشرطة الفلم */
+        .bar { position: fixed; left: 0; right: 0; height: 0; background: #000; transition: height 1.8s ease; }
         .bar.top { top: 0; }
         .bar.bottom { bottom: 0; }
         body.letterbox .bar { height: 12vh; }
 
-        /* النص تحت مثل ترجمة الأفلام */
+        /* الترجمة */
         #caption {
-            position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 14vh;
-            text-align: center;
-            color: #fff;
-            font-size: 2.4vw;
-            font-weight: 600;
-            letter-spacing: 1px;
-            text-shadow: 0 0 12px #000, 0 0 4px #000;
-            opacity: 0;
-            transition: opacity 1.2s ease;
-            z-index: 4;
+            position: fixed; left: 0; right: 0; bottom: 14.5vh;
+            text-align: center; color: #f2f2f2;
+            font-size: 2.2vw; font-weight: 500;
+            text-shadow: 0 0 14px #000, 0 0 4px #000;
+            opacity: 0; transition: opacity 1.4s ease;
         }
         #caption.show { opacity: 1; }
-        #caption.alarm { color: #ff3b30; font-size: 2.8vw; }
+        #caption.alarm { color: #ff3b30; font-weight: 700; font-size: 2.6vw; }
+        #caption.big { font-size: 3.4vw; font-weight: 300; }
 
-        /* الوميض الأبيض حق الانفجار */
-        #flash {
-            position: fixed;
-            inset: 0;
-            background: #fff8ec;
-            opacity: 0;
-            z-index: 2;
+        /* ختم المكان والوقت فوق */
+        #stamp {
+            position: fixed; top: 14vh; right: 4vw;
+            color: #ddd; font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 1.3vw;
+            text-shadow: 0 0 6px #000; opacity: 0; transition: opacity 1s;
         }
+        #stamp.show { opacity: 1; }
 
-        /* الإنذار الأحمر */
-        #alarm {
-            position: fixed;
-            inset: 0;
-            box-shadow: inset 0 0 18vw rgba(255, 0, 0, 0.75);
-            opacity: 0;
-            z-index: 1;
+        /* بث الطوارئ */
+        #eas {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0.96);
+            width: 56vw; background: rgba(0, 0, 0, 0.88);
+            border: 3px solid #d10000; color: #fff;
+            opacity: 0; transition: opacity 0.4s, transform 0.4s;
         }
-        body.alarm #alarm { animation: pulse 0.9s ease-in-out infinite; }
-        @keyframes pulse {
-            0%, 100% { opacity: 0; }
-            50% { opacity: 1; }
+        #eas.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        #eas .head {
+            background: #d10000; padding: 1vw 1.5vw;
+            font-size: 1.9vw; font-weight: 800; letter-spacing: 2px;
+            animation: blink 1s steps(2) infinite;
+        }
+        #eas .body { padding: 1.6vw; font-size: 1.5vw; line-height: 1.8; min-height: 8vw; white-space: pre-line; }
+        #eas .ticker { border-top: 1px solid #600; padding: 0.6vw 1.5vw; font-size: 1vw; color: #ff8a80; overflow: hidden; white-space: nowrap; }
+        #eas .ticker span { display: inline-block; animation: tick 12s linear infinite; }
+        @keyframes blink { 50% { background: #7a0000; } }
+        @keyframes tick { from { transform: translateX(-100%); } to { transform: translateX(100vw); } }
+
+        #nosignal {
+            position: fixed; top: 50%; left: 0; right: 0; transform: translateY(-50%);
+            text-align: center; color: #fff; font-family: 'Consolas', monospace;
+            font-size: 2.4vw; text-shadow: 0 0 10px #000;
+            opacity: 0;
         }
     </style>
 </head>
 <body>
+    <div id="tint" class="layer"></div>
+    <canvas id="ash" class="layer"></canvas>
+    <div id="alarm" class="layer"></div>
+    <canvas id="grain" class="layer"></canvas>
+    <div id="vignette" class="layer"></div>
+    <div id="flash" class="layer"></div>
+    <canvas id="static" class="layer"></canvas>
     <div class="bar top"></div>
     <div class="bar bottom"></div>
-    <div id="alarm"></div>
-    <div id="flash"></div>
+    <div id="stamp"></div>
     <div id="caption"></div>
+    <div id="nosignal">لا توجد إشارة</div>
+    <div id="eas">
+        <div class="head"></div>
+        <div class="body"></div>
+        <div class="ticker"><span></span></div>
+    </div>
 
     <script>
-        const caption = document.getElementById('caption');
-        const flash = document.getElementById('flash');
+        const $ = (id) => document.getElementById(id);
+        const body = document.body;
+
+        // ===================== مؤثرات الشاشة =====================
+
+        // تلاشي عنصر لقيمة معينة خلال مدة
+        function fadeTo(el, opacity, ms) {
+            el.style.transition = `opacity ${ms}ms ease-out`;
+            el.style.opacity = opacity;
+        }
+
+        // وميض: يطلع فوراً، يثبت، بعدين يختفي
+        function flash(color, strength, hold, fade) {
+            const f = $('flash');
+            f.style.background = color || '#fff8ec';
+            f.style.transition = 'none';
+            f.style.opacity = strength ?? 1;
+            setTimeout(() => fadeTo(f, 0, fade || 2000), hold || 0);
+        }
+
+        // لون فوق الشاشة (مثل وهج الانفجار البرتقالي)
+        function tint(color, opacity, ms) {
+            const t = $('tint');
+            t.style.background = color;
+            fadeTo(t, opacity, ms || 1000);
+        }
+
+        // حبيبات الفلم
+        const grain = $('grain');
+        const gctx = grain.getContext('2d');
+        grain.width = 320; grain.height = 180;
+        const gimg = gctx.createImageData(320, 180);
+
+        // تشويش التلفزيون
+        const stat = $('static');
+        const sctx = stat.getContext('2d');
+        stat.width = 320; stat.height = 180;
+        const simg = sctx.createImageData(320, 180);
+        let staticUntil = 0;
+
+        function noise(img, ctx, alpha, lines) {
+            const d = img.data;
+            for (let i = 0; i < d.length; i += 4) {
+                const v = Math.random() * 255;
+                d[i] = d[i + 1] = d[i + 2] = v;
+                d[i + 3] = alpha;
+            }
+            ctx.putImageData(img, 0, 0);
+            if (lines) {
+                ctx.fillStyle = 'rgba(0,0,0,0.35)';
+                for (let y = 0; y < 180; y += 3) ctx.fillRect(0, y, 320, 1);
+                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.fillRect(0, Math.random() * 180, 320, 2 + Math.random() * 6);
+            }
+        }
+
+        // رماد وجمر يطيح
+        const ash = $('ash');
+        const actx = ash.getContext('2d');
+        let flakes = [];
+        function resizeAsh() { ash.width = innerWidth; ash.height = innerHeight; }
+        resizeAsh();
+        addEventListener('resize', resizeAsh);
+        function makeFlake(top) {
+            const ember = Math.random() < 0.18;
+            return {
+                x: Math.random() * ash.width,
+                y: top ? -10 : Math.random() * ash.height,
+                r: ember ? 1 + Math.random() * 2 : 1.5 + Math.random() * 3.5,
+                vx: 0.4 + Math.random() * 1.6,
+                vy: 0.5 + Math.random() * 1.4,
+                ph: Math.random() * 6.28,
+                ember,
+            };
+        }
+        for (let i = 0; i < 220; i++) flakes.push(makeFlake(false));
+
+        function frame(t) {
+            if (body.classList.contains('film')) noise(gimg, gctx, 60, false);
+
+            if (performance.now() < staticUntil) {
+                noise(simg, sctx, 255, true);
+            }
+
+            if (body.classList.contains('ash')) {
+                actx.clearRect(0, 0, ash.width, ash.height);
+                for (const f of flakes) {
+                    f.x += f.vx + Math.sin(t / 900 + f.ph) * 0.6;
+                    f.y += f.vy;
+                    if (f.y > ash.height + 10 || f.x > ash.width + 10) Object.assign(f, makeFlake(true), { x: Math.random() * ash.width - 100 });
+                    if (f.ember) {
+                        const a = 0.6 + 0.4 * Math.sin(t / 150 + f.ph);
+                        actx.fillStyle = `rgba(255,${120 + Math.round(60 * a)},40,${a})`;
+                        actx.shadowColor = '#ff6a00';
+                        actx.shadowBlur = 8;
+                    } else {
+                        actx.fillStyle = 'rgba(170,165,160,0.75)';
+                        actx.shadowBlur = 0;
+                    }
+                    actx.beginPath();
+                    actx.arc(f.x, f.y, f.r, 0, 6.28);
+                    actx.fill();
+                }
+            }
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+
+        function showStatic(ms) {
+            staticUntil = performance.now() + ms;
+            const s = $('static'), n = $('nosignal');
+            s.style.transition = 'none'; s.style.opacity = 1;
+            n.style.transition = 'none'; n.style.opacity = 1;
+            setTimeout(() => { fadeTo(s, 0, 400); fadeTo(n, 0, 400); }, ms);
+        }
+
+        // كتابة حرف حرف
+        function typeText(el, text, speed) {
+            el.textContent = '';
+            let i = 0;
+            const id = setInterval(() => {
+                el.textContent = text.slice(0, ++i);
+                if (i >= text.length) clearInterval(id);
+            }, speed || 35);
+        }
+
         let captionTimer = null;
+        function caption(text, duration, style) {
+            const c = $('caption');
+            clearTimeout(captionTimer);
+            c.className = style || '';
+            c.textContent = text || '';
+            if (text) requestAnimationFrame(() => c.classList.add('show'));
+            if (duration) captionTimer = setTimeout(() => c.classList.remove('show'), duration);
+        }
+
+        // ===================== الأصوات (مصنوعة بالكود بدون ملفات) =====================
+
+        let ac = null, master = null;
+        const sounds = {};
+        let volume = 0.8;
+
+        function audio() {
+            if (!ac) {
+                ac = new (window.AudioContext || window.webkitAudioContext)();
+                master = ac.createGain();
+                master.gain.value = volume;
+                master.connect(ac.destination);
+            }
+            if (ac.state === 'suspended') ac.resume();
+            return ac;
+        }
+
+        function noiseBuffer(seconds, brown) {
+            const len = ac.sampleRate * seconds;
+            const buf = ac.createBuffer(1, len, ac.sampleRate);
+            const d = buf.getChannelData(0);
+            let last = 0;
+            for (let i = 0; i < len; i++) {
+                const w = Math.random() * 2 - 1;
+                if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+            }
+            return buf;
+        }
+
+        function stopSound(name, fade) {
+            const s = sounds[name];
+            if (!s) return;
+            const now = ac.currentTime;
+            s.gain.gain.cancelScheduledValues(now);
+            s.gain.gain.setValueAtTime(s.gain.gain.value, now);
+            s.gain.gain.linearRampToValueAtTime(0, now + (fade || 1));
+            setTimeout(() => s.nodes.forEach(n => { try { n.stop(); } catch (e) {} }), (fade || 1) * 1000 + 100);
+            clearInterval(s.timer);
+            delete sounds[name];
+        }
+
+        // صفارة إنذار الغارات: تطلع وتنزل ببطء
+        function siren() {
+            const g = ac.createGain(); g.gain.value = 0; g.connect(master);
+            g.gain.linearRampToValueAtTime(0.22, ac.currentTime + 2);
+            const lfo = ac.createOscillator(); lfo.frequency.value = 0.16;
+            const depth = ac.createGain(); depth.gain.value = 260;
+            lfo.connect(depth);
+            const nodes = [lfo];
+            for (const detune of [0, 7]) {
+                const o = ac.createOscillator();
+                o.type = 'sawtooth'; o.frequency.value = 620; o.detune.value = detune;
+                depth.connect(o.frequency);
+                const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
+                o.connect(lp); lp.connect(g); o.start(); nodes.push(o);
+            }
+            lfo.start();
+            return { gain: g, nodes };
+        }
+
+        // الانفجار: ضربة عميقة طويلة
+        function boom(power) {
+            const p = power || 1;
+            const g = ac.createGain(); g.connect(master);
+            const now = ac.currentTime;
+            g.gain.setValueAtTime(0, now);
+            g.gain.linearRampToValueAtTime(1.0 * p, now + 0.03);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 9);
+
+            const n = ac.createBufferSource(); n.buffer = noiseBuffer(9, false);
+            const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+            lp.frequency.setValueAtTime(2500, now);
+            lp.frequency.exponentialRampToValueAtTime(50, now + 6);
+            n.connect(lp); lp.connect(g); n.start();
+
+            const sub = ac.createOscillator(); sub.type = 'sine';
+            sub.frequency.setValueAtTime(70, now);
+            sub.frequency.exponentialRampToValueAtTime(22, now + 5);
+            const sg = ac.createGain(); sg.gain.value = 0.9 * p;
+            sub.connect(sg); sg.connect(g); sub.start(); sub.stop(now + 9);
+        }
+
+        // هدير مستمر بعد الانفجار
+        function rumble() {
+            const g = ac.createGain(); g.gain.value = 0; g.connect(master);
+            g.gain.linearRampToValueAtTime(0.55, ac.currentTime + 3);
+            const n = ac.createBufferSource(); n.buffer = noiseBuffer(6, true); n.loop = true;
+            const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140;
+            n.connect(lp); lp.connect(g); n.start();
+            return { gain: g, nodes: [n] };
+        }
+
+        // ريح
+        function wind() {
+            const g = ac.createGain(); g.gain.value = 0; g.connect(master);
+            g.gain.linearRampToValueAtTime(0.18, ac.currentTime + 4);
+            const n = ac.createBufferSource(); n.buffer = noiseBuffer(6, false); n.loop = true;
+            const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.8;
+            const lfo = ac.createOscillator(); lfo.frequency.value = 0.12;
+            const ld = ac.createGain(); ld.gain.value = 300;
+            lfo.connect(ld); ld.connect(bp.frequency);
+            n.connect(bp); bp.connect(g); n.start(); lfo.start();
+            return { gain: g, nodes: [n, lfo] };
+        }
+
+        // طنين الأذن بعد الانفجار
+        function tinnitus(seconds) {
+            const g = ac.createGain(); g.connect(master);
+            const now = ac.currentTime;
+            g.gain.setValueAtTime(0, now);
+            g.gain.linearRampToValueAtTime(0.09, now + 0.05);
+            g.gain.linearRampToValueAtTime(0.0, now + (seconds || 8));
+            const o = ac.createOscillator(); o.frequency.value = 4100;
+            o.connect(g); o.start(); o.stop(now + (seconds || 8) + 0.1);
+        }
+
+        // دقات القلب
+        function heartbeat(bpm) {
+            const g = ac.createGain(); g.gain.value = 1; g.connect(master);
+            const beat = (when, vol) => {
+                const o = ac.createOscillator(); o.frequency.value = 52;
+                const e = ac.createGain();
+                e.gain.setValueAtTime(0, when);
+                e.gain.linearRampToValueAtTime(vol, when + 0.02);
+                e.gain.exponentialRampToValueAtTime(0.001, when + 0.25);
+                o.connect(e); e.connect(g); o.start(when); o.stop(when + 0.3);
+            };
+            const s = { gain: g, nodes: [], bpm: bpm || 70 };
+            const tick = () => {
+                const now = ac.currentTime;
+                beat(now, 0.9); beat(now + 0.28, 0.6);
+                s.timer = setTimeout(tick, 60000 / s.bpm);
+            };
+            tick();
+            s.stopTimer = () => clearTimeout(s.timer);
+            return s;
+        }
+
+        function sound(d) {
+            audio();
+            if (d.volume != null) { volume = d.volume; master.gain.value = volume; }
+            const name = d.name;
+            if (d.on === false) {
+                if (name === 'heartbeat' && sounds.heartbeat) sounds.heartbeat.stopTimer();
+                return stopSound(name, d.fade);
+            }
+            if (name === 'boom') return boom(d.power);
+            if (name === 'tinnitus') return tinnitus(d.seconds);
+            if (name === 'heartbeat' && sounds.heartbeat) { sounds.heartbeat.bpm = d.bpm || 70; return; }
+            if (sounds[name]) return;
+            if (name === 'siren') sounds.siren = siren();
+            if (name === 'rumble') sounds.rumble = rumble();
+            if (name === 'wind') sounds.wind = wind();
+            if (name === 'heartbeat') sounds.heartbeat = heartbeat(d.bpm);
+        }
+
+        function stopAll() {
+            if (!ac) return;
+            if (sounds.heartbeat) sounds.heartbeat.stopTimer();
+            Object.keys(sounds).forEach(n => stopSound(n, 0.5));
+        }
+
+        // ===================== الرسائل من اللعبة =====================
 
         window.addEventListener('message', (e) => {
             const d = e.data || {};
-
-            if (d.type === 'letterbox') {
-                document.body.classList.toggle('letterbox', !!d.on);
-            }
-
-            if (d.type === 'alarm') {
-                document.body.classList.toggle('alarm', !!d.on);
-            }
-
-            if (d.type === 'caption') {
-                clearTimeout(captionTimer);
-                caption.textContent = d.text || '';
-                caption.classList.toggle('alarm', !!d.alarm);
-                caption.classList.toggle('show', !!d.text);
-                if (d.duration) {
-                    captionTimer = setTimeout(() => caption.classList.remove('show'), d.duration);
+            switch (d.type) {
+                case 'film': body.classList.toggle('film', !!d.on); break;
+                case 'letterbox': body.classList.toggle('letterbox', !!d.on); break;
+                case 'alarm': body.classList.toggle('alarm', !!d.on); break;
+                case 'ash': body.classList.toggle('ash', !!d.on); break;
+                case 'caption': caption(d.text, d.duration, d.style); break;
+                case 'flash': flash(d.color, d.strength, d.hold, d.fade); break;
+                case 'tint': tint(d.color, d.opacity, d.ms); break;
+                case 'static': showStatic(d.duration || 1500); break;
+                case 'stamp': {
+                    const s = $('stamp');
+                    if (d.text) { s.classList.add('show'); typeText(s, d.text, 60); }
+                    else s.classList.remove('show');
+                    break;
                 }
-            }
-
-            // وميض: يطلع أبيض فوراً، يثبت شوي، بعدين يختفي بهدوء
-            if (d.type === 'flash') {
-                flash.style.transition = 'none';
-                flash.style.opacity = d.strength ?? 1;
-                setTimeout(() => {
-                    flash.style.transition = `opacity ${d.fade || 2000}ms ease-out`;
-                    flash.style.opacity = 0;
-                }, d.hold || 0);
-            }
-
-            if (d.type === 'clear') {
-                document.body.className = '';
-                caption.classList.remove('show');
-                flash.style.opacity = 0;
+                case 'eas': {
+                    const box = $('eas');
+                    if (d.on) {
+                        box.querySelector('.head').textContent = d.title || '';
+                        box.querySelector('.ticker span').textContent = d.ticker || '';
+                        box.classList.add('show');
+                        typeText(box.querySelector('.body'), d.text || '', 40);
+                    } else box.classList.remove('show');
+                    break;
+                }
+                case 'sound': sound(d); break;
+                case 'clear':
+                    body.className = '';
+                    caption('', 0);
+                    $('stamp').classList.remove('show');
+                    $('eas').classList.remove('show');
+                    fadeTo($('flash'), 0, 300);
+                    fadeTo($('tint'), 0, 300);
+                    stopAll();
+                    break;
             }
         });
     </script>
