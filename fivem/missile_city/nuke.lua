@@ -217,6 +217,7 @@ local function cleanup()
     ui({ type = 'clear' })
     restorePlayer()
     MC.setDreaming(false)
+    if GetResourceState('always_snow') == 'started' then exports.always_snow:Pause(false) end
 end
 
 local function playAnim(ped, dict, name, flag)
@@ -228,9 +229,14 @@ end
 
 -- ===================== الفلم =====================
 
+local function pauseSnow(on)
+    if GetResourceState('always_snow') == 'started' then exports.always_snow:Pause(on) end
+end
+
 local function runNuke(t)
     running = true
     MC.setDreaming(true)
+    pauseSnow(true)
 
     DoScreenFadeOut(2000)
     if not wait(2100) then return end
